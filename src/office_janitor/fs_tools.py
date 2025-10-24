@@ -6,21 +6,100 @@ specification requirements.
 """
 from __future__ import annotations
 
+import os
+import shutil
+import stat
+import subprocess
 from pathlib import Path
 from typing import Iterable
+
+from . import logging_ext
+
+
+def _handle_readonly(function, path: str, exc_info) -> None:  # pragma: no cover - defensive callback
+    """!
+    @brief Clear read-only attributes before retrying removal.
+    """
+
+    if isinstance(exc_info[1], PermissionError):
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+    else:
+        raise exc_info[1]
 
 
 def remove_paths(paths: Iterable[Path], *, dry_run: bool = False) -> None:
     """!
     @brief Delete the supplied paths recursively while respecting dry-run behavior.
     """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
 
-    raise NotImplementedError
+    for raw in paths:
+        target = Path(raw)
+        machine_logger.info(
+            "filesystem_remove_plan",
+            extra={
+                "event": "filesystem_remove_plan",
+                "path": str(target),
+                "dry_run": bool(dry_run),
+            },
+        )
+
+        if dry_run:
+            human_logger.info("Dry-run: would remove %s", target)
+            continue
+
+        try:
+            reset_acl(target)
+        except Exception as exc:  # pragma: no cover - logged for diagnostics
+            human_logger.warning("Unable to reset ACLs for %s: %s", target, exc)
+
+        if not target.exists():
+            human_logger.debug("Skipping %s because it does not exist", target)
+            continue
+
+        human_logger.info("Removing %s", target)
+        if target.is_dir():
+            shutil.rmtree(target, onerror=_handle_readonly)
+        else:
+            try:
+                target.unlink()
+            except PermissionError:
+                os.chmod(target, stat.S_IWRITE)
+                target.unlink()
 
 
 def reset_acl(path: Path) -> None:
     """!
     @brief Reset permissions on ``path`` so cleanup operations can proceed.
     """
+    human_logger = logging_ext.get_human_logger()
 
-    raise NotImplementedError
+    command = [
+        "icacls",
+        str(path),
+        "/reset",
+        "/t",
+        "/c",
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except FileNotFoundError:  # pragma: no cover - occurs on non-Windows hosts.
+        human_logger.debug("icacls is not available; skipping ACL reset for %s", path)
+        return
+
+    if result.returncode != 0:
+        human_logger.warning(
+            "icacls reported exit code %s for %s: %s",
+            result.returncode,
+            path,
+            result.stderr.strip(),
+        )
