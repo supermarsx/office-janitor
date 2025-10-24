@@ -176,15 +176,15 @@ def _resolve_mode(options: Mapping[str, object]) -> str:
     explicit = options.get("mode")
     if isinstance(explicit, str) and explicit:
         return explicit
+    if options.get("diagnose"):
+        return "diagnose"
+    if options.get("cleanup_only"):
+        return "cleanup-only"
     if options.get("auto_all"):
         return "auto-all"
     target = options.get("target")
     if target:
         return f"target:{target}"
-    if options.get("diagnose"):
-        return "diagnose"
-    if options.get("cleanup_only"):
-        return "cleanup-only"
     return "interactive"
 
 
@@ -241,7 +241,7 @@ def _filter_records_by_target(records: Sequence[dict], targets: Sequence[str]) -
     filtered: List[dict] = []
     for record in records:
         version = _infer_version(record)
-        if not version or version in target_set:
+        if version and version in target_set:
             filtered.append(record)
     return filtered
 

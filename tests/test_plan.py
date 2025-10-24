@@ -118,6 +118,35 @@ class TestPlanBuilder:
         assert context["metadata"]["target_versions"] == ["2016"]
         assert context["metadata"]["unsupported_targets"] == []
 
+    def test_target_mode_skips_unknown_versions(self) -> None:
+        """!
+        @brief Unknown entries are skipped during targeted uninstalls.
+        @details When an installation lacks version metadata it must not be
+        scheduled for removal during targeted runs.
+        """
+
+        inventory: Dict[str, List[dict]] = {
+            "msi": [
+                {
+                    "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
+                    "display_name": "Microsoft Office Professional Plus 2016",
+                    "version": "2016",
+                },
+                {
+                    "product_code": "{91190000-0011-0000-0000-0000000FF1CE}",
+                    "display_name": "Microsoft Office Professional Plus 2019",
+                    "version": "",
+                },
+            ],
+        }
+        options = {"target": "2016"}
+
+        plan_steps = plan.build_plan(inventory, options)
+
+        msi_steps = [step for step in plan_steps if step["category"] == "msi-uninstall"]
+        assert len(msi_steps) == 1
+        assert msi_steps[0]["metadata"]["version"] == "2016"
+
     def test_cleanup_only_skips_uninstall(self) -> None:
         """!
         @brief Confirm cleanup-only omits uninstall actions.
@@ -140,7 +169,7 @@ class TestPlanBuilder:
                 {"path": r"HKLM\\SOFTWARE\\Microsoft\\Office\\16.0"},
             ],
         }
-        options = {"cleanup_only": True, "dry_run": True}
+        options = {"cleanup_only": True, "dry_run": True, "auto_all": True}
 
         plan_steps = plan.build_plan(inventory, options)
 
@@ -153,6 +182,9 @@ class TestPlanBuilder:
             "filesystem-cleanup",
             "registry-cleanup",
         }
+
+        context = plan_steps[0]
+        assert context["metadata"]["mode"] == "cleanup-only"
 
         licensing = next(step for step in plan_steps if step["category"] == "licensing-cleanup")
         assert licensing["depends_on"] == ["context"]
@@ -174,7 +206,7 @@ class TestPlanBuilder:
                 }
             ],
         }
-        options = {"diagnose": True}
+        options = {"diagnose": True, "target": "2016", "auto_all": True}
 
         plan_steps = plan.build_plan(inventory, options)
 
