@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import json
 import logging
 import os
 import pathlib
 import sys
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
-from . import logging_ext, version
+from . import detect, logging_ext, plan as plan_module, safety, scrub, ui, tui, version
 
 
 def enable_vt_mode_if_possible() -> None:
@@ -147,9 +148,38 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     human_log, machine_log = _bootstrap_logging(args)
+    if getattr(args, "quiet", False):
+        human_log.setLevel(logging.ERROR)
 
-    human_log.info("Office Janitor bootstrap complete; core logic not yet implemented.")
-    machine_log.info("startup", extra={"event": "startup", "data": {"mode": _determine_mode(args)}})
+    mode = _determine_mode(args)
+    machine_log.info(
+        "startup",
+        extra={"event": "startup", "data": {"mode": mode, "dry_run": bool(getattr(args, "dry_run", False))}},
+    )
+
+    app_state = _build_app_state(args, human_log, machine_log)
+    if mode == "interactive":
+        if getattr(args, "tui", False):
+            tui.run_tui(app_state)
+        else:
+            tui_candidate = _should_use_tui(args)
+            if tui_candidate:
+                tui.run_tui(app_state)
+            else:
+                ui.run_cli(app_state)
+        return 0
+
+    inventory = _run_detection(machine_log)
+    options = _collect_plan_options(args, mode)
+    generated_plan = plan_module.build_plan(inventory, options)
+    safety.perform_preflight_checks(generated_plan)
+    _handle_plan_artifacts(args, generated_plan, inventory, human_log)
+
+    if mode == "diagnose":
+        human_log.info("Diagnostics complete; plan written and no actions executed.")
+        return 0
+
+    scrub.execute_plan(generated_plan, dry_run=bool(getattr(args, "dry_run", False)))
     return 0
 
 
@@ -167,6 +197,134 @@ def _determine_mode(args: argparse.Namespace) -> str:
     if getattr(args, "cleanup_only", False):
         return "cleanup-only"
     return "interactive"
+
+
+def _should_use_tui(args: argparse.Namespace) -> bool:
+    """!
+    @brief Determine whether the TUI should be launched automatically.
+    @details The logic prefers the richer interface when the output stream
+    supports ANSI escape codes and the caller did not explicitly disable color.
+    """
+
+    if getattr(args, "no_color", False):
+        return False
+    if getattr(sys.stdout, "isatty", None) and sys.stdout.isatty():
+        return bool(os.environ.get("WT_SESSION") or os.environ.get("TERM", "").lower() != "dumb")
+    return False
+
+
+def _build_app_state(
+    args: argparse.Namespace, human_log: logging.Logger, machine_log: logging.Logger
+) -> Mapping[str, object]:
+    """!
+    @brief Assemble the dependency dictionary consumed by CLI/TUI front-ends.
+    @details The mapping exposes callables for detection, planning, and
+    execution so interactive interfaces can drive the same back-end flows as
+    the non-interactive CLI code path.
+    """
+
+    def detector() -> dict:
+        return _run_detection(machine_log)
+
+    def planner(inventory: Mapping[str, object], overrides: Optional[Mapping[str, object]] = None) -> list[dict]:
+        mode = _determine_mode(args)
+        merged = dict(_collect_plan_options(args, mode))
+        if overrides:
+            merged.update({key: overrides[key] for key in overrides})
+        generated_plan = plan_module.build_plan(dict(inventory), merged)
+        safety.perform_preflight_checks(generated_plan)
+        return generated_plan
+
+    def executor(plan_data: list[dict], overrides: Optional[Mapping[str, object]] = None) -> None:
+        dry_run = bool(getattr(args, "dry_run", False))
+        if overrides and "dry_run" in overrides:
+            dry_run = bool(overrides["dry_run"])
+        if overrides and overrides.get("mode") == "diagnose":
+            inventory_override = overrides.get("inventory") if overrides else None
+            _handle_plan_artifacts(args, plan_data, inventory_override, human_log)
+            human_log.info("Diagnostics complete; plan written and no actions executed.")
+            return
+        scrub.execute_plan(plan_data, dry_run=dry_run)
+
+    return {
+        "args": args,
+        "human_logger": human_log,
+        "machine_logger": machine_log,
+        "detector": detector,
+        "planner": planner,
+        "executor": executor,
+    }
+
+
+def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
+    """!
+    @brief Translate parsed CLI arguments into planning options.
+    """
+
+    options = {
+        "mode": mode,
+        "dry_run": bool(getattr(args, "dry_run", False)),
+        "force": bool(getattr(args, "force", False)),
+        "include": getattr(args, "include", None),
+        "target": getattr(args, "target", None),
+        "diagnose": bool(getattr(args, "diagnose", False)),
+        "cleanup_only": bool(getattr(args, "cleanup_only", False)),
+        "auto_all": bool(getattr(args, "auto_all", False)),
+        "no_license": bool(getattr(args, "no_license", False)),
+        "keep_templates": bool(getattr(args, "keep_templates", False)),
+        "timeout": getattr(args, "timeout", None),
+        "backup": getattr(args, "backup", None),
+        "create_restore_point": not bool(getattr(args, "no_restore_point", False)),
+    }
+    return options
+
+
+def _run_detection(machine_log: logging.Logger) -> dict:
+    """!
+    @brief Execute inventory gathering and emit telemetry.
+    """
+
+    inventory = detect.gather_office_inventory()
+    machine_log.info(
+        "inventory",
+        extra={
+            "event": "inventory",
+            "counts": {key: len(value) if hasattr(value, "__len__") else len(list(value)) for key, value in inventory.items()},
+        },
+    )
+    return inventory
+
+
+def _handle_plan_artifacts(
+    args: argparse.Namespace,
+    plan_data: Iterable[Mapping[str, object]],
+    inventory: Optional[Mapping[str, object]],
+    human_log: logging.Logger,
+) -> None:
+    """!
+    @brief Persist plan diagnostics and backups as requested via CLI flags.
+    """
+
+    plan_steps = list(plan_data)
+    if getattr(args, "plan", None):
+        plan_path = pathlib.Path(args.plan).expanduser().resolve()
+        plan_path.write_text(json.dumps(plan_steps, indent=2, sort_keys=True), encoding="utf-8")
+        human_log.info("Wrote plan to %s", plan_path)
+
+    backup_dir = getattr(args, "backup", None)
+    if backup_dir:
+        destination = pathlib.Path(backup_dir).expanduser().resolve()
+        destination.mkdir(parents=True, exist_ok=True)
+        if inventory is not None:
+            (destination / "inventory.json").write_text(
+                json.dumps(inventory, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        (destination / "plan.json").write_text(
+            json.dumps(plan_steps, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        human_log.info("Wrote backup artifacts to %s", destination)
 
 
 if __name__ == "__main__":  # pragma: no cover - for manual execution
