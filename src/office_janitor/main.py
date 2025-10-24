@@ -122,17 +122,19 @@ def _resolve_log_directory(candidate: Optional[str]) -> pathlib.Path:
 
 def _bootstrap_logging(args: argparse.Namespace) -> tuple[logging.Logger, logging.Logger]:
     """!
-    @brief Initialize human and machine loggers, falling back if unimplemented.
+    @brief Initialize human and machine loggers using :mod:`logging_ext` helpers.
     """
 
     logdir = _resolve_log_directory(getattr(args, "logdir", None))
-    try:
-        return logging_ext.setup_logging(logdir, json_to_stdout=getattr(args, "json", False))
-    except NotImplementedError:
-        logging.basicConfig(level=logging.INFO)
-        human = logging.getLogger("human")
-        machine = logging.getLogger("machine")
-        return human, machine
+    logdir.mkdir(parents=True, exist_ok=True)
+    setattr(args, "logdir", str(logdir))
+    human_logger, machine_logger = logging_ext.setup_logging(
+        logdir,
+        json_to_stdout=getattr(args, "json", False),
+    )
+    setattr(args, "human_logger", human_logger)
+    setattr(args, "machine_logger", machine_logger)
+    return human_logger, machine_logger
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
