@@ -9,6 +9,7 @@ These instructions apply to the entire repository unless a nested `agents.md` ov
 
 ## Coding guidelines
 - Target Python 3.9+ and rely on the standard library only.
+- Write docstrings using Doxygen conventions (``"""!`` blocks with ``@brief`` and optional ``@details``) for modules, classes, and public functions.
 - Preserve cross-version uninstall support for MSI and Click-to-Run Office releases. Add constants/data-driven mappings instead of hard-coding logic when possible.
 - Guard destructive operations behind explicit flags as described in the spec (`--dry-run`, targeted scrubs, etc.).
 - Maintain structured logging (human + JSONL) consistent with `logging_ext` expectations.

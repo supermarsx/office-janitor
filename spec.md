@@ -20,6 +20,7 @@
 - **Language:** Python 3.9+ (works with 3.11+ too)
 - **Dependencies:** **None** beyond Python stdlib.
 - **Packaging:** PyInstaller **onefile**; include admin manifest.
+- **Documentation:** Use Doxygen-style docstrings (``"""!`` with ``@brief`` and related tags) throughout the codebase.
 
 ---
 
