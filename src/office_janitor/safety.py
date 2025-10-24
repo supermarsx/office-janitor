@@ -135,10 +135,46 @@ def _enforce_registry_whitelist(plan_steps: Sequence[Mapping[str, object]]) -> N
 
 
 def _path_allowed(path: str) -> bool:
-    normalized = path.replace("/", "\\").upper()
-    if any(normalized.startswith(blocked) for blocked in FILESYSTEM_BLACKLIST):
+    normalized = _normalize_windows_path(path)
+    if _path_whitelisted(normalized):
+        return True
+    if any(normalized.startswith(_normalize_windows_path(blocked)) for blocked in FILESYSTEM_BLACKLIST):
         return False
-    return any(normalized.startswith(allowed) for allowed in FILESYSTEM_WHITELIST)
+    return False
+
+
+def _normalize_windows_path(path: str) -> str:
+    normalized = path.replace("/", "\\").upper()
+    while "\\\\" in normalized:
+        normalized = normalized.replace("\\\\", "\\")
+    return normalized.rstrip("\\")
+
+
+def _path_whitelisted(normalized: str) -> bool:
+    for allowed in FILESYSTEM_WHITELIST:
+        candidate = _normalize_windows_path(allowed)
+        if "%" not in candidate and normalized.startswith(candidate):
+            return True
+        if normalized == candidate:
+            return True
+        if candidate.startswith("%APPDATA%\\"):
+            suffix = candidate[len("%APPDATA%") :]
+            if _match_environment_suffix(normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True):
+                return True
+        if candidate.startswith("%LOCALAPPDATA%\\"):
+            suffix = candidate[len("%LOCALAPPDATA%") :]
+            if _match_environment_suffix(normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True):
+                return True
+    return False
+
+
+def _match_environment_suffix(normalized: str, suffix: str, *, require_users: bool = False) -> bool:
+    if suffix and suffix in normalized:
+        index = normalized.index(suffix)
+        if require_users and "\\USERS\\" not in normalized[:index]:
+            return False
+        return True
+    return False
 
 
 def _registry_allowed(key: str) -> bool:

@@ -173,18 +173,26 @@ def _normalize_options(options: Mapping[str, object]) -> Dict[str, object]:
 
 
 def _resolve_mode(options: Mapping[str, object]) -> str:
-    explicit = options.get("mode")
-    if isinstance(explicit, str) and explicit:
-        return explicit
-    if options.get("diagnose"):
+    explicit_raw = options.get("mode")
+    explicit = str(explicit_raw).strip() if isinstance(explicit_raw, str) else ""
+    explicit_lower = explicit.lower()
+
+    if options.get("diagnose") or explicit_lower == "diagnose":
         return "diagnose"
-    if options.get("cleanup_only"):
+    if options.get("cleanup_only") or explicit_lower == "cleanup-only":
         return "cleanup-only"
-    if options.get("auto_all"):
+    if options.get("auto_all") or explicit_lower == "auto-all":
         return "auto-all"
+
     target = options.get("target")
     if target:
         return f"target:{target}"
+
+    if explicit_lower.startswith("target:") and len(explicit) > len("target:"):
+        return f"target:{explicit.split(":", 1)[1]}"
+    if explicit:
+        return explicit_lower or explicit
+
     return "interactive"
 
 

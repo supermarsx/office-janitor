@@ -156,6 +156,37 @@ class TestSafetyPreflight:
         with pytest.raises(ValueError):
             safety.perform_preflight_checks(plan_steps)
 
+    def test_preflight_allows_whitelisted_user_profile_path(self) -> None:
+        """!
+        @brief User profile Office paths remain allowed despite broad blacklist.
+        @details Regression coverage ensuring `%APPDATA%` expansions under
+        `C:\\Users` are accepted even though the user directory is generally
+        blocked.
+        """
+
+        plan_steps = [
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "dry_run": False,
+                    "mode": "cleanup-only",
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                },
+            },
+            {
+                "id": "filesystem-0",
+                "category": "filesystem-cleanup",
+                "metadata": {
+                    "paths": [r"C:\\Users\\Alice\\AppData\\Roaming\\Microsoft\\Office"],
+                    "dry_run": False,
+                },
+            },
+        ]
+
+        safety.perform_preflight_checks(plan_steps)
+
     def test_preflight_detects_dry_run_mismatch(self) -> None:
         """!
         @brief Dry-run flag must propagate consistently.

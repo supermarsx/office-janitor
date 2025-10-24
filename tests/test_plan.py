@@ -143,9 +143,45 @@ class TestPlanBuilder:
 
         plan_steps = plan.build_plan(inventory, options)
 
-        msi_steps = [step for step in plan_steps if step["category"] == "msi-uninstall"]
-        assert len(msi_steps) == 1
-        assert msi_steps[0]["metadata"]["version"] == "2016"
+        uninstall_versions = [
+            step["metadata"].get("version")
+            for step in plan_steps
+            if step["category"] == "msi-uninstall"
+        ]
+        assert uninstall_versions == ["2016"]
+
+    def test_explicit_mode_respects_safety_overrides(self) -> None:
+        """!
+        @brief Safety flags override conflicting explicit modes.
+        @details Even if callers pass `mode="auto-all"`, diagnostics or
+        cleanup-only selections must take precedence to prevent uninstalls.
+        """
+
+        inventory: Dict[str, List[dict]] = {
+            "msi": [
+                {
+                    "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
+                    "display_name": "Microsoft Office Professional Plus 2016",
+                    "version": "2016",
+                }
+            ]
+        }
+
+        diagnose_plan = plan.build_plan(inventory, {"mode": "auto-all", "diagnose": True})
+        assert [step["category"] for step in diagnose_plan] == ["context"]
+        assert diagnose_plan[0]["metadata"]["mode"] == "diagnose"
+
+        cleanup_plan = plan.build_plan(
+            inventory,
+            {
+                "mode": "target:2016",
+                "cleanup_only": True,
+                "target": "2016",
+            },
+        )
+        categories = {step["category"] for step in cleanup_plan}
+        assert "msi-uninstall" not in categories
+        assert cleanup_plan[0]["metadata"]["mode"] == "cleanup-only"
 
     def test_cleanup_only_skips_uninstall(self) -> None:
         """!
