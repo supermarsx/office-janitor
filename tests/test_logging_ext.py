@@ -53,12 +53,15 @@ def test_setup_logging_creates_files_and_formats(tmp_path) -> None:
 
     human_logger, machine_logger = logging_ext.setup_logging(tmp_path)
     human_logger.info("hello world")
-    machine_logger.info("startup", extra={"event": "startup", "data": {"mode": "auto"}})
+    machine_logger.info(
+        "startup",
+        extra=logging_ext.build_event_extra("startup", correlation={"mode": "auto"}),
+    )
     _flush(human_logger)
     _flush(machine_logger)
 
-    human_log = tmp_path / "office-janitor.log"
-    machine_log = tmp_path / "office-janitor.jsonl"
+    human_log = tmp_path / "human.log"
+    machine_log = tmp_path / "events.jsonl"
 
     assert human_log.exists()
     assert machine_log.exists()
@@ -79,19 +82,21 @@ def test_setup_logging_creates_files_and_formats(tmp_path) -> None:
 
     startup_entry = next(item for item in machine_entries if item.get("event") == "startup")
     assert startup_entry["channel"] == "machine"
-    assert startup_entry["data"] == {"mode": "auto"}
+    assert startup_entry["correlation"] == {"mode": "auto"}
+    assert startup_entry["session"]["id"] == run_entry["run"]["session_id"]
 
     metadata = logging_ext.get_run_metadata()
     assert metadata is not None
     assert metadata["run_id"] == run_entry["run"]["run_id"]
+    assert metadata["session_id"] == run_entry["run"]["session_id"]
     assert metadata["version"]
     assert metadata["logdir"].endswith(str(tmp_path))
 
     assert any(
-        isinstance(handler, logging.handlers.RotatingFileHandler) for handler in human_logger.handlers
+        isinstance(handler, logging.handlers.TimedRotatingFileHandler) for handler in human_logger.handlers
     )
     assert any(
-        isinstance(handler, logging.handlers.RotatingFileHandler) for handler in machine_logger.handlers
+        isinstance(handler, logging.handlers.TimedRotatingFileHandler) for handler in machine_logger.handlers
     )
 
 
@@ -103,7 +108,7 @@ def test_json_stdout_mirror(tmp_path) -> None:
     buffer = io.StringIO()
     with redirect_stdout(buffer):
         _, machine_logger = logging_ext.setup_logging(tmp_path, json_to_stdout=True)
-        machine_logger.warning("mirror", extra={"event": "mirror"})
+        machine_logger.warning("mirror", extra=logging_ext.build_event_extra("mirror"))
         _flush(machine_logger)
 
     output_lines = [line for line in buffer.getvalue().splitlines() if line.strip()]
@@ -113,6 +118,7 @@ def test_json_stdout_mirror(tmp_path) -> None:
     parsed = json.loads(output_lines[-1])
     assert parsed["event"] == "mirror"
     assert parsed["channel"] == "machine"
+    assert parsed["session"]["id"] == first["run"]["session_id"]
 
 
 def test_logger_helpers_return_configured_instances(tmp_path) -> None:
@@ -123,3 +129,43 @@ def test_logger_helpers_return_configured_instances(tmp_path) -> None:
     human_logger, machine_logger = logging_ext.setup_logging(tmp_path)
     assert logging_ext.get_human_logger() is human_logger
     assert logging_ext.get_machine_logger() is machine_logger
+
+
+def test_build_event_extra_injects_run_context(tmp_path) -> None:
+    """!
+    @brief Ensure helper merges run/session metadata with caller supplied context.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    payload = logging_ext.build_event_extra(
+        "step_progress",
+        step_id="registry-scan",
+        correlation={"host": "test"},
+        extra={"progress": 50},
+    )
+
+    assert payload["event"] == "step_progress"
+    assert payload["step_id"] == "registry-scan"
+    assert payload["correlation"] == {"host": "test"}
+    assert payload["progress"] == 50
+    assert "run" in payload
+    assert payload["run"]["session_id"] == payload["session"]["id"]
+
+
+def test_get_loggers_adds_stdout_when_requested(tmp_path) -> None:
+    """!
+    @brief Requesting JSON stdout mirroring attaches a stream handler on demand.
+    """
+
+    logging_ext.setup_logging(tmp_path, json_to_stdout=False)
+    _, machine = logging_ext.get_loggers(json_stdout=True, level=logging.INFO)
+    assert any(
+        isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is sys.stdout
+        for handler in machine.handlers
+    )
+
+    _, machine = logging_ext.get_loggers(json_stdout=False, level=logging.INFO)
+    assert not any(
+        isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is sys.stdout
+        for handler in machine.handlers
+    )
