@@ -21,9 +21,11 @@ def run_cli(app_state: Mapping[str, object]) -> None:
     human_logger = app_state.get("human_logger")
     input_func: Callable[[str], str] = app_state.get("input", input)  # type: ignore[assignment]
 
-    if getattr(args, "quiet", False):
+    if getattr(args, "quiet", False) or getattr(args, "json", False):
         if human_logger:
-            human_logger.warning("Interactive menu suppressed because --quiet was provided.")
+            human_logger.warning(
+                "Interactive menu suppressed because quiet/json output mode was requested."
+            )
         return
 
     detector: Callable[[], Mapping[str, object]] = app_state["detector"]  # type: ignore[assignment]
@@ -128,7 +130,7 @@ def _menu_diagnostics(context: MutableMapping[str, object]) -> None:
     plan_steps = _ensure_plan(context, {"mode": "diagnose", "diagnose": True})
     executor: Callable[[list[dict], Mapping[str, object] | None], None] = context["executor"]  # type: ignore[assignment]
     inventory = context.get("inventory")
-    executor(plan_steps, {"mode": "diagnose", "inventory": inventory})
+    executor(plan_steps, {"mode": "diagnose", "diagnose": True, "inventory": inventory})
     print("Diagnostics captured; no actions executed.")
 
 
@@ -149,7 +151,10 @@ def _menu_exit(context: MutableMapping[str, object]) -> None:
 def _plan_and_execute(context: MutableMapping[str, object], overrides: Mapping[str, object]) -> None:
     plan_steps = _ensure_plan(context, overrides)
     executor: Callable[[list[dict], Mapping[str, object] | None], None] = context["executor"]  # type: ignore[assignment]
-    executor(plan_steps, overrides)
+    payload = dict(overrides)
+    if "inventory" not in payload and context.get("inventory") is not None:
+        payload["inventory"] = context.get("inventory")
+    executor(plan_steps, payload)
 
 
 def _ensure_plan(context: MutableMapping[str, object], overrides: Mapping[str, object]) -> list[dict]:

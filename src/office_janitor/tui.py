@@ -34,7 +34,15 @@ class OfficeJanitorTUI:
         @brief Enter the TUI event loop.
         """
 
-        if not _supports_ansi() or getattr(self.app_state.get("args"), "no_color", False):
+        args = self.app_state.get("args")
+        if getattr(args, "quiet", False) or getattr(args, "json", False):
+            if self.human_logger:
+                self.human_logger.info(
+                    "Interactive TUI suppressed because quiet/json output mode was requested."
+                )
+            return
+
+        if not _supports_ansi() or getattr(args, "no_color", False):
             from . import ui
 
             if self.human_logger:

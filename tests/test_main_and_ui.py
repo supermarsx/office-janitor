@@ -1,6 +1,7 @@
 """Integration tests for CLI and UI layers."""
 from __future__ import annotations
 
+import json
 import pathlib
 import sys
 from typing import List
@@ -187,7 +188,28 @@ def test_ui_run_cli_auto_all_executes(monkeypatch) -> None:
 
     assert events[0][0] == "detect"
     assert events[1] == ("plan", {"mode": "auto-all"})
-    assert events[2] == ("execute", {"mode": "auto-all"})
+    assert events[2][0] == "execute"
+    assert events[2][1]["mode"] == "auto-all"
+    assert "inventory" in events[2][1]
+
+
+def test_ui_run_cli_respects_json_flag() -> None:
+    """!
+    @brief Menu should not launch when ``--json`` is requested.
+    """
+
+    events: List[str] = []
+
+    app_state = {
+        "args": type("Args", (), {"quiet": False, "json": True, "dry_run": False, "no_restore_point": False, "logdir": "logs", "backup": None})(),
+        "detector": lambda: events.append("detect"),
+        "planner": lambda inventory, overrides=None: events.append("plan"),
+        "executor": lambda plan, overrides=None: events.append("execute"),
+    }
+
+    ui.run_cli(app_state)
+
+    assert events == []
 
 
 def test_tui_falls_back_without_ansi(monkeypatch) -> None:
@@ -252,4 +274,64 @@ def test_tui_commands_drive_backends(monkeypatch) -> None:
     })
 
     assert events == ["detect", "plan", "execute"]
+
+
+def test_tui_respects_quiet_flag(monkeypatch) -> None:
+    """!
+    @brief Quiet mode should prevent the TUI from starting an event loop.
+    """
+
+    monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None: True)
+
+    invoked: List[str] = []
+
+    def reader() -> str:
+        invoked.append("reader")
+        return "q"
+
+    tui_module.run_tui(
+        {
+            "args": type("Args", (), {"no_color": False, "quiet": True, "json": False})(),
+            "detector": lambda: invoked.append("detect"),
+            "planner": lambda inventory, overrides=None: invoked.append("plan") or [],
+            "executor": lambda plan, overrides=None: invoked.append("execute"),
+            "key_reader": reader,
+        }
+    )
+
+    assert invoked == []
+
+
+def test_main_diagnose_writes_default_artifacts(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Diagnostics mode should persist plan and inventory to the log directory.
+    """
+
+    monkeypatch.setattr(main, "ensure_admin_and_relaunch_if_needed", _no_op)
+    monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
+    monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
+
+    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: {"msi": ["Office"], "c2r": [], "filesystem": []})
+
+    def fake_plan(inv, options):  # type: ignore[no-untyped-def]
+        return [
+            {"id": "context", "category": "context", "metadata": {"mode": options.get("mode"), "options": dict(options)}},
+            {"id": "filesystem", "category": "filesystem-cleanup", "metadata": {"paths": ["C:/Office"]}},
+        ]
+
+    monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
+    monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
+    monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: None)
+
+    exit_code = main.main(["--diagnose", "--logdir", str(tmp_path)])
+
+    assert exit_code == 0
+    plan_path = tmp_path / "diagnostics-plan.json"
+    inventory_path = tmp_path / "diagnostics-inventory.json"
+    assert plan_path.exists()
+    assert inventory_path.exists()
+    data = json.loads(plan_path.read_text(encoding="utf-8"))
+    assert data[0]["metadata"]["mode"] == "diagnose"
+    inventory_data = json.loads(inventory_path.read_text(encoding="utf-8"))
+    assert inventory_data["msi"] == ["Office"]
 

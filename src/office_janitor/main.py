@@ -173,7 +173,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     options = _collect_plan_options(args, mode)
     generated_plan = plan_module.build_plan(inventory, options)
     safety.perform_preflight_checks(generated_plan)
-    _handle_plan_artifacts(args, generated_plan, inventory, human_log)
+    _handle_plan_artifacts(args, generated_plan, inventory, human_log, mode)
 
     if mode == "diagnose":
         human_log.info("Diagnostics complete; plan written and no actions executed.")
@@ -239,11 +239,18 @@ def _build_app_state(
         dry_run = bool(getattr(args, "dry_run", False))
         if overrides and "dry_run" in overrides:
             dry_run = bool(overrides["dry_run"])
-        if overrides and overrides.get("mode") == "diagnose":
-            inventory_override = overrides.get("inventory") if overrides else None
-            _handle_plan_artifacts(args, plan_data, inventory_override, human_log)
+
+        mode_override = _determine_mode(args)
+        if overrides and overrides.get("mode"):
+            mode_override = str(overrides["mode"])
+
+        inventory_override = overrides.get("inventory") if overrides else None
+        _handle_plan_artifacts(args, plan_data, inventory_override, human_log, mode_override)
+
+        if mode_override == "diagnose":
             human_log.info("Diagnostics complete; plan written and no actions executed.")
             return
+
         scrub.execute_plan(plan_data, dry_run=dry_run)
 
     return {
@@ -300,16 +307,25 @@ def _handle_plan_artifacts(
     plan_data: Iterable[Mapping[str, object]],
     inventory: Optional[Mapping[str, object]],
     human_log: logging.Logger,
+    mode: str,
 ) -> None:
     """!
     @brief Persist plan diagnostics and backups as requested via CLI flags.
     """
 
     plan_steps = list(plan_data)
+    logdir = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
+    logdir.mkdir(parents=True, exist_ok=True)
+
+    plan_output: Optional[pathlib.Path] = None
     if getattr(args, "plan", None):
-        plan_path = pathlib.Path(args.plan).expanduser().resolve()
-        plan_path.write_text(json.dumps(plan_steps, indent=2, sort_keys=True), encoding="utf-8")
-        human_log.info("Wrote plan to %s", plan_path)
+        plan_output = pathlib.Path(args.plan).expanduser().resolve()
+    elif mode == "diagnose":
+        plan_output = logdir / "diagnostics-plan.json"
+
+    if plan_output is not None:
+        plan_output.write_text(json.dumps(plan_steps, indent=2, sort_keys=True), encoding="utf-8")
+        human_log.info("Wrote plan to %s", plan_output)
 
     backup_dir = getattr(args, "backup", None)
     if backup_dir:
@@ -325,6 +341,14 @@ def _handle_plan_artifacts(
             encoding="utf-8",
         )
         human_log.info("Wrote backup artifacts to %s", destination)
+
+    if mode == "diagnose" and inventory is not None and not backup_dir:
+        inventory_path = logdir / "diagnostics-inventory.json"
+        inventory_path.write_text(
+            json.dumps(inventory, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        human_log.info("Wrote diagnostics inventory to %s", inventory_path)
 
 
 if __name__ == "__main__":  # pragma: no cover - for manual execution
