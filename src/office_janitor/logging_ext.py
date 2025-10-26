@@ -10,11 +10,12 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import os
 import sys
 import uuid
 from logging import handlers
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, Tuple
+from typing import Dict, Iterable, Mapping, MutableMapping, Tuple
 
 from . import version
 
@@ -56,6 +57,7 @@ _STANDARD_RECORD_KEYS: Dict[str, None] = {
 
 _CURRENT_LOG_DIRECTORY: Path | None = None
 _RUN_METADATA: Dict[str, object] | None = None
+_SESSION_ID: str | None = None
 
 
 class _ChannelFilter(logging.Filter):
@@ -94,6 +96,14 @@ class _JsonLineFormatter(logging.Formatter):
         }
 
         extras = _extract_extras(record)
+        if _SESSION_ID is not None:
+            session_info = extras.get("session")
+            if not isinstance(session_info, Mapping):
+                session_info = {}
+            else:
+                session_info = dict(session_info)
+            session_info.setdefault("id", _SESSION_ID)
+            extras["session"] = session_info
         payload.update(extras)
         try:
             return json.dumps(payload, ensure_ascii=False)
@@ -125,6 +135,35 @@ def _coerce_json(value: object) -> object:
     except TypeError:
         return repr(value)
     return value
+
+
+class _SizedTimedRotatingFileHandler(handlers.TimedRotatingFileHandler):
+    """!
+    @brief Combine size and time-based log rotation.
+    @details The standard library does not ship a handler that supports both
+    ``maxBytes`` and ``when`` rotation triggers simultaneously. This helper
+    subclasses :class:`logging.handlers.TimedRotatingFileHandler` and extends
+    :func:`shouldRollover` with the size check from
+    :class:`logging.handlers.RotatingFileHandler`.
+    """
+
+    def __init__(self, filename: str | os.PathLike[str], *, max_bytes: int = 0, backup_count: int = 0, **kwargs: object) -> None:
+        when = kwargs.pop("when", "midnight")
+        interval = kwargs.pop("interval", 1)
+        super().__init__(filename, when=when, interval=interval, backupCount=backup_count, encoding="utf-8", **kwargs)
+        self.maxBytes = max_bytes
+
+    def shouldRollover(self, record: logging.LogRecord) -> int:  # noqa: D401 - stdlib compatibility
+        if super().shouldRollover(record):
+            return 1
+        if self.maxBytes > 0:
+            if self.stream is None:
+                self.stream = self._open()
+            msg = "%s\n" % self.format(record)
+            self.stream.seek(0, os.SEEK_END)
+            if self.stream.tell() + len(msg) >= self.maxBytes:
+                return 1
+        return 0
 
 
 def _configure_logger(logger: logging.Logger, formatter: logging.Formatter, handlers_to_add: Iterable[logging.Handler]) -> None:
@@ -175,17 +214,15 @@ def setup_logging(
 
     machine_formatter = _JsonLineFormatter()
 
-    human_file = handlers.RotatingFileHandler(
-        root_dir / "office-janitor.log",
-        maxBytes=1_048_576,
-        backupCount=5,
-        encoding="utf-8",
+    human_file = _SizedTimedRotatingFileHandler(
+        root_dir / "human.log",
+        max_bytes=1_048_576,
+        backup_count=14,
     )
-    machine_file = handlers.RotatingFileHandler(
-        root_dir / "office-janitor.jsonl",
-        maxBytes=1_048_576,
-        backupCount=5,
-        encoding="utf-8",
+    machine_file = _SizedTimedRotatingFileHandler(
+        root_dir / "events.jsonl",
+        max_bytes=1_048_576,
+        backup_count=30,
     )
 
     machine_handlers: list[logging.Handler] = [machine_file]
@@ -198,9 +235,39 @@ def setup_logging(
     human_logger.addFilter(_ChannelFilter("human"))
     machine_logger.addFilter(_ChannelFilter("machine"))
 
+    global _SESSION_ID
+    _SESSION_ID = uuid.uuid4().hex
+
     _emit_run_metadata(human_logger, machine_logger)
 
     return human_logger, machine_logger
+
+
+def get_loggers(json_stdout: bool, level: int) -> Tuple[logging.Logger, logging.Logger]:
+    """!
+    @brief Retrieve configured loggers, provisioning defaults when necessary.
+    @details Modules may request stdout mirroring for JSONL events dynamically.
+    If logging has not yet been configured, a ``logs`` directory under the
+    current working directory is used as the fallback root.
+    """
+
+    default_dir = _CURRENT_LOG_DIRECTORY or (Path.cwd() / "logs")
+    human = logging.getLogger(HUMAN_LOGGER_NAME)
+    machine = logging.getLogger(MACHINE_LOGGER_NAME)
+
+    if not human.handlers or not machine.handlers:
+        setup_logging(default_dir, json_to_stdout=json_stdout, level=level)
+        human = logging.getLogger(HUMAN_LOGGER_NAME)
+        machine = logging.getLogger(MACHINE_LOGGER_NAME)
+    else:
+        human.setLevel(level)
+        machine.setLevel(level)
+        if json_stdout:
+            _ensure_stdout_handler(machine)
+        else:
+            _remove_stdout_handler(machine)
+
+    return human, machine
 
 
 def get_human_logger() -> logging.Logger:
@@ -252,8 +319,10 @@ def _emit_run_metadata(human_logger: logging.Logger, machine_logger: logging.Log
     global _RUN_METADATA
 
     moment = _dt.datetime.now(tz=_dt.timezone.utc)
+    session_id = _SESSION_ID or uuid.uuid4().hex
     _RUN_METADATA = {
-        "run_id": uuid.uuid4().hex,
+        "session_id": session_id,
+        "run_id": session_id,
         "timestamp": moment.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
         "version": version.__version__,
         "build": version.__build__,
@@ -262,13 +331,96 @@ def _emit_run_metadata(human_logger: logging.Logger, machine_logger: logging.Log
     }
 
     human_logger.info(
-        "Office Janitor %s (%s) starting — run %s",
+        "Office Janitor %s (%s) starting — session %s",
         version.__version__,
         version.__build__,
-        _RUN_METADATA["run_id"],
+        session_id,
     )
     if _CURRENT_LOG_DIRECTORY is not None:
         human_logger.info("Logs directory: %s", _CURRENT_LOG_DIRECTORY)
 
-    machine_logger.info("run_start", extra={"event": "run_start", "run": dict(_RUN_METADATA)})
+    machine_logger.info(
+        "run_start",
+        extra={
+            "event": "run_start",
+            "run": dict(_RUN_METADATA),
+            "session": {"id": session_id},
+        },
+    )
+
+
+def _ensure_stdout_handler(machine_logger: logging.Logger) -> None:
+    """!
+    @brief Guarantee a stdout stream handler using the JSON formatter.
+    """
+
+    for handler in machine_logger.handlers:
+        if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is sys.stdout:
+            return
+    stdout_handler = logging.StreamHandler(stream=sys.stdout)
+    stdout_handler.setFormatter(_JsonLineFormatter())
+    machine_logger.addHandler(stdout_handler)
+
+
+def _remove_stdout_handler(machine_logger: logging.Logger) -> None:
+    """!
+    @brief Remove stdout stream handlers to avoid duplicate emission.
+    """
+
+    for handler in list(machine_logger.handlers):
+        if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is sys.stdout:
+            machine_logger.removeHandler(handler)
+            handler.close()
+
+
+def build_event_extra(
+    event: str,
+    *,
+    step_id: str | None = None,
+    correlation: Mapping[str, object] | None = None,
+    extra: Mapping[str, object] | None = None,
+) -> Dict[str, object]:
+    """!
+    @brief Compose ``extra`` payloads with consistent contextual metadata.
+    @details The helper is intended for machine loggers so downstream telemetry
+    consumers receive uniform ``event`` identifiers, optional ``step_id``, and
+    correlation dictionaries. Run/session identifiers are injected
+    automatically when available.
+    """
+
+    payload: Dict[str, object] = {"event": event}
+    if step_id is not None:
+        payload["step_id"] = step_id
+    if correlation:
+        payload["correlation"] = dict(correlation)
+    if extra:
+        for key, value in extra.items():
+            payload[key] = value
+
+    if _RUN_METADATA:
+        run_field = _merge_mapping(payload.get("run"), {
+            "run_id": _RUN_METADATA.get("run_id"),
+            "session_id": _RUN_METADATA.get("session_id"),
+            "timestamp": _RUN_METADATA.get("timestamp"),
+        })
+        payload["run"] = run_field
+        session_field = _merge_mapping(payload.get("session"), {"id": _RUN_METADATA.get("session_id")})
+        payload["session"] = session_field
+
+    return payload
+
+
+def _merge_mapping(existing: object, defaults: Mapping[str, object | None]) -> Dict[str, object]:
+    """!
+    @brief Merge mapping ``defaults`` into ``existing`` with fallbacks.
+    """
+
+    result: Dict[str, object] = {}
+    if isinstance(existing, MutableMapping):
+        result.update(existing)
+    for key, value in defaults.items():
+        if value is None:
+            continue
+        result.setdefault(key, value)
+    return result
 
