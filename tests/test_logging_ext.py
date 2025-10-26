@@ -67,11 +67,32 @@ def test_setup_logging_creates_files_and_formats(tmp_path) -> None:
     assert "hello world" in human_text
     assert "[human]" in human_text
 
-    machine_line = machine_log.read_text(encoding="utf-8").strip().splitlines()[0]
-    payload = json.loads(machine_line)
-    assert payload["event"] == "startup"
-    assert payload["channel"] == "machine"
-    assert payload["data"] == {"mode": "auto"}
+    machine_entries = [
+        json.loads(line)
+        for line in machine_log.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    run_entry = machine_entries[0]
+    assert run_entry["event"] == "run_start"
+    assert "run" in run_entry
+    assert run_entry["run"]["run_id"]
+
+    startup_entry = next(item for item in machine_entries if item.get("event") == "startup")
+    assert startup_entry["channel"] == "machine"
+    assert startup_entry["data"] == {"mode": "auto"}
+
+    metadata = logging_ext.get_run_metadata()
+    assert metadata is not None
+    assert metadata["run_id"] == run_entry["run"]["run_id"]
+    assert metadata["version"]
+    assert metadata["logdir"].endswith(str(tmp_path))
+
+    assert any(
+        isinstance(handler, logging.handlers.RotatingFileHandler) for handler in human_logger.handlers
+    )
+    assert any(
+        isinstance(handler, logging.handlers.RotatingFileHandler) for handler in machine_logger.handlers
+    )
 
 
 def test_json_stdout_mirror(tmp_path) -> None:
@@ -87,6 +108,8 @@ def test_json_stdout_mirror(tmp_path) -> None:
 
     output_lines = [line for line in buffer.getvalue().splitlines() if line.strip()]
     assert output_lines, "Expected JSONL output on stdout"
+    first = json.loads(output_lines[0])
+    assert first["event"] == "run_start"
     parsed = json.loads(output_lines[-1])
     assert parsed["event"] == "mirror"
     assert parsed["channel"] == "machine"
