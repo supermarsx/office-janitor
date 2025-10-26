@@ -60,6 +60,7 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
                 "force": bool(normalized_options.get("force", False)),
                 "target_versions": targets,
                 "unsupported_targets": unsupported,
+                "discovered_versions": discovered_versions,
                 "options": dict(normalized_options),
                 "inventory_counts": {
                     key: len(value) if hasattr(value, "__len__") else len(list(value))
@@ -118,19 +119,24 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
             )
             uninstall_steps.append(uninstall_id)
 
+    cleanup_dependencies: List[str] = uninstall_steps or ["context"]
+    licensing_step_id = ""
+
     if not normalized_options.get("no_license", False):
+        licensing_step_id = "licensing-0"
         plan.append(
             {
-                "id": "licensing-0",
+                "id": licensing_step_id,
                 "category": "licensing-cleanup",
                 "description": "Remove Office licensing and activation tokens.",
-                "depends_on": uninstall_steps or ["context"],
+                "depends_on": cleanup_dependencies,
                 "metadata": {
                     "dry_run": dry_run,
                     "mode": mode,
                 },
             }
         )
+        cleanup_dependencies = [licensing_step_id]
 
     filesystem_entries = _collect_paths(selected_inventory.get("filesystem", []))
     if filesystem_entries:
@@ -139,7 +145,7 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
                 "id": "filesystem-0",
                 "category": "filesystem-cleanup",
                 "description": "Remove residual Office filesystem artifacts.",
-                "depends_on": uninstall_steps or ["context"],
+                "depends_on": cleanup_dependencies,
                 "metadata": {
                     "paths": filesystem_entries,
                     "preserve_templates": bool(normalized_options.get("keep_templates", False)),
@@ -155,7 +161,7 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
                 "id": "registry-0",
                 "category": "registry-cleanup",
                 "description": "Purge Office registry hives and COM registrations.",
-                "depends_on": uninstall_steps or ["context"],
+                "depends_on": cleanup_dependencies,
                 "metadata": {
                     "keys": registry_entries,
                     "dry_run": dry_run,

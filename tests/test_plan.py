@@ -72,13 +72,14 @@ class TestPlanBuilder:
 
         context = plan_steps[0]
         assert context["metadata"]["mode"] == "auto-all"
+        assert context["metadata"]["discovered_versions"] == ["2019", "365"]
 
         licensing = next(step for step in plan_steps if step["category"] == "licensing-cleanup")
         assert set(licensing["depends_on"]) == {"msi-0", "c2r-0"}
         assert licensing["metadata"]["dry_run"] is False
 
         filesystem = next(step for step in plan_steps if step["category"] == "filesystem-cleanup")
-        assert set(filesystem["depends_on"]) == {"msi-0", "c2r-0"}
+        assert filesystem["depends_on"] == ["licensing-0"]
 
         msi_step = next(step for step in plan_steps if step["category"] == "msi-uninstall")
         c2r_step = next(step for step in plan_steps if step["category"] == "c2r-uninstall")
@@ -117,6 +118,7 @@ class TestPlanBuilder:
         context = plan_steps[0]
         assert context["metadata"]["target_versions"] == ["2016"]
         assert context["metadata"]["unsupported_targets"] == []
+        assert context["metadata"]["discovered_versions"] == ["2016", "2019"]
 
     def test_target_mode_skips_unknown_versions(self) -> None:
         """!
