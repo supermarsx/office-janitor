@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Iterable, Mapping, Sequence
 
+from . import constants
+
 FILESYSTEM_WHITELIST = (
     r"C:\\PROGRAM FILES\\MICROSOFT OFFICE",
     r"C:\\PROGRAM FILES (X86)\\MICROSOFT OFFICE",
@@ -14,6 +16,9 @@ FILESYSTEM_WHITELIST = (
     r"C:\\PROGRAMDATA\\MICROSOFT\\CLICKTORUN",
     r"%LOCALAPPDATA%\\MICROSOFT\\OFFICE",
     r"%APPDATA%\\MICROSOFT\\OFFICE",
+    r"%APPDATA%\\MICROSOFT\\TEMPLATES",
+    r"%LOCALAPPDATA%\\MICROSOFT\\OFFICE\\TEMPLATES",
+    r"%LOCALAPPDATA%\\MICROSOFT\\OFFICE\\LICENSES",
 )
 
 FILESYSTEM_BLACKLIST = (
@@ -67,6 +72,7 @@ def perform_preflight_checks(plan: Iterable[Mapping[str, object]]) -> None:
     _enforce_target_scope(plan_steps, targets)
     _enforce_filesystem_whitelist(plan_steps)
     _enforce_registry_whitelist(plan_steps)
+    _enforce_template_guard(plan_steps, metadata)
 
 
 def _extract_context(plan_steps: Sequence[Mapping[str, object]]) -> Mapping[str, object]:
@@ -182,3 +188,62 @@ def _registry_allowed(key: str) -> bool:
     if any(normalized.startswith(blocked) for blocked in REGISTRY_BLACKLIST):
         return False
     return any(normalized.startswith(allowed) for allowed in REGISTRY_WHITELIST)
+
+
+def _enforce_template_guard(
+    plan_steps: Sequence[Mapping[str, object]],
+    context_metadata: Mapping[str, object],
+) -> None:
+    """!
+    @brief Prevent user template purges without explicit consent.
+    @details Mirrors the OffScrub requirement that Normal.dotm and similar user
+    content remain intact unless ``--force`` or an equivalent override is
+    supplied. Plan steps may still opt-in by setting ``purge_templates``.
+    """
+
+    options = context_metadata.get("options", {}) if context_metadata else {}
+    global_force = bool(options.get("force", False))
+    keep_templates = bool(options.get("keep_templates", False))
+
+    for step in plan_steps:
+        if step.get("category") != "filesystem-cleanup":
+            continue
+        metadata = step.get("metadata", {}) or {}
+        preserve_flag = bool(metadata.get("preserve_templates", keep_templates))
+        purge_flag = bool(metadata.get("purge_templates", False))
+        paths = metadata.get("paths", []) or []
+
+        template_targets = [
+            str(path)
+            for path in paths
+            if _is_template_path(str(path))
+        ]
+        if not template_targets:
+            continue
+
+        if preserve_flag and not global_force:
+            raise ValueError(
+                "Plan requests user template preservation but includes template cleanup steps."
+            )
+
+        if not purge_flag and not global_force:
+            raise ValueError(
+                "Refusing to delete user templates without explicit purge request."
+            )
+
+
+def _is_template_path(path: str) -> bool:
+    normalized = _normalize_windows_path(path)
+    for template in constants.USER_TEMPLATE_PATHS:
+        candidate = _normalize_windows_path(template)
+        if "%" not in candidate and normalized.startswith(candidate):
+            return True
+        if candidate.startswith("%APPDATA%\\"):
+            suffix = candidate[len("%APPDATA%") :]
+            if _match_environment_suffix(normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True):
+                return True
+        if candidate.startswith("%LOCALAPPDATA%\\"):
+            suffix = candidate[len("%LOCALAPPDATA%") :]
+            if _match_environment_suffix(normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True):
+                return True
+    return False

@@ -9,26 +9,45 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
+from string import Template
 from typing import Iterable, Mapping
 
-from . import fs_tools, logging_ext
+from . import constants, fs_tools, logging_ext
 
-PS_TEMPLATE = r"""
-function UninstallLicenses($DllPath) {
-  $TB = [AppDomain]::CurrentDomain.DefineDynamicAssembly(4,1).DefineDynamicModule(2).DefineType(0)
-  [void]$TB.DefinePInvokeMethod('SLOpen', $DllPath, 22, 1, [int], @([IntPtr].MakeByRefType()), 1, 3)
-  [void]$TB.DefinePInvokeMethod('SLGetSLIDList', $DllPath, 22, 1, [int], @([IntPtr],[int],[Guid].MakeByRefType(),[int],[int].MakeByRefType(),[IntPtr].MakeByRefType()), 1, 3).SetImplementationFlags(128)
-  [void]$TB.DefinePInvokeMethod('SLUninstallLicense', $DllPath, 22, 1, [int], @([IntPtr],[IntPtr]), 1, 3)
-  $SPPC = $TB.CreateType(); $Handle = 0; [void]$SPPC::SLOpen([ref]$Handle)
-  $pnReturnIds = 0; $ppReturnIds = 0
-  if (!$SPPC::SLGetSLIDList($Handle, 0, [ref][Guid]'0ff1ce15-0000-0000-0000-000000000000', 6, [ref]$pnReturnIds, [ref]$ppReturnIds)) {
-    foreach ($i in 0..($pnReturnIds - 1)) { [void]$SPPC::SLUninstallLicense($Handle, [Int64]$ppReturnIds + ($i*16)) }
-  }
+LICENSE_SCRIPT_TEMPLATE = Template(
+    r"""
+function UninstallLicenses($$DllPath) {
+    $$TB = [AppDomain]::CurrentDomain.DefineDynamicAssembly(4, 1).DefineDynamicModule(2).DefineType(0)
+    [void]$$TB.DefinePInvokeMethod('SLOpen', $$DllPath, 22, 1, [int], @([IntPtr].MakeByRefType()), 1, 3)
+    [void]$$TB.DefinePInvokeMethod('SLGetSLIDList', $$DllPath, 22, 1, [int], @([IntPtr], [int], [Guid].MakeByRefType(), [int], [int].MakeByRefType(), [IntPtr].MakeByRefType()), 1, 3).SetImplementationFlags(128)
+    [void]$$TB.DefinePInvokeMethod('SLUninstallLicense', $$DllPath, 22, 1, [int], @([IntPtr], [IntPtr]), 1, 3)
+
+    $$SPPC = $$TB.CreateType()
+    $$Handle = 0
+    [void]$$SPPC::SLOpen([ref]$$Handle)
+    $$pnReturnIds = 0
+    $$ppReturnIds = 0
+
+    if (!$$SPPC::SLGetSLIDList($$Handle, 0, [ref][Guid]"${guid}", 6, [ref]$$pnReturnIds, [ref]$$ppReturnIds)) {
+        foreach ($$i in 0..($$pnReturnIds - 1)) {
+            [void]$$SPPC::SLUninstallLicense($$Handle, [Int64]$$ppReturnIds + ([Int64]16 * $$i))
+        }
+    }
 }
-UninstallLicenses('sppc.dll')
+
+$$osppRegPath = "${ospp_reg}"
+$$osppRoot = (Get-ItemProperty -Path $$osppRegPath -ErrorAction SilentlyContinue).Path
+if ($$osppRoot) {
+    $$dllPath = Join-Path $$osppRoot "${ospp_dll}"
+    if (Test-Path $$dllPath) {
+        UninstallLicenses $$dllPath
+    }
+}
+UninstallLicenses "${spp_dll}"
 """
+)
 """!
-@brief PowerShell script used to purge SPP licenses.
+@brief PowerShell template mirroring ``CleanOffice.txt`` with parameterised inputs.
 """
 
 DEFAULT_OSPP_COMMAND = (
@@ -107,7 +126,8 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
     if include_spp:
         script_path: Path | None = None
         try:
-            script_path = _write_powershell_script(PS_TEMPLATE)
+            script_body = _render_license_script(options)
+            script_path = _write_powershell_script(script_body)
             command = (
                 "powershell.exe",
                 "-NoProfile",
@@ -196,3 +216,27 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
     if extra_paths:
         human_logger.info("Cleaning licensing cache directories: %s", ", ".join(map(str, extra_paths)))
         fs_tools.remove_paths(extra_paths, dry_run=dry_run)
+
+
+def _render_license_script(options: Mapping[str, object]) -> str:
+    """!
+    @brief Build the PowerShell script used for license removal.
+    @details Values from :mod:`constants` back the DLL names, GUID filters, and
+    registry paths, while ``options`` allows overrides for testing or
+    customisation.
+    """
+
+    guid = str(
+        options.get("license_guid")
+        or constants.LICENSING_GUID_FILTERS["office_family"]
+    )
+    spp_dll = str(options.get("spp_dll") or constants.LICENSE_DLLS["spp"])
+    ospp_dll = str(options.get("ospp_dll") or constants.LICENSE_DLLS["ospp"])
+    ospp_reg = str(options.get("ospp_reg_path") or constants.OSPP_REGISTRY_PATH)
+
+    return LICENSE_SCRIPT_TEMPLATE.substitute(
+        guid=guid,
+        spp_dll=spp_dll,
+        ospp_dll=ospp_dll,
+        ospp_reg=ospp_reg,
+    )

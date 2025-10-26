@@ -11,7 +11,7 @@ import shutil
 import stat
 import subprocess
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from . import logging_ext
 
@@ -51,6 +51,7 @@ def remove_paths(paths: Iterable[Path], *, dry_run: bool = False) -> None:
             continue
 
         try:
+            make_paths_writable([target])
             reset_acl(target)
         except Exception as exc:  # pragma: no cover - logged for diagnostics
             human_logger.warning("Unable to reset ACLs for %s: %s", target, exc)
@@ -103,3 +104,49 @@ def reset_acl(path: Path) -> None:
             path,
             result.stderr.strip(),
         )
+
+
+def make_paths_writable(paths: Sequence[Path], *, dry_run: bool = False) -> None:
+    """!
+    @brief Clear read-only attributes in preparation for recursive deletion.
+    @details Mirrors the ``attrib -R`` behaviour from ``OfficeScrubberAIO.cmd`` to
+    ensure licensing and Click-to-Run directories can be removed regardless of
+    inherited ACLs.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+
+    for raw in paths:
+        target = Path(raw)
+        if dry_run:
+            human_logger.info("Dry-run: would clear attributes for %s", target)
+            continue
+
+        for suffix in ("", "\\*"):
+            command = [
+                "attrib.exe",
+                "-R",
+                f"{target}{suffix}",
+                "/S",
+                "/D",
+            ]
+            try:
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+            except FileNotFoundError:  # pragma: no cover - non-Windows host.
+                human_logger.debug("attrib.exe unavailable; skipping attribute reset for %s", target)
+                break
+
+            if result.returncode not in {0, 1}:  # attrib returns 1 when no files match
+                human_logger.debug(
+                    "attrib exited with %s for %s: %s",
+                    result.returncode,
+                    target,
+                    result.stderr.strip(),
+                )
+                break
