@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterable, List, Mapping, Sequence
 
 from . import logging_ext
+from .off_scrub_scripts import ensure_offscrub_script
 
 CSCRIPT = "cscript.exe"
 """!
@@ -32,14 +33,6 @@ C2R_TIMEOUT = 3600
 """!
 @brief Timeout (seconds) for Click-to-Run removal operations.
 """
-
-
-def _script_directory() -> Path:
-    """!
-    @brief Directory containing bundled OffScrub helpers.
-    """
-
-    return Path(__file__).resolve().parent / "bin"
 
 
 def _collect_release_ids(raw: Iterable[str] | Sequence[str] | str | None) -> List[str]:
@@ -69,8 +62,7 @@ def build_command(
         or config.get("ProductReleaseIds")
     )
 
-    script_dir = script_directory or _script_directory()
-    script_path = script_dir / OFFSCRUB_C2R_SCRIPT
+    script_path = ensure_offscrub_script(OFFSCRUB_C2R_SCRIPT, base_directory=script_directory)
 
     command: List[str] = [str(CSCRIPT), "//NoLogo", str(script_path)]
     command.extend(OFFSCRUB_C2R_ARGS)

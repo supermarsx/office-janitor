@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterable, List, Mapping, MutableMapping
 
 from . import logging_ext
+from .off_scrub_scripts import ensure_offscrub_script
 
 CSCRIPT = "cscript.exe"
 """!
@@ -68,14 +69,6 @@ def _sanitize_product_code(product_code: str) -> str:
     return product_code.strip().strip("{}").replace("-", "").upper() or "unknown"
 
 
-def _script_directory() -> Path:
-    """!
-    @brief Return the default directory where OffScrub scripts are expected.
-    """
-
-    return Path(__file__).resolve().parent / "bin"
-
-
 def _resolve_offscrub_script(version_hint: str | None) -> str:
     """!
     @brief Select the correct OffScrub helper given an optional version hint.
@@ -115,9 +108,8 @@ def build_command(
         product_code = str(product).strip()
         version_hint = ""
 
-    script_dir = script_directory or _script_directory()
     script_name = _resolve_offscrub_script(version_hint)
-    script_path = script_dir / script_name
+    script_path = ensure_offscrub_script(script_name, base_directory=script_directory)
 
     command: List[str] = [str(CSCRIPT), "//NoLogo", str(script_path)]
     command.extend(OFFSCRUB_BASE_ARGS)
