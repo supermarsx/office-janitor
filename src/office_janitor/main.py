@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import datetime
 import json
 import logging
 import os
@@ -169,7 +170,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 ui.run_cli(app_state)
         return 0
 
-    inventory = _run_detection(machine_log)
+    logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
+    inventory = _run_detection(machine_log, logdir_path)
     options = _collect_plan_options(args, mode)
     generated_plan = plan_module.build_plan(inventory, options)
     safety.perform_preflight_checks(generated_plan)
@@ -224,7 +226,8 @@ def _build_app_state(
     """
 
     def detector() -> dict:
-        return _run_detection(machine_log)
+        logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
+        return _run_detection(machine_log, logdir_path)
 
     def planner(inventory: Mapping[str, object], overrides: Optional[Mapping[str, object]] = None) -> list[dict]:
         mode = _determine_mode(args)
@@ -286,17 +289,47 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
     return options
 
 
-def _run_detection(machine_log: logging.Logger) -> dict:
+def _run_detection(
+    machine_log: logging.Logger, log_directory: pathlib.Path | str | None = None
+) -> dict:
     """!
-    @brief Execute inventory gathering and emit telemetry.
+    @brief Execute inventory gathering, persist artifacts, and emit telemetry.
     """
 
     inventory = detect.gather_office_inventory()
+    if log_directory is None:
+        logdir_path = _resolve_log_directory(None)
+    else:
+        logdir_path = pathlib.Path(log_directory).expanduser()
+
+    inventory_path: pathlib.Path | None = None
+    try:
+        logdir_path.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+        inventory_path = logdir_path / f"inventory-{timestamp}.json"
+        inventory_path.write_text(
+            json.dumps(inventory, indent=2, sort_keys=True, default=str),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        machine_log.warning(
+            "inventory_write_failed",
+            extra={
+                "event": "inventory_write_failed",
+                "error": repr(exc),
+                "logdir": str(logdir_path),
+            },
+        )
+
     machine_log.info(
         "inventory",
         extra={
             "event": "inventory",
-            "counts": {key: len(value) if hasattr(value, "__len__") else len(list(value)) for key, value in inventory.items()},
+            "counts": {
+                key: len(value) if hasattr(value, "__len__") else len(list(value))
+                for key, value in inventory.items()
+            },
+            **({"artifact": str(inventory_path)} if inventory_path is not None else {}),
         },
     )
     return inventory
