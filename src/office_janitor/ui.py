@@ -8,6 +8,8 @@ from __future__ import annotations
 import textwrap
 from typing import Callable, Mapping, MutableMapping
 
+from . import version
+
 
 MenuHandler = Callable[[MutableMapping[str, object]], None]
 
@@ -79,9 +81,12 @@ def _print_menu(menu: list[tuple[str, MenuHandler]]) -> None:
     @brief Render the text menu to stdout.
     """
 
+    metadata = version.build_info()
     header = textwrap.dedent(
-        """
+        f"""
         ================= Office Janitor =================
+        Version {metadata['version']} (build {metadata['build']})
+        --------------------------------------------------
         1. Detect & show installed Office
         2. Auto scrub everything detected (recommended)
         3. Targeted scrub (choose versions/components)
