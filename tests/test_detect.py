@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import sys
 from pathlib import Path
 from typing import Dict, Tuple
@@ -16,7 +18,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import constants, detect
+from office_janitor import constants, detect, main
 
 
 @pytest.fixture
@@ -169,6 +171,40 @@ class TestRegistryDetectionScenarios:
 
         monkeypatch.setattr(detect.Path, "exists", fake_exists, raising=False)
 
+        monkeypatch.setattr(
+            detect,
+            "gather_running_office_processes",
+            lambda: [{"name": "winword.exe", "pid": "1234"}],
+        )
+        monkeypatch.setattr(
+            detect,
+            "gather_office_services",
+            lambda: [{"name": "ClickToRunSvc", "state": "RUNNING"}],
+        )
+        monkeypatch.setattr(
+            detect,
+            "gather_office_tasks",
+            lambda: [
+                {
+                    "task": r"\Microsoft\Office\OfficeTelemetryAgentLogOn",
+                    "status": "Ready",
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            detect,
+            "gather_activation_state",
+            lambda: {
+                "path": constants.OSPP_REGISTRY_PATH,
+                "values": {"SKUID": "Test"},
+            },
+        )
+        monkeypatch.setattr(
+            detect,
+            "gather_registry_residue",
+            lambda: [{"path": r"HKLM\SOFTWARE\Microsoft\Office"}],
+        )
+
         inventory = detect.gather_office_inventory()
 
         assert len(inventory["msi"]) == 1
@@ -178,3 +214,42 @@ class TestRegistryDetectionScenarios:
         assert len(inventory["filesystem"]) == 2
         labels = {entry["label"] for entry in inventory["filesystem"]}
         assert labels == {"c2r_root_x86", "office16_x86"}
+        assert inventory["processes"] == [{"name": "winword.exe", "pid": "1234"}]
+        assert inventory["services"] == [{"name": "ClickToRunSvc", "state": "RUNNING"}]
+        assert inventory["tasks"][0]["task"] == r"\Microsoft\Office\OfficeTelemetryAgentLogOn"
+        assert inventory["activation"]["path"] == constants.OSPP_REGISTRY_PATH
+        assert inventory["registry"] == [{"path": r"HKLM\SOFTWARE\Microsoft\Office"}]
+
+    def test_run_detection_persists_inventory_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """!
+        @brief Ensure detection snapshots are written to the resolved log directory.
+        """
+
+        sample_inventory = {
+            "msi": [],
+            "c2r": [],
+            "filesystem": [],
+            "processes": [],
+            "services": [],
+            "tasks": [],
+            "activation": {},
+            "registry": [],
+        }
+
+        monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: sample_inventory)
+
+        machine_log = logging.getLogger("office-janitor-test")
+        machine_log.handlers.clear()
+        machine_log.addHandler(logging.NullHandler())
+        machine_log.propagate = False
+
+        result = main._run_detection(machine_log, tmp_path)
+
+        assert result is sample_inventory
+
+        snapshots = list(tmp_path.glob("inventory-*.json"))
+        assert len(snapshots) == 1
+        payload = json.loads(snapshots[0].read_text(encoding="utf-8"))
+        assert payload == sample_inventory

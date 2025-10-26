@@ -6,11 +6,56 @@ contain uninstall handles, source type, and channel information.
 """
 from __future__ import annotations
 
+import csv
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
 from . import constants, registry_tools
+
+
+_OFFICE_PROCESS_TARGETS = tuple(
+    sorted(
+        {name.lower() for name in constants.DEFAULT_OFFICE_PROCESSES}
+        | {"mspub.exe", "teams.exe"}
+    )
+)
+"""!
+@brief Known Office executables monitored during detection.
+"""
+
+_SERVICE_TARGETS = tuple(
+    sorted({name.lower() for name in constants.KNOWN_SERVICES} | {"osppsvc"})
+)
+"""!
+@brief Services associated with Office provisioning and licensing.
+"""
+
+_TASK_PREFIXES = (r"\\Microsoft\\Office\\", r"\\Microsoft\\OfficeSoftwareProtectionPlatform\\")
+"""!
+@brief Scheduled task prefixes that indicate Office automation jobs.
+"""
+
+_KNOWN_TASK_NAMES = {
+    task if task.startswith("\\") else f"\\{task}"
+    for task in constants.KNOWN_SCHEDULED_TASKS
+}
+"""!
+@brief Explicit scheduled task identifiers from the specification.
+"""
+
+_REGISTRY_RESIDUE_TEMPLATES: Tuple[Tuple[int, str], ...] = (
+    (constants.HKLM, r"SOFTWARE\\Microsoft\\Office"),
+    (constants.HKLM, r"SOFTWARE\\WOW6432Node\\Microsoft\\Office"),
+    (constants.HKCU, r"SOFTWARE\\Microsoft\\Office"),
+    (constants.HKLM, r"SOFTWARE\\Microsoft\\ClickToRun"),
+    (constants.HKLM, r"SOFTWARE\\Microsoft\\Office\\Common"),
+    (constants.HKLM, r"SOFTWARE\\Microsoft\\OfficeSoftwareProtectionPlatform"),
+)
+"""!
+@brief Registry hives monitored for residue cleanup opportunities.
+"""
 
 
 @dataclass(frozen=True)
@@ -210,15 +255,20 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
     return installations
 
 
-def gather_office_inventory() -> Dict[str, List[Dict[str, object]]]:
+def gather_office_inventory() -> Dict[str, object]:
     """!
     @brief Aggregate MSI, C2R, and ancillary signals into an inventory payload.
     """
 
-    inventory: Dict[str, List[Dict[str, object]]] = {
+    inventory: Dict[str, object] = {
         "msi": [entry.to_dict() for entry in detect_msi_installations()],
         "c2r": [entry.to_dict() for entry in detect_c2r_installations()],
         "filesystem": [],
+        "processes": gather_running_office_processes(),
+        "services": gather_office_services(),
+        "tasks": gather_office_tasks(),
+        "activation": gather_activation_state(),
+        "registry": gather_registry_residue(),
     }
 
     for template in constants.INSTALL_ROOT_TEMPLATES:
@@ -241,7 +291,7 @@ def gather_office_inventory() -> Dict[str, List[Dict[str, object]]]:
     return inventory
 
 
-def reprobe(options: Mapping[str, object] | None = None) -> Dict[str, List[Dict[str, object]]]:
+def reprobe(options: Mapping[str, object] | None = None) -> Dict[str, object]:
     """!
     @brief Re-run Office detection after a scrub pass to check for leftovers.
     @details The optional ``options`` mapping is accepted for parity with future
@@ -252,3 +302,197 @@ def reprobe(options: Mapping[str, object] | None = None) -> Dict[str, List[Dict[
 
     _ = options  # Options are presently unused but reserved for parity.
     return gather_office_inventory()
+
+
+def _run_command(arguments: Iterable[str]) -> Tuple[int, str]:
+    """!
+    @brief Execute a subprocess returning ``(returncode, text_output)``.
+    @details Failures caused by missing binaries or platform limitations are
+    normalised to a non-zero return code with empty output so detection can
+    degrade gracefully in non-Windows environments.
+    """
+
+    try:
+        completed = subprocess.run(  # noqa: S603 - intentional command execution
+            list(arguments),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return 127, ""
+    except OSError:
+        return 1, ""
+    output = completed.stdout or completed.stderr or ""
+    return completed.returncode, output
+
+
+def gather_running_office_processes() -> List[Dict[str, str]]:
+    """!
+    @brief Inspect running processes for Office executables via ``tasklist``.
+    @details Output is filtered to the executables referenced in the
+    specification so downstream planners can prompt for graceful shutdowns
+    before uninstall operations commence.
+    """
+
+    code, output = _run_command(["tasklist", "/FO", "CSV"])
+    if code != 0 and not output:
+        return []
+
+    processes: List[Dict[str, str]] = []
+    reader = csv.reader(line.strip("\ufeff") for line in output.splitlines() if line.strip())
+
+    for row in reader:
+        if not row:
+            continue
+        header = row[0].strip().lower()
+        if header == "image name":
+            continue
+        name = row[0].strip()
+        if name.lower() not in _OFFICE_PROCESS_TARGETS:
+            continue
+        entry: Dict[str, str] = {"name": name}
+        if len(row) > 1:
+            entry["pid"] = row[1].strip()
+        if len(row) > 2:
+            entry["session"] = row[2].strip()
+        if len(row) > 3:
+            entry["session_id"] = row[3].strip()
+        if len(row) > 4:
+            entry["memory"] = row[4].strip()
+        processes.append(entry)
+
+    return processes
+
+
+def gather_office_services() -> List[Dict[str, str]]:
+    """!
+    @brief Enumerate Office-related Windows services via ``sc query``.
+    @details The collected state helps diagnose Click-to-Run agent activity and
+    licensing daemons prior to remediation.
+    """
+
+    code, output = _run_command(["sc", "query", "state=", "all"])
+    if code != 0 and not output:
+        return []
+
+    services: List[Dict[str, str]] = []
+    current_name: str | None = None
+
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.upper().startswith("SERVICE_NAME"):
+            _, _, value = line.partition(":")
+            candidate = value.strip()
+            current_name = candidate if candidate else None
+            continue
+        if line.upper().startswith("STATE") and current_name:
+            _, _, value = line.partition(":")
+            state_detail = value.strip()
+            state_parts = state_detail.split()
+            state = state_parts[1] if len(state_parts) > 1 else state_parts[0] if state_parts else ""
+            if current_name.lower() in _SERVICE_TARGETS:
+                services.append(
+                    {
+                        "name": current_name,
+                        "state": state,
+                        "details": state_detail,
+                    }
+                )
+            current_name = None
+
+    return services
+
+
+def gather_office_tasks() -> List[Dict[str, str]]:
+    """!
+    @brief Query scheduled tasks associated with Office maintenance.
+    @details Uses ``schtasks`` to surface telemetry, licensing, and background
+    handlers that may interfere with uninstall flows.
+    """
+
+    code, output = _run_command(["schtasks", "/Query", "/FO", "CSV"])
+    if code != 0 and not output:
+        return []
+
+    tasks: List[Dict[str, str]] = []
+    reader = csv.reader(line.strip("\ufeff") for line in output.splitlines() if line.strip())
+
+    for row in reader:
+        if not row:
+            continue
+        task_name = row[0].strip()
+        if task_name.lower() == "taskname":
+            continue
+        if not any(task_name.startswith(prefix) for prefix in _TASK_PREFIXES):
+            continue
+        entry: Dict[str, str] = {"task": task_name}
+        if len(row) > 1:
+            entry["next_run_time"] = row[1].strip()
+        if len(row) > 2:
+            entry["status"] = row[2].strip()
+        entry["known"] = task_name in _KNOWN_TASK_NAMES
+        tasks.append(entry)
+
+    return tasks
+
+
+def gather_activation_state() -> Dict[str, Any]:
+    """!
+    @brief Inspect activation metadata from the Office Software Protection Platform.
+    @details Converts registry values to JSON-friendly primitives for inclusion
+    in diagnostics and archival logs.
+    """
+
+    registry_path = constants.OSPP_REGISTRY_PATH
+    hive_name, _, relative_path = registry_path.partition("\\")
+    if not hive_name or not relative_path:
+        return {}
+
+    hive = constants.REGISTRY_ROOTS.get(hive_name.upper())
+    if hive is None:
+        return {}
+
+    try:
+        values = registry_tools.read_values(hive, relative_path)
+    except FileNotFoundError:
+        return {}
+    except OSError:
+        return {}
+
+    if not values:
+        return {}
+
+    serialised: Dict[str, Any] = {}
+    for key, value in values.items():
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            serialised[str(key)] = value
+        else:
+            serialised[str(key)] = str(value)
+
+    return {"path": registry_path, "values": serialised}
+
+
+def gather_registry_residue() -> List[Dict[str, str]]:
+    """!
+    @brief Identify registry hives that likely require cleanup.
+    @details The returned list mirrors OffScrub residue heuristics so planners
+    can schedule deletions alongside filesystem cleanup once uninstalls complete.
+    """
+
+    entries: List[Dict[str, str]] = []
+
+    for hive, path in _REGISTRY_RESIDUE_TEMPLATES:
+        try:
+            exists = registry_tools.key_exists(hive, path)
+        except FileNotFoundError:
+            exists = False
+        except OSError:
+            exists = False
+        if not exists:
+            continue
+        entries.append({"path": _compose_handle(hive, path)})
+
+    return entries
