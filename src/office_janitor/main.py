@@ -350,6 +350,9 @@ def _handle_plan_artifacts(
     logdir = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
     logdir.mkdir(parents=True, exist_ok=True)
 
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    resolved_backup: Optional[pathlib.Path] = None
+
     plan_output: Optional[pathlib.Path] = None
     if getattr(args, "plan", None):
         plan_output = pathlib.Path(args.plan).expanduser().resolve()
@@ -374,6 +377,9 @@ def _handle_plan_artifacts(
             encoding="utf-8",
         )
         human_log.info("Wrote backup artifacts to %s", destination)
+        resolved_backup = destination
+    else:
+        resolved_backup = logdir / f"registry-backup-{timestamp}"
 
     if mode == "diagnose" and inventory is not None and not backup_dir:
         inventory_path = logdir / "diagnostics-inventory.json"
@@ -382,6 +388,29 @@ def _handle_plan_artifacts(
             encoding="utf-8",
         )
         human_log.info("Wrote diagnostics inventory to %s", inventory_path)
+
+    if plan_steps:
+        context_step = next((step for step in plan_steps if step.get("category") == "context"), None)
+        if context_step is not None:
+            metadata = dict(context_step.get("metadata", {}))
+            options = dict(metadata.get("options", {}))
+            metadata["log_directory"] = str(logdir)
+            options["log_directory"] = str(logdir)
+            options["logdir"] = str(logdir)
+            if resolved_backup is not None:
+                metadata["backup_destination"] = str(resolved_backup)
+                options["backup"] = str(resolved_backup)
+            metadata["options"] = options
+            context_step["metadata"] = metadata
+
+        if resolved_backup is not None:
+            for step in plan_steps:
+                if step.get("category") != "registry-cleanup":
+                    continue
+                registry_metadata = dict(step.get("metadata", {}))
+                registry_metadata.setdefault("backup_destination", str(resolved_backup))
+                registry_metadata.setdefault("log_directory", str(logdir))
+                step["metadata"] = registry_metadata
 
 
 if __name__ == "__main__":  # pragma: no cover - for manual execution

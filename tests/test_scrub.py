@@ -332,3 +332,53 @@ def test_execute_plan_repeats_until_clean(monkeypatch, tmp_path) -> None:
         "msi:{LEFTOVER}:False",
         "licensing:False",
     ]
+
+
+def test_registry_cleanup_exports_and_deletes(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Ensure registry cleanup exports keys before deletion.
+    """
+
+    logdir = tmp_path / "logs"
+    logging_ext.setup_logging(logdir)
+
+    backup_dir = tmp_path / "backups"
+    recorded: dict[str, tuple[list[str], object]] = {}
+
+    def fake_export(keys, destination):
+        recorded["export"] = (list(keys), destination)
+
+    def fake_delete(keys, dry_run=False):
+        recorded["delete"] = (list(keys), dry_run)
+
+    monkeypatch.setattr(scrub.registry_tools, "export_keys", fake_export)
+    monkeypatch.setattr(scrub.registry_tools, "delete_keys", fake_delete)
+
+    plan = [
+        {
+            "id": "context",
+            "category": "context",
+            "metadata": {
+                "options": {"backup": str(backup_dir), "logdir": str(logdir)},
+                "dry_run": False,
+                "pass_index": 1,
+                "backup_destination": str(backup_dir),
+                "log_directory": str(logdir),
+            },
+        },
+        {
+            "id": "registry-1-0",
+            "category": "registry-cleanup",
+            "metadata": {
+                "keys": ["HKLM\\Software\\Test"],
+                "dry_run": False,
+                "backup_destination": str(backup_dir),
+                "log_directory": str(logdir),
+            },
+        },
+    ]
+
+    scrub._execute_steps(plan, scrub.CLEANUP_CATEGORIES, False)
+
+    assert recorded["export"] == (["HKLM\\Software\\Test"], str(backup_dir))
+    assert recorded["delete"] == (["HKLM\\Software\\Test"], False)
