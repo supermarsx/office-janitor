@@ -223,6 +223,9 @@ class OfficeJanitorTUI:
         for line in _format_plan(plan_data)[:6]:
             self._append_status(f"  {line}")
 
+        if self.last_inventory is not None:
+            payload["inventory"] = self.last_inventory
+
         self.progress_message = f"Executing {label}..."
         self._render()
 
