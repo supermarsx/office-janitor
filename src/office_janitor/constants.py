@@ -1,8 +1,9 @@
 """!
 @brief Static data and enumerations for Office Janitor.
 @details Centralises product identifiers, registry roots, Click-to-Run channel
-metadata, and other shared constants so detection and uninstall modules work
-from a single, versioned source of truth.
+metadata, uninstall command templates, and supported targets so detection and
+scrub modules operate from a consistent catalogue of Microsoft Office
+artifacts.
 """
 from __future__ import annotations
 
@@ -44,6 +45,23 @@ SUPPORTED_VERSIONS = (
     "2024",
     "365",
 )
+"""!
+@brief Ordered tuple of Office generations targeted by the scrubber.
+"""
+
+SUPPORTED_TARGETS = SUPPORTED_VERSIONS
+"""!
+@brief Alias for supported targets used by planning logic.
+"""
+
+SUPPORTED_COMPONENTS = (
+    "visio",
+    "project",
+    "onenote",
+)
+"""!
+@brief Optional components that callers may include explicitly.
+"""
 
 DEFAULT_OFFICE_PROCESSES = (
     "winword.exe",
@@ -87,6 +105,80 @@ def _merge_roots(*roots: Tuple[int, str]) -> Tuple[Tuple[int, str], ...]:
     return tuple(ordered)
 
 
+OFFSCRUB_EXECUTABLE = "cscript.exe"
+"""!
+@brief Host executable used by OffScrub VBS helpers.
+"""
+
+OFFSCRUB_HOST_ARGS: Tuple[str, ...] = ("//NoLogo",)
+"""!
+@brief Common arguments prepended to every OffScrub invocation.
+"""
+
+MSI_OFFSCRUB_SCRIPT_MAP: Dict[str, str] = {
+    "2003": "OffScrub03.vbs",
+    "2007": "OffScrub07.vbs",
+    "2010": "OffScrub10.vbs",
+    "2013": "OffScrub_O15msi.vbs",
+    "2016": "OffScrub_O16msi.vbs",
+    "2019": "OffScrub_O16msi.vbs",
+    "2021": "OffScrub_O16msi.vbs",
+    "2024": "OffScrub_O16msi.vbs",
+    "365": "OffScrub_O16msi.vbs",
+}
+"""!
+@brief Mapping between Office versions and MSI OffScrub helpers.
+"""
+
+MSI_OFFSCRUB_DEFAULT_SCRIPT = "OffScrub_O16msi.vbs"
+"""!
+@brief Default MSI OffScrub helper when no specific version matches.
+"""
+
+MSI_OFFSCRUB_ARGS: Tuple[str, ...] = (
+    "ALL",
+    "/OSE",
+    "/NOCANCEL",
+    "/FORCE",
+    "/ENDCURRENTINSTALLS",
+    "/DELETEUSERSETTINGS",
+    "/CLEARADDINREG",
+    "/REMOVELYNC",
+)
+"""!
+@brief Argument list mirrored from OfficeScrubber MSI automation.
+"""
+
+C2R_OFFSCRUB_SCRIPT = "OffScrubC2R.vbs"
+"""!
+@brief Click-to-Run OffScrub helper name mirrored from OfficeScrubber.
+"""
+
+C2R_OFFSCRUB_ARGS: Tuple[str, ...] = ("ALL", "/OFFLINE")
+"""!
+@brief Arguments passed to the Click-to-Run OffScrub helper.
+"""
+
+UNINSTALL_COMMAND_TEMPLATES: Dict[str, Dict[str, object]] = {
+    "msi": {
+        "executable": OFFSCRUB_EXECUTABLE,
+        "host_args": OFFSCRUB_HOST_ARGS,
+        "script_map": MSI_OFFSCRUB_SCRIPT_MAP,
+        "default_script": MSI_OFFSCRUB_DEFAULT_SCRIPT,
+        "arguments": MSI_OFFSCRUB_ARGS,
+    },
+    "c2r": {
+        "executable": OFFSCRUB_EXECUTABLE,
+        "host_args": OFFSCRUB_HOST_ARGS,
+        "script": C2R_OFFSCRUB_SCRIPT,
+        "arguments": C2R_OFFSCRUB_ARGS,
+    },
+}
+"""!
+@brief Templates describing how MSI and C2R uninstalls are invoked.
+"""
+
+
 MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
     # Office 2010 (14.x) Professional Plus
     "{90140000-0011-0000-0000-0000000FF1CE}": {
@@ -96,6 +188,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2010",),
         "architecture": "x86",
         "registry_roots": MSI_UNINSTALL_ROOTS,
+        "family": "office",
     },
     "{90140000-0011-0000-1000-0000000FF1CE}": {
         "product": "Microsoft Office Professional Plus 2010",
@@ -104,6 +197,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2010",),
         "architecture": "x64",
         "registry_roots": _merge_roots(MSI_UNINSTALL_ROOTS[0]),
+        "family": "office",
     },
     # Office 2013 (15.x) Professional Plus
     "{90150000-0011-0000-0000-0000000FF1CE}": {
@@ -113,6 +207,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2013",),
         "architecture": "x86",
         "registry_roots": MSI_UNINSTALL_ROOTS,
+        "family": "office",
     },
     "{90150000-0011-0000-1000-0000000FF1CE}": {
         "product": "Microsoft Office Professional Plus 2013",
@@ -121,6 +216,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2013",),
         "architecture": "x64",
         "registry_roots": _merge_roots(MSI_UNINSTALL_ROOTS[0]),
+        "family": "office",
     },
     # Office 2016/2019/2021/2024 perpetual channel (MSI-based SKUs)
     "{90160000-0011-0000-0000-0000000FF1CE}": {
@@ -130,6 +226,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2016", "2019", "2021", "2024"),
         "architecture": "x86",
         "registry_roots": MSI_UNINSTALL_ROOTS,
+        "family": "office",
     },
     "{90160000-0011-0000-1000-0000000FF1CE}": {
         "product": "Microsoft Office Professional Plus 2016",
@@ -138,6 +235,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2016", "2019", "2021", "2024"),
         "architecture": "x64",
         "registry_roots": _merge_roots(MSI_UNINSTALL_ROOTS[0]),
+        "family": "office",
     },
     # Visio Professional 2016 (MSI)
     "{90160000-0051-0000-0000-0000000FF1CE}": {
@@ -147,6 +245,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2016", "2019", "2021", "2024"),
         "architecture": "x86",
         "registry_roots": MSI_UNINSTALL_ROOTS,
+        "family": "visio",
     },
     "{90160000-0051-0000-1000-0000000FF1CE}": {
         "product": "Microsoft Visio Professional 2016",
@@ -155,6 +254,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2016", "2019", "2021", "2024"),
         "architecture": "x64",
         "registry_roots": _merge_roots(MSI_UNINSTALL_ROOTS[0]),
+        "family": "visio",
     },
     # Project Professional 2016 (MSI)
     "{90160000-003B-0000-0000-0000000FF1CE}": {
@@ -164,6 +264,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2016", "2019", "2021", "2024"),
         "architecture": "x86",
         "registry_roots": MSI_UNINSTALL_ROOTS,
+        "family": "project",
     },
     "{90160000-003B-0000-1000-0000000FF1CE}": {
         "product": "Microsoft Project Professional 2016",
@@ -172,6 +273,7 @@ MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
         "supported_versions": ("2016", "2019", "2021", "2024"),
         "architecture": "x64",
         "registry_roots": _merge_roots(MSI_UNINSTALL_ROOTS[0]),
+        "family": "project",
     },
 }
 
@@ -236,6 +338,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Microsoft 365 Apps for enterprise",
         "supported_versions": ("2016", "2019", "2021", "2024", "365"),
         "architectures": ("x86", "x64", "ARM64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -245,6 +348,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Microsoft 365 Apps for enterprise (Volume)",
         "supported_versions": ("2016", "2019", "2021", "2024", "365"),
         "architectures": ("x86", "x64", "ARM64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -254,6 +358,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Microsoft 365 Apps for business",
         "supported_versions": ("2016", "2019", "2021", "2024", "365"),
         "architectures": ("x86", "x64", "ARM64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -264,6 +369,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Office Professional Plus 2019 (C2R)",
         "supported_versions": ("2019",),
         "architectures": ("x86", "x64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -273,6 +379,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Office Standard 2019 (C2R)",
         "supported_versions": ("2019",),
         "architectures": ("x86", "x64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -282,6 +389,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Office Professional Plus 2021 (C2R)",
         "supported_versions": ("2021",),
         "architectures": ("x86", "x64", "ARM64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -291,6 +399,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Office Standard 2021 (C2R)",
         "supported_versions": ("2021",),
         "architectures": ("x86", "x64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -300,6 +409,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Office Professional Plus 2024 (C2R)",
         "supported_versions": ("2024",),
         "architectures": ("x86", "x64", "ARM64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -309,6 +419,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Office Standard 2024 (C2R)",
         "supported_versions": ("2024",),
         "architectures": ("x86", "x64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -319,6 +430,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Microsoft Project Professional (C2R)",
         "supported_versions": ("2016", "2019", "2021", "2024"),
         "architectures": ("x86", "x64"),
+        "family": "project",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -328,6 +440,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Microsoft Visio Professional (C2R)",
         "supported_versions": ("2016", "2019", "2021", "2024"),
         "architectures": ("x86", "x64"),
+        "family": "visio",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
@@ -338,12 +451,130 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
         "product": "Office Mondo (Microsoft Internal)",
         "supported_versions": ("2013", "2016", "2019"),
         "architectures": ("x86", "x64"),
+        "family": "office",
         "registry_paths": {
             "configuration": C2R_CONFIGURATION_KEYS,
             "product_release_ids": C2R_PRODUCT_RELEASE_ROOTS,
         },
     },
 }
+
+
+_MSI_FAMILY_LOOKUP: Dict[str, str] = {}
+for _code, _metadata in MSI_PRODUCT_MAP.items():
+    _family = str(_metadata.get("family", ""))
+    if not _family:
+        continue
+    _canonical = _code.upper()
+    _MSI_FAMILY_LOOKUP[_canonical] = _family
+    _without_braces = _canonical.strip("{}")
+    if _without_braces:
+        _MSI_FAMILY_LOOKUP[_without_braces] = _family
+    _condensed = _without_braces.replace("-", "") if _without_braces else _canonical.replace("-", "")
+    if _condensed:
+        _MSI_FAMILY_LOOKUP[_condensed] = _family
+        _MSI_FAMILY_LOOKUP[f"{{{_condensed}}}"] = _family
+"""!
+@brief Internal cache mapping MSI product codes to families.
+"""
+
+_C2R_FAMILY_LOOKUP = {
+    release_id.lower(): str(metadata.get("family", ""))
+    for release_id, metadata in C2R_PRODUCT_RELEASES.items()
+    if metadata.get("family")
+}
+"""!
+@brief Internal cache mapping Click-to-Run release identifiers to families.
+"""
+
+_SUPPORTED_COMPONENT_ALIASES = {
+    "msi-project": "project",
+    "msi-visio": "visio",
+    "c2r-project": "project",
+    "c2r-visio": "visio",
+    "onenote2016": "onenote",
+}
+"""!
+@brief Normalisation table for optional component identifiers.
+"""
+
+
+def resolve_msi_family(product_code: str | None) -> str | None:
+    """!
+    @brief Return the product family for the supplied MSI ``product_code``.
+    @details Normalises the identifier to ensure braces and case do not affect
+    lookups. Returns ``None`` when the product code is unknown.
+    """
+
+    if not product_code:
+        return None
+    normalised = product_code.strip().upper()
+    if not normalised:
+        return None
+
+    candidates = [normalised]
+    stripped = normalised.strip("{}")
+    if stripped and stripped not in candidates:
+        candidates.append(stripped)
+    condensed = stripped.replace("-", "") if stripped else normalised.replace("-", "")
+    if condensed and condensed not in candidates:
+        candidates.append(condensed)
+    if condensed:
+        wrapped = f"{{{condensed}}}"
+        if wrapped not in candidates:
+            candidates.append(wrapped)
+
+    for candidate in candidates:
+        family = _MSI_FAMILY_LOOKUP.get(candidate)
+        if family:
+            return family
+    return None
+
+
+def resolve_c2r_family(release_id: str | None) -> str | None:
+    """!
+    @brief Return the product family for the supplied Click-to-Run ``release_id``.
+    """
+
+    if not release_id:
+        return None
+    normalised = release_id.strip().lower()
+    if not normalised:
+        return None
+    return _C2R_FAMILY_LOOKUP.get(normalised)
+
+
+def resolve_supported_component(name: str | None) -> str | None:
+    """!
+    @brief Normalise a component identifier to a supported component tag.
+    @details Accepts entries from :data:`SUPPORTED_COMPONENTS` along with
+    historical aliases used by Office removal scripts.
+    """
+
+    if not name:
+        return None
+    candidate = name.strip().lower()
+    if not candidate:
+        return None
+    if candidate in SUPPORTED_COMPONENTS:
+        return candidate
+    return _SUPPORTED_COMPONENT_ALIASES.get(candidate)
+
+
+def is_supported_component(name: str | None) -> bool:
+    """!
+    @brief Convenience predicate returning ``True`` for supported components.
+    """
+
+    return resolve_supported_component(name) is not None
+
+
+def iter_supported_components() -> Tuple[str, ...]:
+    """!
+    @brief Iterate the optional component identifiers recognised by the scrubber.
+    """
+
+    return SUPPORTED_COMPONENTS
 
 
 KNOWN_SCHEDULED_TASKS = (
@@ -427,6 +658,8 @@ __all__ = [
     "C2R_CHANNEL_ALIASES",
     "C2R_COM_REGISTRY_PATHS",
     "C2R_CONFIGURATION_KEYS",
+    "C2R_OFFSCRUB_ARGS",
+    "C2R_OFFSCRUB_SCRIPT",
     "C2R_PLATFORM_ALIASES",
     "C2R_PRODUCT_RELEASES",
     "C2R_PRODUCT_RELEASE_ROOTS",
@@ -442,11 +675,24 @@ __all__ = [
     "KNOWN_SERVICES",
     "LICENSE_DLLS",
     "LICENSING_GUID_FILTERS",
+    "MSI_OFFSCRUB_ARGS",
+    "MSI_OFFSCRUB_DEFAULT_SCRIPT",
+    "MSI_OFFSCRUB_SCRIPT_MAP",
     "MSI_PRODUCT_MAP",
     "MSI_UNINSTALL_ROOTS",
     "OSPP_REGISTRY_PATH",
+    "OFFSCRUB_EXECUTABLE",
+    "OFFSCRUB_HOST_ARGS",
     "REGISTRY_ROOTS",
+    "SUPPORTED_COMPONENTS",
+    "SUPPORTED_TARGETS",
     "SUPPORTED_VERSIONS",
+    "UNINSTALL_COMMAND_TEMPLATES",
     "USER_TEMPLATE_PATHS",
     "known_msi_codes",
+    "resolve_c2r_family",
+    "resolve_msi_family",
+    "resolve_supported_component",
+    "is_supported_component",
+    "iter_supported_components",
 ]

@@ -11,23 +11,13 @@ import time
 from pathlib import Path
 from typing import Iterable, List, Mapping, Sequence
 
-from . import logging_ext
+from . import constants, logging_ext
+
+OFFSCRUB_C2R_ARGS = constants.C2R_OFFSCRUB_ARGS
+"""!
+@brief Backwards-compatible alias for Click-to-Run OffScrub arguments.
+"""
 from .off_scrub_scripts import ensure_offscrub_script
-
-CSCRIPT = "cscript.exe"
-"""!
-@brief Host executable for OffScrub VBS helpers.
-"""
-
-OFFSCRUB_C2R_SCRIPT = "OffScrubC2R.vbs"
-"""!
-@brief Click-to-Run OffScrub helper name mirrored from the reference script.
-"""
-
-OFFSCRUB_C2R_ARGS: tuple[str, ...] = ("ALL", "/OFFLINE")
-"""!
-@brief Arguments used by ``OffScrubC2R.vbs`` inside ``OfficeScrubber.cmd``.
-"""
 
 C2R_TIMEOUT = 3600
 """!
@@ -62,10 +52,14 @@ def build_command(
         or config.get("ProductReleaseIds")
     )
 
-    script_path = ensure_offscrub_script(OFFSCRUB_C2R_SCRIPT, base_directory=script_directory)
+    script_path = ensure_offscrub_script(
+        constants.C2R_OFFSCRUB_SCRIPT, base_directory=script_directory
+    )
 
-    command: List[str] = [str(CSCRIPT), "//NoLogo", str(script_path)]
-    command.extend(OFFSCRUB_C2R_ARGS)
+    command: List[str] = [str(constants.OFFSCRUB_EXECUTABLE)]
+    command.extend(str(arg) for arg in constants.OFFSCRUB_HOST_ARGS)
+    command.append(str(script_path))
+    command.extend(constants.C2R_OFFSCRUB_ARGS)
     if release_ids:
         command.append(f"/PRODUCTS={';'.join(release_ids)}")
     return command

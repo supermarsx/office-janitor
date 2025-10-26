@@ -13,51 +13,17 @@ import time
 from pathlib import Path
 from typing import Iterable, List, Mapping, MutableMapping
 
-from . import logging_ext
-from .off_scrub_scripts import ensure_offscrub_script
+from . import constants, logging_ext
 
-CSCRIPT = "cscript.exe"
+OFFSCRUB_BASE_ARGS = constants.MSI_OFFSCRUB_ARGS
 """!
-@brief Host executable used to run OffScrub VBS helpers.
+@brief Backwards-compatible alias for MSI OffScrub arguments.
 """
+from .off_scrub_scripts import ensure_offscrub_script
 
 OFFSCRUB_TIMEOUT = 1800
 """!
 @brief Default timeout (seconds) for OffScrub automation helpers.
-"""
-
-OFFSCRUB_BASE_ARGS: tuple[str, ...] = (
-    "ALL",
-    "/OSE",
-    "/NOCANCEL",
-    "/FORCE",
-    "/ENDCURRENTINSTALLS",
-    "/DELETEUSERSETTINGS",
-    "/CLEARADDINREG",
-    "/REMOVELYNC",
-)
-"""!
-@brief Argument list mirrored from ``_para`` in ``OfficeScrubber.cmd``.
-"""
-
-OFFSCRUB_SCRIPT_MAP: Mapping[str, str] = {
-    "2003": "OffScrub03.vbs",
-    "2007": "OffScrub07.vbs",
-    "2010": "OffScrub10.vbs",
-    "2013": "OffScrub_O15msi.vbs",
-    "2016": "OffScrub_O16msi.vbs",
-    "2019": "OffScrub_O16msi.vbs",
-    "2021": "OffScrub_O16msi.vbs",
-    "2024": "OffScrub_O16msi.vbs",
-    "365": "OffScrub_O16msi.vbs",
-}
-"""!
-@brief Mapping between detected Office versions and OffScrub MSI helpers.
-"""
-
-DEFAULT_OFFSCRUB_SCRIPT = "OffScrub_O16msi.vbs"
-"""!
-@brief Fallback helper used when a specific version is not known.
 """
 
 
@@ -76,13 +42,13 @@ def _resolve_offscrub_script(version_hint: str | None) -> str:
 
     if version_hint:
         normalized = version_hint.strip().lower()
-        mapped = OFFSCRUB_SCRIPT_MAP.get(normalized)
+        mapped = constants.MSI_OFFSCRUB_SCRIPT_MAP.get(normalized)
         if mapped:
             return mapped
-        for key, value in OFFSCRUB_SCRIPT_MAP.items():
+        for key, value in constants.MSI_OFFSCRUB_SCRIPT_MAP.items():
             if normalized.startswith(key.lower()):
                 return value
-    return DEFAULT_OFFSCRUB_SCRIPT
+    return constants.MSI_OFFSCRUB_DEFAULT_SCRIPT
 
 
 def build_command(
@@ -111,8 +77,10 @@ def build_command(
     script_name = _resolve_offscrub_script(version_hint)
     script_path = ensure_offscrub_script(script_name, base_directory=script_directory)
 
-    command: List[str] = [str(CSCRIPT), "//NoLogo", str(script_path)]
-    command.extend(OFFSCRUB_BASE_ARGS)
+    command: List[str] = [str(constants.OFFSCRUB_EXECUTABLE)]
+    command.extend(str(arg) for arg in constants.OFFSCRUB_HOST_ARGS)
+    command.append(str(script_path))
+    command.extend(constants.MSI_OFFSCRUB_ARGS)
     if product_code:
         command.append(f"/PRODUCTCODE={product_code}")
     return command
