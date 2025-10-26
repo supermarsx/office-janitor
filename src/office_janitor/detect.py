@@ -142,6 +142,7 @@ def detect_msi_installations() -> List[DetectedInstallation]:
             display_name = str(values.get("DisplayName") or metadata.get("product") or product_code)
             display_version = str(values.get("DisplayVersion") or "")
             uninstall_string = str(values.get("UninstallString") or "")
+            family = constants.resolve_msi_family(product_code) or str(metadata.get("family", ""))
 
             properties: Dict[str, object] = {
                 "display_name": display_name,
@@ -151,6 +152,8 @@ def detect_msi_installations() -> List[DetectedInstallation]:
                 properties["uninstall_string"] = uninstall_string
             properties["supported_versions"] = list(metadata.get("supported_versions", ()))
             properties["edition"] = metadata.get("edition", "")
+            if family:
+                properties["family"] = family
 
             installations.append(
                 DetectedInstallation(
@@ -217,6 +220,9 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
             supported_architectures = tuple(
                 str(a) for a in (product_metadata or {}).get("architectures", ())
             )
+            family = constants.resolve_c2r_family(release_id) or str(
+                (product_metadata or {}).get("family", "")
+            )
             uninstall_handles = [_compose_handle(hive, config_path)]
 
             registry_paths = (product_metadata or {}).get("registry_paths", {})
@@ -238,6 +244,8 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
                 properties["package_guid"] = package_guid
             if install_path:
                 properties["install_path"] = install_path
+            if family:
+                properties["family"] = family
 
             installations.append(
                 DetectedInstallation(

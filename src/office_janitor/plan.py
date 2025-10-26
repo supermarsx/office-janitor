@@ -8,17 +8,10 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Mapping, Sequence
 
-SUPPORTED_TARGET_VERSIONS = {
-    "2003",
-    "2007",
-    "2010",
-    "2013",
-    "2016",
-    "2019",
-    "2021",
-    "2024",
-    "365",
-}
+from . import constants
+
+_SUPPORTED_TARGETS = tuple(constants.SUPPORTED_TARGETS)
+_SUPPORTED_TARGET_SET = {str(value) for value in _SUPPORTED_TARGETS}
 
 _C2R_RELEASE_HINTS = {
     "o365": "365",
@@ -282,7 +275,7 @@ def _resolve_targets(mode: str, options: Mapping[str, object]) -> tuple[List[str
             ordered_targets.append(candidate_norm)
 
     for candidate in ordered_targets:
-        if candidate not in SUPPORTED_TARGET_VERSIONS:
+        if candidate not in _SUPPORTED_TARGET_SET:
             unsupported.append(candidate)
 
     valid_targets = [candidate for candidate in ordered_targets if candidate not in unsupported]
@@ -319,10 +312,10 @@ def _infer_version(record: Mapping[str, object]) -> str:
         if not value:
             continue
         value_str = str(value)
-        if value_str in SUPPORTED_TARGET_VERSIONS:
+        if value_str in _SUPPORTED_TARGET_SET:
             return value_str
         major_component = value_str.split(".", 1)[0]
-        if major_component in SUPPORTED_TARGET_VERSIONS:
+        if major_component in _SUPPORTED_TARGET_SET:
             return major_component
         if not fallback_value:
             fallback_value = value_str
@@ -331,7 +324,7 @@ def _infer_version(record: Mapping[str, object]) -> str:
     if isinstance(tags, Iterable) and not isinstance(tags, (str, bytes)):
         for tag in tags:
             tag_str = str(tag)
-            if tag_str in SUPPORTED_TARGET_VERSIONS:
+            if tag_str in _SUPPORTED_TARGET_SET:
                 return tag_str
 
     release_ids = record.get("release_ids")
