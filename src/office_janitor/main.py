@@ -97,11 +97,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     """
 
     parser = argparse.ArgumentParser(prog="office-janitor", add_help=True)
+    metadata = version.build_info()
     parser.add_argument(
         "-V",
         "--version",
         action="version",
-        version=f"{version.__version__} ({version.__build__})",
+        version=f"{metadata['version']} ({metadata['build']})",
     )
 
     modes = parser.add_mutually_exclusive_group()

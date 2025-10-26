@@ -6,12 +6,14 @@ import pathlib
 import sys
 from typing import List
 
+import pytest
+
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import main, ui  # noqa: E402
+from office_janitor import main, ui, version  # noqa: E402
 from office_janitor import tui as tui_module  # noqa: E402
 
 
@@ -164,6 +166,32 @@ def test_arg_parser_and_plan_options_cover_modes() -> None:
     assert options["keep_templates"] is True
     assert options["timeout"] == 90
     assert options["backup"] == "C:/backup"
+
+
+def test_version_option_reports_metadata(capsys) -> None:
+    """!
+    @brief ``--version`` should surface both version and build identifiers.
+    """
+
+    parser = main.build_arg_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--version"])
+    output = capsys.readouterr().out
+    info = version.build_info()
+    assert info["version"] in output
+    assert info["build"] in output
+
+
+def test_ui_header_displays_build_info(capsys) -> None:
+    """!
+    @brief The interactive menu header should mention version metadata.
+    """
+
+    ui._print_menu([])
+    output = capsys.readouterr().out
+    info = version.build_info()
+    assert info["version"] in output
+    assert info["build"] in output
 
 
 def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
