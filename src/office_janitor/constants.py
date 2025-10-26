@@ -53,6 +53,17 @@ DEFAULT_OFFICE_PROCESSES = (
     "visio.exe",
     "powerpnt.exe",
 )
+"""!
+@brief Foreground Office applications terminated prior to uninstalls.
+"""
+
+OFFICE_PROCESS_PATTERNS = (
+    "ose*.exe",
+    "integrator.exe",
+)
+"""!
+@brief Wildcard process filters used to mirror OffScrub cleanup loops.
+"""
 
 MSI_UNINSTALL_ROOTS: Tuple[Tuple[int, str], ...] = (
     (HKLM, r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
@@ -349,6 +360,36 @@ KNOWN_SERVICES = (
     "ose64",
 )
 
+LICENSE_DLLS = {
+    "spp": "sppc.dll",
+    "ospp": "osppc.dll",
+}
+"""!
+@brief Default DLL names referenced by the embedded licensing PowerShell script.
+"""
+
+LICENSING_GUID_FILTERS = {
+    "office_family": "0ff1ce15-a989-479d-af46-f275c6370663",
+}
+"""!
+@brief Product family GUIDs targeted when uninstalling Office licenses.
+"""
+
+OSPP_REGISTRY_PATH = r"HKLM\\SOFTWARE\\Microsoft\\OfficeSoftwareProtectionPlatform"
+"""!
+@brief Registry location that exposes the Office Software Protection Platform path.
+"""
+
+USER_TEMPLATE_PATHS = (
+    r"%APPDATA%\\Microsoft\\Templates",
+    r"%APPDATA%\\Microsoft\\Office\\Templates",
+    r"%LOCALAPPDATA%\\Microsoft\\Office\\Licensing",
+    r"%LOCALAPPDATA%\\Microsoft\\Office\\Licenses",
+)
+"""!
+@brief Directories containing user templates and licensing state that require explicit purge consent.
+"""
+
 INSTALL_ROOT_TEMPLATES = (
     {
         "label": "c2r_root_x86",
@@ -391,6 +432,7 @@ __all__ = [
     "C2R_PRODUCT_RELEASE_ROOTS",
     "C2R_SUBSCRIPTION_ROOTS",
     "DEFAULT_OFFICE_PROCESSES",
+    "OFFICE_PROCESS_PATTERNS",
     "HKCR",
     "HKCU",
     "HKLM",
@@ -398,9 +440,13 @@ __all__ = [
     "INSTALL_ROOT_TEMPLATES",
     "KNOWN_SCHEDULED_TASKS",
     "KNOWN_SERVICES",
+    "LICENSE_DLLS",
+    "LICENSING_GUID_FILTERS",
     "MSI_PRODUCT_MAP",
     "MSI_UNINSTALL_ROOTS",
+    "OSPP_REGISTRY_PATH",
     "REGISTRY_ROOTS",
     "SUPPORTED_VERSIONS",
+    "USER_TEMPLATE_PATHS",
     "known_msi_codes",
 ]

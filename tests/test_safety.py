@@ -215,6 +215,98 @@ class TestSafetyPreflight:
         with pytest.raises(ValueError):
             safety.perform_preflight_checks(plan_steps)
 
+    def test_preflight_blocks_template_cleanup_without_consent(self) -> None:
+        """!
+        @brief User template cleanup must be explicitly authorised.
+        """
+
+        plan_steps = [
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "dry_run": False,
+                    "mode": "auto-all",
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                    "options": {"force": False, "keep_templates": False},
+                },
+            },
+            {
+                "id": "filesystem-0",
+                "category": "filesystem-cleanup",
+                "metadata": {
+                    "paths": [r"C:\\Users\\Alice\\AppData\\Roaming\\Microsoft\\Templates"],
+                    "dry_run": False,
+                    "purge_templates": False,
+                },
+            },
+        ]
+
+        with pytest.raises(ValueError):
+            safety.perform_preflight_checks(plan_steps)
+
+    def test_preflight_allows_forced_template_cleanup(self) -> None:
+        """!
+        @brief Force flag should permit template cleanup steps.
+        """
+
+        plan_steps = [
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "dry_run": False,
+                    "mode": "auto-all",
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                    "options": {"force": True, "keep_templates": False},
+                },
+            },
+            {
+                "id": "filesystem-0",
+                "category": "filesystem-cleanup",
+                "metadata": {
+                    "paths": [r"C:\\Users\\Alice\\AppData\\Roaming\\Microsoft\\Templates"],
+                    "dry_run": False,
+                    "purge_templates": True,
+                },
+            },
+        ]
+
+        safety.perform_preflight_checks(plan_steps)
+
+    def test_preflight_honours_preserve_templates_flag(self) -> None:
+        """!
+        @brief Preserve flag should block template deletion even with cleanup steps present.
+        """
+
+        plan_steps = [
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "dry_run": False,
+                    "mode": "auto-all",
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                    "options": {"force": False, "keep_templates": True},
+                },
+            },
+            {
+                "id": "filesystem-0",
+                "category": "filesystem-cleanup",
+                "metadata": {
+                    "paths": [r"C:\\Users\\Alice\\AppData\\Roaming\\Microsoft\\Templates"],
+                    "dry_run": False,
+                    "preserve_templates": True,
+                },
+            },
+        ]
+
+        with pytest.raises(ValueError):
+            safety.perform_preflight_checks(plan_steps)
+
     def test_preflight_requires_targeted_uninstall(self) -> None:
         """!
         @brief Target mode without uninstall steps is invalid.

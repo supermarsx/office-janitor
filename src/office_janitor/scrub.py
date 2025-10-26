@@ -89,6 +89,7 @@ def execute_plan(
                 human_logger.warning("Failed to create restore point: %s", exc)
 
         processes.terminate_office_processes(constants.DEFAULT_OFFICE_PROCESSES)
+        processes.terminate_process_patterns(constants.OFFICE_PROCESS_PATTERNS)
         tasks_services.stop_services(constants.KNOWN_SERVICES)
         tasks_services.disable_tasks(constants.KNOWN_SCHEDULED_TASKS, dry_run=False)
 

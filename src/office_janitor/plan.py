@@ -164,6 +164,8 @@ def build_plan(
                 "metadata": {
                     "paths": filesystem_entries,
                     "preserve_templates": bool(normalized_options.get("keep_templates", False)),
+                    "purge_templates": bool(normalized_options.get("force", False))
+                    and not bool(normalized_options.get("keep_templates", False)),
                     "dry_run": dry_run,
                 },
             }

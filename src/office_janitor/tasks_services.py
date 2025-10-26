@@ -7,7 +7,7 @@ specification's guidelines.
 from __future__ import annotations
 
 import subprocess
-from typing import Iterable, List
+from typing import Iterable, List, Sequence
 
 from . import logging_ext
 
@@ -73,6 +73,59 @@ def disable_tasks(task_names: Iterable[str], *, dry_run: bool = False) -> None:
                     "stderr": result.stderr,
                 },
             )
+
+
+def remove_tasks(task_names: Sequence[str], *, dry_run: bool = False) -> None:
+    """!
+    @brief Delete scheduled tasks using ``schtasks /Delete`` semantics.
+    @details OffScrub removes Office maintenance tasks outright; this helper
+    mirrors that behaviour with dry-run support and structured logging.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    for task in (name for name in task_names if str(name).strip()):
+        task_name = str(task).strip()
+        machine_logger.info(
+            "task_delete_plan",
+            extra={
+                "event": "task_delete_plan",
+                "task": task_name,
+                "dry_run": bool(dry_run),
+            },
+        )
+        if dry_run:
+            human_logger.info("Dry-run: would delete scheduled task %s", task_name)
+            continue
+
+        command = ["schtasks.exe", "/Delete", "/TN", task_name, "/F"]
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+            human_logger.debug("schtasks.exe unavailable; cannot delete %s", task_name)
+            continue
+
+        machine_logger.info(
+            "task_delete_result",
+            extra={
+                "event": "task_delete_result",
+                "task": task_name,
+                "return_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+        )
+        if result.returncode == 0:
+            human_logger.info("Deleted scheduled task %s", task_name)
+        else:
+            human_logger.debug("Scheduled task %s delete returned %s", task_name, result.returncode)
 
 
 def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
@@ -173,3 +226,57 @@ def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
             human_logger.debug(
                 "Service %s disable returned %s", service, disable_result.returncode
             )
+
+
+def delete_services(service_names: Sequence[str], *, dry_run: bool = False) -> None:
+    """!
+    @brief Remove services entirely using ``sc delete``.
+    @details Complements :func:`stop_services` by purging obsolete Office
+    services after they have been stopped.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    for service in (name for name in service_names if str(name).strip()):
+        service_name = str(service).strip()
+        machine_logger.info(
+            "service_delete_plan",
+            extra={
+                "event": "service_delete_plan",
+                "service": service_name,
+                "dry_run": bool(dry_run),
+            },
+        )
+
+        if dry_run:
+            human_logger.info("Dry-run: would delete service %s", service_name)
+            continue
+
+        command = ["sc.exe", "delete", service_name]
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+            human_logger.debug("sc.exe unavailable; cannot delete %s", service_name)
+            continue
+
+        machine_logger.info(
+            "service_delete_result",
+            extra={
+                "event": "service_delete_result",
+                "service": service_name,
+                "return_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+        )
+        if result.returncode == 0:
+            human_logger.info("Deleted service %s", service_name)
+        else:
+            human_logger.debug("Service %s delete returned %s", service_name, result.returncode)
