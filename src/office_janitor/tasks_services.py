@@ -133,13 +133,29 @@ def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
                 "Service %s stop returned %s", service, stop_result.returncode
             )
 
-        disable_result = subprocess.run(
-            disable_command,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        try:
+            disable_result = subprocess.run(
+                disable_command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+            human_logger.debug("sc.exe unavailable; cannot disable %s", service)
+            continue
+        except subprocess.TimeoutExpired as exc:
+            human_logger.warning("Timed out disabling service %s", service)
+            machine_logger.warning(
+                "service_disable_timeout",
+                extra={
+                    "event": "service_disable_timeout",
+                    "service": service,
+                    "stdout": exc.stdout,
+                    "stderr": exc.stderr,
+                },
+            )
+            continue
         machine_logger.info(
             "service_disable_result",
             extra={
