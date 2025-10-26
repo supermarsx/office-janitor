@@ -33,7 +33,13 @@ DEFAULT_MAX_PASSES = 3
 """
 
 UNINSTALL_CATEGORIES = {"context", "msi-uninstall", "c2r-uninstall"}
-CLEANUP_CATEGORIES = {"licensing-cleanup", "filesystem-cleanup", "registry-cleanup"}
+CLEANUP_CATEGORIES = {
+    "licensing-cleanup",
+    "task-cleanup",
+    "service-cleanup",
+    "filesystem-cleanup",
+    "registry-cleanup",
+}
 
 
 def execute_plan(
@@ -297,6 +303,18 @@ def _execute_steps(
             elif category == "licensing-cleanup":
                 metadata["dry_run"] = step_dry_run
                 licensing.cleanup_licenses(metadata)
+            elif category == "task-cleanup":
+                tasks = [str(task) for task in metadata.get("tasks", []) if task]
+                if not tasks:
+                    human_logger.info("No scheduled tasks supplied; skipping step.")
+                else:
+                    tasks_services.remove_tasks(tasks, dry_run=step_dry_run)
+            elif category == "service-cleanup":
+                services = [str(service) for service in metadata.get("services", []) if service]
+                if not services:
+                    human_logger.info("No services supplied; skipping step.")
+                else:
+                    tasks_services.delete_services(services, dry_run=step_dry_run)
             elif category == "filesystem-cleanup":
                 paths = metadata.get("paths", [])
                 if not paths:

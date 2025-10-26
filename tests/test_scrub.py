@@ -61,6 +61,16 @@ def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:
         "disable_tasks",
         lambda tasks, dry_run=False: events.append("disable_tasks"),
     )
+    monkeypatch.setattr(
+        scrub.tasks_services,
+        "remove_tasks",
+        lambda tasks, dry_run=False: events.append(f"remove_tasks:{dry_run}"),
+    )
+    monkeypatch.setattr(
+        scrub.tasks_services,
+        "delete_services",
+        lambda services, dry_run=False: events.append(f"delete_services:{dry_run}"),
+    )
 
     monkeypatch.setattr(
         scrub.msi_uninstall,
@@ -87,7 +97,14 @@ def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:
     )
 
     def fake_reprobe(options):
-        return {"msi": [], "c2r": [], "filesystem": [], "registry": []}
+        return {
+            "msi": [],
+            "c2r": [],
+            "tasks": [],
+            "services": [],
+            "filesystem": [],
+            "registry": [],
+        }
 
     monkeypatch.setattr(scrub.detect, "reprobe", fake_reprobe)
 
@@ -102,9 +119,21 @@ def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:
                 "metadata": {"dry_run": options.get("dry_run", False)},
             },
             {
+                "id": "tasks-2-0",
+                "category": "task-cleanup",
+                "depends_on": ["licensing-2-0"],
+                "metadata": {"tasks": [r"\\Microsoft\\Office\\TelemetryTask"]},
+            },
+            {
+                "id": "services-2-0",
+                "category": "service-cleanup",
+                "depends_on": ["tasks-2-0"],
+                "metadata": {"services": ["ClickToRunSvc"]},
+            },
+            {
                 "id": "filesystem-2-0",
                 "category": "filesystem-cleanup",
-                "depends_on": ["licensing-2-0"],
+                "depends_on": ["services-2-0"],
                 "metadata": {"paths": [str(tmp_path / "stale")]},
             },
         ]
@@ -129,6 +158,16 @@ def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:
             "metadata": {},
         },
         {
+            "id": "tasks-1-0",
+            "category": "task-cleanup",
+            "metadata": {"tasks": [r"\\Microsoft\\Office\\TelemetryTask"]},
+        },
+        {
+            "id": "services-1-0",
+            "category": "service-cleanup",
+            "metadata": {"services": ["ClickToRunSvc"]},
+        },
+        {
             "id": "filesystem-1-0",
             "category": "filesystem-cleanup",
             "metadata": {"paths": [str(tmp_path / "stale")]},
@@ -145,6 +184,8 @@ def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:
         "msi:{CODE}:False",
         "c2r:False",
         "licensing:False",
+        "remove_tasks:False",
+        "delete_services:False",
         "filesystem:False",
     ]
 
@@ -175,6 +216,16 @@ def test_execute_plan_dry_run_skips_mutations(monkeypatch, tmp_path) -> None:
         scrub.tasks_services,
         "disable_tasks",
         lambda tasks, dry_run=False: (_ for _ in ()).throw(AssertionError("disable tasks should not run")),
+    )
+    monkeypatch.setattr(
+        scrub.tasks_services,
+        "remove_tasks",
+        lambda tasks, dry_run=False: recorded.append(f"remove_tasks:{dry_run}"),
+    )
+    monkeypatch.setattr(
+        scrub.tasks_services,
+        "delete_services",
+        lambda services, dry_run=False: recorded.append(f"delete_services:{dry_run}"),
     )
 
     recorded: List[str] = []
@@ -221,6 +272,16 @@ def test_execute_plan_dry_run_skips_mutations(monkeypatch, tmp_path) -> None:
             "metadata": {},
         },
         {
+            "id": "tasks-1-0",
+            "category": "task-cleanup",
+            "metadata": {"tasks": [r"\\Microsoft\\Office\\TelemetryTask"]},
+        },
+        {
+            "id": "services-1-0",
+            "category": "service-cleanup",
+            "metadata": {"services": ["ClickToRunSvc"]},
+        },
+        {
             "id": "filesystem-1-0",
             "category": "filesystem-cleanup",
             "metadata": {"paths": ["X"]},
@@ -233,6 +294,8 @@ def test_execute_plan_dry_run_skips_mutations(monkeypatch, tmp_path) -> None:
         "msi:True",
         "c2r:True",
         "licensing:True",
+        "remove_tasks:True",
+        "delete_services:True",
         "filesystem:True",
     ]
 

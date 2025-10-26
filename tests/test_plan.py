@@ -49,6 +49,12 @@ class TestPlanBuilder:
                     "tags": ["365"],
                 }
             ],
+            "tasks": [
+                {"task": r"\\Microsoft\\Office\\TelemetryTask"},
+            ],
+            "services": [
+                {"name": "ClickToRunSvc"},
+            ],
             "filesystem": [
                 {"path": r"C:\\Program Files\\Microsoft Office"},
             ],
@@ -66,6 +72,8 @@ class TestPlanBuilder:
             "msi-uninstall",
             "c2r-uninstall",
             "licensing-cleanup",
+            "task-cleanup",
+            "service-cleanup",
             "filesystem-cleanup",
             "registry-cleanup",
         ]
@@ -79,8 +87,16 @@ class TestPlanBuilder:
         assert set(licensing["depends_on"]) == {"msi-1-0", "c2r-1-0"}
         assert licensing["metadata"]["dry_run"] is False
 
+        task_step = next(step for step in plan_steps if step["category"] == "task-cleanup")
+        assert task_step["depends_on"] == ["licensing-1-0"]
+        assert task_step["metadata"]["tasks"] == [r"\\Microsoft\\Office\\TelemetryTask"]
+
+        service_step = next(step for step in plan_steps if step["category"] == "service-cleanup")
+        assert service_step["depends_on"] == [task_step["id"]]
+        assert service_step["metadata"]["services"] == ["ClickToRunSvc"]
+
         filesystem = next(step for step in plan_steps if step["category"] == "filesystem-cleanup")
-        assert filesystem["depends_on"] == ["licensing-1-0"]
+        assert filesystem["depends_on"] == [service_step["id"]]
 
         msi_step = next(step for step in plan_steps if step["category"] == "msi-uninstall")
         c2r_step = next(step for step in plan_steps if step["category"] == "c2r-uninstall")
@@ -201,6 +217,12 @@ class TestPlanBuilder:
                     "version": "2016",
                 }
             ],
+            "tasks": [
+                {"task": r"\\Microsoft\\Office\\TelemetryTask"},
+            ],
+            "services": [
+                {"name": "ClickToRunSvc"},
+            ],
             "filesystem": [
                 {"path": r"C:\\Program Files\\Microsoft Office"},
             ],
@@ -218,6 +240,8 @@ class TestPlanBuilder:
         assert {step["category"] for step in plan_steps} == {
             "context",
             "licensing-cleanup",
+            "task-cleanup",
+            "service-cleanup",
             "filesystem-cleanup",
             "registry-cleanup",
         }
@@ -228,6 +252,41 @@ class TestPlanBuilder:
         licensing = next(step for step in plan_steps if step["category"] == "licensing-cleanup")
         assert licensing["depends_on"] == ["context"]
         assert licensing["metadata"]["dry_run"] is True
+
+        task_step = next(step for step in plan_steps if step["category"] == "task-cleanup")
+        assert task_step["depends_on"] == [licensing["id"]]
+
+        service_step = next(step for step in plan_steps if step["category"] == "service-cleanup")
+        assert service_step["depends_on"] == [task_step["id"]]
+
+    def test_plan_includes_task_and_service_cleanup(self) -> None:
+        """!
+        @brief Planner emits task and service cleanup steps when inventory reports them.
+        """
+
+        inventory: Dict[str, List[dict]] = {
+            "tasks": [
+                {"task": r"\\Microsoft\\Office\\TelemetryTask"},
+                {"name": r"\\Microsoft\\Office\\OtherTask"},
+            ],
+            "services": [
+                {"name": "ClickToRunSvc"},
+                {"service": "ose"},
+            ],
+        }
+        options = {"cleanup_only": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+
+        task_step = next(step for step in plan_steps if step["category"] == "task-cleanup")
+        assert task_step["metadata"]["tasks"] == [
+            r"\\Microsoft\\Office\\TelemetryTask",
+            r"\\Microsoft\\Office\\OtherTask",
+        ]
+
+        service_step = next(step for step in plan_steps if step["category"] == "service-cleanup")
+        assert service_step["metadata"]["services"] == ["ClickToRunSvc", "ose"]
+        assert service_step["depends_on"] == [task_step["id"]]
 
     def test_diagnose_mode_is_context_only(self) -> None:
         """!

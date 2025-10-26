@@ -153,6 +153,40 @@ def build_plan(
         )
         cleanup_dependencies = [licensing_step_id]
 
+    task_names = _collect_task_names(selected_inventory.get("tasks", []))
+    if task_names:
+        task_step_id = f"tasks-{pass_index}-0"
+        plan.append(
+            {
+                "id": task_step_id,
+                "category": "task-cleanup",
+                "description": "Remove Office-related scheduled tasks.",
+                "depends_on": cleanup_dependencies,
+                "metadata": {
+                    "tasks": task_names,
+                    "dry_run": dry_run,
+                },
+            }
+        )
+        cleanup_dependencies = [task_step_id]
+
+    service_names = _collect_service_names(selected_inventory.get("services", []))
+    if service_names:
+        service_step_id = f"services-{pass_index}-0"
+        plan.append(
+            {
+                "id": service_step_id,
+                "category": "service-cleanup",
+                "description": "Delete Office background services.",
+                "depends_on": cleanup_dependencies,
+                "metadata": {
+                    "services": service_names,
+                    "dry_run": dry_run,
+                },
+            }
+        )
+        cleanup_dependencies = [service_step_id]
+
     filesystem_entries = _collect_paths(selected_inventory.get("filesystem", []))
     if filesystem_entries:
         plan.append(
@@ -337,3 +371,21 @@ def _collect_registry_paths(entries: Sequence[Mapping[str, object]]) -> List[str
                 keys.append(candidate)
                 break
     return keys
+
+
+def _collect_task_names(entries: Sequence[Mapping[str, object]]) -> List[str]:
+    tasks: List[str] = []
+    for entry in entries:
+        candidate = entry.get("task") or entry.get("name")
+        if isinstance(candidate, str) and candidate:
+            tasks.append(candidate)
+    return tasks
+
+
+def _collect_service_names(entries: Sequence[Mapping[str, object]]) -> List[str]:
+    services: List[str] = []
+    for entry in entries:
+        candidate = entry.get("name") or entry.get("service")
+        if isinstance(candidate, str) and candidate:
+            services.append(candidate)
+    return services
