@@ -109,16 +109,25 @@ def _menu_detect(context: MutableMapping[str, object]) -> None:
 
 
 def _menu_auto_all(context: MutableMapping[str, object]) -> None:
-    _plan_and_execute(context, {"mode": "auto-all"})
+    _plan_and_execute(context, {"mode": "auto-all", "auto_all": True})
 
 
 def _menu_targeted(context: MutableMapping[str, object]) -> None:
     input_func: Callable[[str], str] = context.get("input", input)  # type: ignore[assignment]
     raw = input_func("Enter comma-separated target versions (e.g. 2016,365): ")
     targets = [item.strip() for item in raw.split(",") if item.strip()]
+    includes_raw = input_func(
+        "Optional: include additional components (visio,project,onenote): "
+    ).strip()
     overrides: dict[str, object] = {"mode": "target:" + ",".join(targets) if targets else "interactive"}
     if targets:
-        overrides["target"] = ",".join(targets)
+        joined = ",".join(targets)
+        overrides["target"] = joined
+    else:
+        print("No target versions entered; aborting targeted scrub.")
+        return
+    if includes_raw:
+        overrides["include"] = includes_raw
     _plan_and_execute(context, overrides)
 
 

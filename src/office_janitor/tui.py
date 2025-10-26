@@ -67,6 +67,16 @@ class OfficeJanitorTUI:
                 self._handle_run()
             elif command in {"l", "L"}:
                 self._handle_logs()
+            elif command in {"a", "A"}:
+                self._handle_mode("auto-all", {"mode": "auto-all", "auto_all": True}, friendly="auto scrub")
+            elif command in {"t", "T"}:
+                self._handle_targeted()
+            elif command in {"c", "C"}:
+                self._handle_mode("cleanup-only", {"mode": "cleanup-only", "cleanup_only": True}, friendly="cleanup")
+            elif command in {"g", "G"}:
+                self._handle_mode("diagnose", {"mode": "diagnose", "diagnose": True}, friendly="diagnostics")
+            elif command in {"s", "S"}:
+                self._handle_settings()
             else:
                 self.progress_message = f"Unknown command: {command!r}"
             self._render()
@@ -82,8 +92,13 @@ class OfficeJanitorTUI:
         left_lines = [
             "[D] Detect inventory",
             "[P] Build plan",
-            "[R] Run plan",
+            "[R] Run current plan",
+            "[A] Auto scrub everything",
+            "[T] Targeted scrub",
+            "[C] Cleanup only",
+            "[G] Diagnostics only",
             "[L] Log info",
+            "[S] Settings",
             "[Q] Quit",
             "",
             "Status log:",
@@ -100,7 +115,9 @@ class OfficeJanitorTUI:
             sys.stdout.write(f"{left_text.ljust(left_width)} {right_text}\n")
 
         sys.stdout.write(_divider(width) + "\n")
-        sys.stdout.write("Commands: d=Detect p=Plan r=Run l=Logs q=Quit\n")
+        sys.stdout.write(
+            "Commands: d=Detect p=Plan r=Run a=Auto t=Target c=Cleanup g=Diagnose l=Logs s=Settings q=Quit\n"
+        )
         sys.stdout.flush()
 
     def _read_command(self) -> str:
@@ -177,6 +194,94 @@ class OfficeJanitorTUI:
         self._append_status("Execution complete")
         self.progress_message = "Execution complete"
 
+    def _handle_mode(
+        self, mode: str, overrides: Mapping[str, object], friendly: Optional[str] = None
+    ) -> None:
+        label = friendly or mode
+        if not self._ensure_inventory():
+            return
+
+        payload: MutableMapping[str, object] = dict(overrides)
+        if "mode" not in payload:
+            payload["mode"] = mode
+
+        self.progress_message = f"Preparing {label}..."
+        self._render()
+
+        try:
+            plan_data = self.planner(self.last_inventory or {}, payload)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            message = f"{label.title()} planning failed: {exc}"
+            self._append_status(message)
+            if self.human_logger:
+                self.human_logger.error(message)
+            self.progress_message = f"{label.title()} failed"
+            return
+
+        self.last_plan = plan_data
+        self._append_status(f"Plan ready with {len(plan_data)} steps for {label}")
+        for line in _format_plan(plan_data)[:6]:
+            self._append_status(f"  {line}")
+
+        if self.last_inventory is not None:
+            payload["inventory"] = self.last_inventory
+
+        self.progress_message = f"Executing {label}..."
+        self._render()
+
+        try:
+            self.executor(plan_data, payload)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            message = f"{label.title()} execution failed: {exc}"
+            self._append_status(message)
+            if self.human_logger:
+                self.human_logger.error(message)
+            self.progress_message = f"{label.title()} failed"
+            return
+
+        if payload.get("mode") == "diagnose":
+            self._append_status("Diagnostics captured; no actions executed.")
+            self.progress_message = "Diagnostics complete"
+        else:
+            self._append_status("Execution complete")
+            self.progress_message = "Execution complete"
+
+    def _handle_targeted(self) -> None:
+        if not self._ensure_inventory():
+            return
+
+        versions_raw = _read_input_line("Target versions (comma separated): ")
+        targets = [item.strip() for item in versions_raw.split(",") if item.strip()]
+        if not targets:
+            self._append_status("No target versions entered; aborting targeted run.")
+            self.progress_message = "Targeted cancelled"
+            return
+
+        include_raw = _read_input_line(
+            "Optional components (visio,project,onenote): "
+        ).strip()
+
+        overrides: MutableMapping[str, object] = {
+            "mode": f"target:{','.join(targets)}",
+            "target": ",".join(targets),
+        }
+        if include_raw:
+            overrides["include"] = include_raw
+
+        self._handle_mode("targeted", overrides)
+
+    def _handle_settings(self) -> None:
+        args = self.app_state.get("args")
+        details = [
+            f"Dry-run: {bool(getattr(args, 'dry_run', False))}",
+            f"Create restore point: {not bool(getattr(args, 'no_restore_point', False))}",
+            f"Log directory: {getattr(args, 'logdir', '(default)')}",
+            f"Backup directory: {getattr(args, 'backup', '(disabled)')}",
+        ]
+        for line in details:
+            self._append_status(line)
+        self.progress_message = "Settings displayed"
+
     def _handle_logs(self) -> None:
         args = self.app_state.get("args")
         logdir = getattr(args, "logdir", None)
@@ -188,6 +293,12 @@ class OfficeJanitorTUI:
         self.status_lines.append(message)
         if len(self.status_lines) > 20:
             self.status_lines[:] = self.status_lines[-20:]
+
+    def _ensure_inventory(self) -> bool:
+        if self.last_inventory is not None:
+            return True
+        self._handle_detect()
+        return self.last_inventory is not None
 
 
 def run_tui(app_state: Mapping[str, object]) -> None:

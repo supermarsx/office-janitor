@@ -127,6 +127,114 @@ def test_main_interactive_uses_cli(monkeypatch, tmp_path) -> None:
     assert "detector" in captured["app_state"]
 
 
+def test_arg_parser_and_plan_options_cover_modes() -> None:
+    """!
+    @brief ``build_arg_parser`` should expose every documented switch.
+    """
+
+    parser = main.build_arg_parser()
+    args = parser.parse_args(
+        [
+            "--target",
+            "2016",
+            "--include",
+            "visio,project",
+            "--force",
+            "--dry-run",
+            "--no-restore-point",
+            "--no-license",
+            "--keep-templates",
+            "--timeout",
+            "90",
+            "--backup",
+            "C:/backup",
+        ]
+    )
+
+    mode = main._determine_mode(args)
+    options = main._collect_plan_options(args, mode)
+
+    assert mode == "target:2016"
+    assert options["target"] == "2016"
+    assert options["include"] == "visio,project"
+    assert options["force"] is True
+    assert options["dry_run"] is True
+    assert options["create_restore_point"] is False
+    assert options["no_license"] is True
+    assert options["keep_templates"] is True
+    assert options["timeout"] == 90
+    assert options["backup"] == "C:/backup"
+
+
+def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
+    """!
+    @brief ``--target`` should propagate all ancillary options into the plan.
+    """
+
+    monkeypatch.setattr(main, "ensure_admin_and_relaunch_if_needed", _no_op)
+    monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
+    monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
+
+    inventory = {"msi": ["Office16"], "c2r": [], "filesystem": []}
+    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: inventory)
+
+    captured_options: dict = {}
+
+    def fake_plan(inv, options):  # type: ignore[no-untyped-def]
+        captured_options.update(options)
+        return [
+            {"id": "context", "category": "context", "metadata": {"mode": options.get("mode"), "options": dict(options)}},
+            {"id": "filesystem", "category": "filesystem-cleanup", "metadata": {"paths": ["C:/Office"]}},
+        ]
+
+    monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
+    monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
+
+    scrub_calls: List[bool] = []
+
+    def fake_execute(plan, dry_run=False):  # type: ignore[no-untyped-def]
+        scrub_calls.append(bool(dry_run))
+
+    monkeypatch.setattr(main.scrub, "execute_plan", fake_execute)
+
+    plan_path = tmp_path / "plan.json"
+    backup_dir = tmp_path / "backup"
+    exit_code = main.main(
+        [
+            "--target",
+            "2016",
+            "--include",
+            "visio,project",
+            "--force",
+            "--keep-templates",
+            "--no-license",
+            "--timeout",
+            "120",
+            "--backup",
+            str(backup_dir),
+            "--plan",
+            str(plan_path),
+            "--no-restore-point",
+            "--logdir",
+            str(tmp_path / "logs"),
+        ]
+    )
+
+    assert exit_code == 0
+    assert scrub_calls == [False]
+    assert captured_options["mode"] == "target:2016"
+    assert captured_options["target"] == "2016"
+    assert captured_options["include"] == "visio,project"
+    assert captured_options["force"] is True
+    assert captured_options["keep_templates"] is True
+    assert captured_options["no_license"] is True
+    assert captured_options["timeout"] == 120
+    assert captured_options["create_restore_point"] is False
+    assert (backup_dir / "plan.json").exists()
+    assert (backup_dir / "inventory.json").exists()
+    assert plan_path.exists()
+
+
 def test_ui_run_cli_detect_option(monkeypatch) -> None:
     """!
     @brief Menu option 1 should call the detector and exit cleanly.
@@ -187,10 +295,64 @@ def test_ui_run_cli_auto_all_executes(monkeypatch) -> None:
     ui.run_cli(app_state)
 
     assert events[0][0] == "detect"
-    assert events[1] == ("plan", {"mode": "auto-all"})
+    assert events[1][0] == "plan"
+    assert events[1][1]["mode"] == "auto-all"
+    assert events[1][1]["auto_all"] is True
     assert events[2][0] == "execute"
     assert events[2][1]["mode"] == "auto-all"
+    assert events[2][1]["auto_all"] is True
     assert "inventory" in events[2][1]
+
+
+def test_ui_run_cli_targeted_prompts(monkeypatch) -> None:
+    """!
+    @brief Menu option 3 should collect target versions and includes.
+    """
+
+    events: List[tuple[str, object]] = []
+    inputs = iter(["3", "2016,365", "visio,project", "7"])
+
+    def fake_input(prompt: str) -> str:
+        return next(inputs)
+
+    def fake_detector():
+        events.append(("detect", None))
+        return {"msi": [], "c2r": [], "filesystem": []}
+
+    def fake_planner(inventory, overrides=None):
+        events.append(("plan", overrides))
+        return [
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "mode": overrides.get("mode") if overrides else "interactive",
+                    "dry_run": False,
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                    "options": {},
+                },
+            }
+        ]
+
+    def fake_executor(plan, overrides=None):
+        events.append(("execute", overrides))
+
+    app_state = {
+        "args": type("Args", (), {"quiet": False, "dry_run": False, "no_restore_point": False, "logdir": "logs", "backup": None})(),
+        "detector": fake_detector,
+        "planner": fake_planner,
+        "executor": fake_executor,
+        "input": fake_input,
+    }
+
+    ui.run_cli(app_state)
+
+    assert events[0][0] == "detect"
+    assert events[1][1]["mode"] == "target:2016,365"
+    assert events[1][1]["target"] == "2016,365"
+    assert events[1][1]["include"] == "visio,project"
+    assert events[2][1]["mode"] == "target:2016,365"
 
 
 def test_ui_run_cli_respects_json_flag() -> None:
@@ -300,6 +462,98 @@ def test_tui_respects_quiet_flag(monkeypatch) -> None:
     )
 
     assert invoked == []
+
+
+def test_tui_auto_mode_invokes_overrides(monkeypatch) -> None:
+    """!
+    @brief The ``A`` command should trigger auto scrub with overrides.
+    """
+
+    monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None: True)
+    monkeypatch.setattr(tui_module, "_spinner", lambda duration, message: None)
+
+    keys = iter(["a", "q"])
+
+    def reader() -> str:
+        return next(keys)
+
+    events: List[tuple[str, object]] = []
+
+    def fake_detector():
+        events.append(("detect", None))
+        return {"msi": [], "c2r": [], "filesystem": []}
+
+    def fake_planner(inventory, overrides=None):
+        events.append(("plan", overrides))
+        return [
+            {"id": "context", "category": "context", "metadata": {"mode": overrides.get("mode"), "options": dict(overrides)}}
+        ]
+
+    def fake_executor(plan, overrides=None):
+        events.append(("execute", overrides))
+
+    tui_module.run_tui(
+        {
+            "args": type("Args", (), {"no_color": False, "quiet": False})(),
+            "detector": fake_detector,
+            "planner": fake_planner,
+            "executor": fake_executor,
+            "key_reader": reader,
+        }
+    )
+
+    assert events[0][0] == "detect"
+    assert events[1][1]["mode"] == "auto-all"
+    assert events[1][1]["auto_all"] is True
+    assert events[2][1]["auto_all"] is True
+
+
+def test_tui_targeted_collects_input(monkeypatch) -> None:
+    """!
+    @brief The ``T`` command should prompt for versions and includes.
+    """
+
+    monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None, **_: True)
+    monkeypatch.setattr(tui_module, "_spinner", lambda duration, message: None)
+
+    keys = iter(["t", "q"])
+
+    def reader() -> str:
+        return next(keys)
+
+    prompts = iter(["2016,365", "visio"])
+
+    monkeypatch.setattr(tui_module, "_read_input_line", lambda prompt: next(prompts))
+
+    events: List[tuple[str, object]] = []
+
+    def fake_detector():
+        events.append(("detect", None))
+        return {"msi": [], "c2r": [], "filesystem": []}
+
+    def fake_planner(inventory, overrides=None):
+        events.append(("plan", overrides))
+        return [
+            {"id": "context", "category": "context", "metadata": {"mode": overrides.get("mode"), "options": dict(overrides)}}
+        ]
+
+    def fake_executor(plan, overrides=None):
+        events.append(("execute", overrides))
+
+    tui_module.run_tui(
+        {
+            "args": type("Args", (), {"no_color": False, "quiet": False})(),
+            "detector": fake_detector,
+            "planner": fake_planner,
+            "executor": fake_executor,
+            "key_reader": reader,
+        }
+    )
+
+    assert events[0][0] == "detect"
+    assert events[1][1]["mode"] == "target:2016,365"
+    assert events[1][1]["include"] == "visio"
+    assert events[2][1]["target"] == "2016,365"
 
 
 def test_main_diagnose_writes_default_artifacts(monkeypatch, tmp_path) -> None:
