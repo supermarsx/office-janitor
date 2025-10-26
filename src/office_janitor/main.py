@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import pathlib
+import subprocess
 import sys
 from typing import Iterable, Mapping, Optional
 
@@ -29,17 +30,23 @@ def enable_vt_mode_if_possible() -> None:
     optional.
     """
 
+    if os.name != "nt":  # pragma: no cover - Windows behaviour only
+        return
+
     try:
         from ctypes import wintypes
 
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+    except Exception:  # pragma: no cover - import/attribute errors on non-Windows
+        return
+
+    for std_handle in (-11, -12):  # STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
+        handle = kernel32.GetStdHandle(std_handle)
+        if not handle:
+            continue
         mode = wintypes.DWORD()
         if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
             kernel32.SetConsoleMode(handle, mode.value | 0x0004)
-    except Exception:
-        # Non-Windows platforms or consoles without VT capability are fine.
-        return
 
 
 def ensure_admin_and_relaunch_if_needed() -> None:
@@ -47,16 +54,38 @@ def ensure_admin_and_relaunch_if_needed() -> None:
     @brief Request elevation if the current process lacks administrative rights.
     """
 
+    if os.name != "nt":
+        return
+
     try:
-        is_admin = ctypes.windll.shell32.IsUserAnAdmin()  # type: ignore[attr-defined]
+        shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover - non-Windows platforms
+        return
+
+    try:
+        is_admin = bool(shell32.IsUserAnAdmin())
     except Exception:
         is_admin = False
-    if not is_admin and os.name == "nt":
-        params = " ".join(f'"{arg}"' for arg in sys.argv)
-        ctypes.windll.shell32.ShellExecuteW(  # type: ignore[attr-defined]
-            None, "runas", sys.executable, params, None, 1
-        )
-        sys.exit(0)
+
+    if is_admin:
+        return
+
+    argv = list(sys.argv)
+    try:
+        executable_path = pathlib.Path(sys.executable).resolve()
+        argv0_path = pathlib.Path(argv[0]).resolve() if argv else None
+    except Exception:
+        executable_path = None
+        argv0_path = None
+
+    if executable_path is not None and argv0_path == executable_path:
+        argv = argv[1:]
+
+    params = subprocess.list2cmdline(argv)
+    result = shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+    if int(result) <= 32:
+        raise SystemExit("Failed to request elevation via ShellExecuteW.")
+    sys.exit(0)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -125,6 +154,7 @@ def _resolve_log_directory(candidate: Optional[str]) -> pathlib.Path:
 def _bootstrap_logging(args: argparse.Namespace) -> tuple[logging.Logger, logging.Logger]:
     """!
     @brief Initialize human and machine loggers using :mod:`logging_ext` helpers.
+    @returns A tuple of configured human and machine loggers.
     """
 
     logdir = _resolve_log_directory(getattr(args, "logdir", None))
@@ -136,12 +166,15 @@ def _bootstrap_logging(args: argparse.Namespace) -> tuple[logging.Logger, loggin
     )
     setattr(args, "human_logger", human_logger)
     setattr(args, "machine_logger", machine_logger)
+    if getattr(args, "quiet", False):
+        human_logger.setLevel(logging.ERROR)
     return human_logger, machine_logger
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     """!
     @brief Entry point invoked by the shim and PyInstaller bundle.
+    @returns Process exit code integer.
     """
 
     ensure_admin_and_relaunch_if_needed()

@@ -26,6 +26,7 @@ def _prepend_src_to_sys_path() -> None:
 def main() -> int:
     """!
     @brief Invoke the package entry point after preparing ``sys.path``.
+    @returns Exit status propagated from :func:`office_janitor.main.main`.
     """
 
     _prepend_src_to_sys_path()
