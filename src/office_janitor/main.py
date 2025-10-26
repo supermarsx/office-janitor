@@ -353,16 +353,6 @@ def _handle_plan_artifacts(
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
     resolved_backup: Optional[pathlib.Path] = None
 
-    plan_output: Optional[pathlib.Path] = None
-    if getattr(args, "plan", None):
-        plan_output = pathlib.Path(args.plan).expanduser().resolve()
-    elif mode == "diagnose":
-        plan_output = logdir / "diagnostics-plan.json"
-
-    if plan_output is not None:
-        plan_output.write_text(json.dumps(plan_steps, indent=2, sort_keys=True), encoding="utf-8")
-        human_log.info("Wrote plan to %s", plan_output)
-
     backup_dir = getattr(args, "backup", None)
     if backup_dir:
         destination = pathlib.Path(backup_dir).expanduser().resolve()
@@ -372,11 +362,6 @@ def _handle_plan_artifacts(
                 json.dumps(inventory, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-        (destination / "plan.json").write_text(
-            json.dumps(plan_steps, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        human_log.info("Wrote backup artifacts to %s", destination)
         resolved_backup = destination
     else:
         resolved_backup = logdir / f"registry-backup-{timestamp}"
@@ -411,6 +396,23 @@ def _handle_plan_artifacts(
                 registry_metadata.setdefault("backup_destination", str(resolved_backup))
                 registry_metadata.setdefault("log_directory", str(logdir))
                 step["metadata"] = registry_metadata
+
+    plan_output: Optional[pathlib.Path] = None
+    if getattr(args, "plan", None):
+        plan_output = pathlib.Path(args.plan).expanduser().resolve()
+    elif mode == "diagnose":
+        plan_output = logdir / "diagnostics-plan.json"
+
+    if plan_output is not None:
+        plan_output.write_text(json.dumps(plan_steps, indent=2, sort_keys=True), encoding="utf-8")
+        human_log.info("Wrote plan to %s", plan_output)
+
+    if backup_dir and resolved_backup is not None:
+        (resolved_backup / "plan.json").write_text(
+            json.dumps(plan_steps, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        human_log.info("Wrote backup artifacts to %s", resolved_backup)
 
 
 if __name__ == "__main__":  # pragma: no cover - for manual execution
