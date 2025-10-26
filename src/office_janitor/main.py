@@ -350,15 +350,8 @@ def _handle_plan_artifacts(
     logdir = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
     logdir.mkdir(parents=True, exist_ok=True)
 
-    plan_output: Optional[pathlib.Path] = None
-    if getattr(args, "plan", None):
-        plan_output = pathlib.Path(args.plan).expanduser().resolve()
-    elif mode == "diagnose":
-        plan_output = logdir / "diagnostics-plan.json"
-
-    if plan_output is not None:
-        plan_output.write_text(json.dumps(plan_steps, indent=2, sort_keys=True), encoding="utf-8")
-        human_log.info("Wrote plan to %s", plan_output)
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    resolved_backup: Optional[pathlib.Path] = None
 
     backup_dir = getattr(args, "backup", None)
     if backup_dir:
@@ -369,11 +362,9 @@ def _handle_plan_artifacts(
                 json.dumps(inventory, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-        (destination / "plan.json").write_text(
-            json.dumps(plan_steps, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        human_log.info("Wrote backup artifacts to %s", destination)
+        resolved_backup = destination
+    else:
+        resolved_backup = logdir / f"registry-backup-{timestamp}"
 
     if mode == "diagnose" and inventory is not None and not backup_dir:
         inventory_path = logdir / "diagnostics-inventory.json"
@@ -382,6 +373,46 @@ def _handle_plan_artifacts(
             encoding="utf-8",
         )
         human_log.info("Wrote diagnostics inventory to %s", inventory_path)
+
+    if plan_steps:
+        context_step = next((step for step in plan_steps if step.get("category") == "context"), None)
+        if context_step is not None:
+            metadata = dict(context_step.get("metadata", {}))
+            options = dict(metadata.get("options", {}))
+            metadata["log_directory"] = str(logdir)
+            options["log_directory"] = str(logdir)
+            options["logdir"] = str(logdir)
+            if resolved_backup is not None:
+                metadata["backup_destination"] = str(resolved_backup)
+                options["backup"] = str(resolved_backup)
+            metadata["options"] = options
+            context_step["metadata"] = metadata
+
+        if resolved_backup is not None:
+            for step in plan_steps:
+                if step.get("category") != "registry-cleanup":
+                    continue
+                registry_metadata = dict(step.get("metadata", {}))
+                registry_metadata.setdefault("backup_destination", str(resolved_backup))
+                registry_metadata.setdefault("log_directory", str(logdir))
+                step["metadata"] = registry_metadata
+
+    plan_output: Optional[pathlib.Path] = None
+    if getattr(args, "plan", None):
+        plan_output = pathlib.Path(args.plan).expanduser().resolve()
+    elif mode == "diagnose":
+        plan_output = logdir / "diagnostics-plan.json"
+
+    if plan_output is not None:
+        plan_output.write_text(json.dumps(plan_steps, indent=2, sort_keys=True), encoding="utf-8")
+        human_log.info("Wrote plan to %s", plan_output)
+
+    if backup_dir and resolved_backup is not None:
+        (resolved_backup / "plan.json").write_text(
+            json.dumps(plan_steps, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        human_log.info("Wrote backup artifacts to %s", resolved_backup)
 
 
 if __name__ == "__main__":  # pragma: no cover - for manual execution

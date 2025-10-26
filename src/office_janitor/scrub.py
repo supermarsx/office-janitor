@@ -8,6 +8,8 @@ run once per scrub session.
 """
 from __future__ import annotations
 
+import datetime
+from pathlib import Path
 from typing import Iterable, Mapping, MutableMapping
 
 from . import (
@@ -20,6 +22,7 @@ from . import (
     msi_uninstall,
     plan as plan_module,
     processes,
+    registry_tools,
     restore_point,
     tasks_services,
 )
@@ -226,9 +229,38 @@ def _execute_steps(
     @brief Execute the subset of plan steps matching ``categories``.
     """
 
+    def _normalize_path(value: object) -> str | None:
+        if isinstance(value, (str, Path)):
+            return str(value)
+        return None
+
     selected_categories = set(categories)
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
+
+    context_metadata: Mapping[str, object] = {}
+    context_options: Mapping[str, object] = {}
+    for step in plan_steps:
+        if step.get("category") == "context":
+            context_metadata = dict(step.get("metadata", {}))
+            context_options = dict(context_metadata.get("options", {}))
+            break
+
+    backup_destination = (
+        _normalize_path(context_metadata.get("backup_destination"))
+        or _normalize_path(context_options.get("backup_destination"))
+        or _normalize_path(context_options.get("backup"))
+    )
+
+    log_directory = (
+        _normalize_path(context_metadata.get("log_directory"))
+        or _normalize_path(context_options.get("log_directory"))
+        or _normalize_path(context_options.get("logdir"))
+    )
+    if not log_directory:
+        configured_logdir = logging_ext.get_log_directory()
+        if configured_logdir is not None:
+            log_directory = str(configured_logdir)
 
     for step in plan_steps:
         category = step.get("category", "unknown")
@@ -272,7 +304,39 @@ def _execute_steps(
                 else:
                     fs_tools.remove_paths(paths, dry_run=step_dry_run)
             elif category == "registry-cleanup":
-                human_logger.info("Registry cleanup step planned for keys: %s", metadata.get("keys", []))
+                keys = [str(key) for key in metadata.get("keys", []) if key]
+                if not keys:
+                    human_logger.info("No registry keys supplied; skipping step.")
+                else:
+                    step_backup = _normalize_path(metadata.get("backup_destination")) or backup_destination
+                    step_logdir = _normalize_path(metadata.get("log_directory")) or log_directory
+
+                    if step_backup is None and step_logdir is not None:
+                        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+                            "registry-backup-%Y%m%d-%H%M%S"
+                        )
+                        step_backup = str(Path(step_logdir) / timestamp)
+
+                    if step_dry_run:
+                        human_logger.info(
+                            "Dry-run: would export %d registry keys to %s before deletion.",
+                            len(keys),
+                            step_backup or "(no destination)",
+                        )
+                    else:
+                        if step_backup is not None:
+                            human_logger.info(
+                                "Exporting %d registry keys to %s before deletion.",
+                                len(keys),
+                                step_backup,
+                            )
+                            registry_tools.export_keys(keys, step_backup)
+                        else:
+                            human_logger.warning(
+                                "Proceeding without registry backup; no destination available."
+                            )
+
+                    registry_tools.delete_keys(keys, dry_run=step_dry_run)
             else:
                 human_logger.info("Unhandled plan category %s; skipping.", category)
         except Exception as exc:
