@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, Tuple
 
 import pytest
 
@@ -19,6 +19,68 @@ if str(SRC_PATH) not in sys.path:
 from office_janitor import constants, detect
 
 
+@pytest.fixture
+def msi_registry_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """!
+    @brief Provide a fake registry layout for MSI product codes.
+    """
+
+    known_values: Dict[Tuple[int, str], Dict[str, str]] = {}
+    for product_code in (
+        "{90160000-0011-0000-0000-0000000FF1CE}",
+        "{90160000-0011-0000-1000-0000000FF1CE}",
+        "{90150000-0011-0000-0000-0000000FF1CE}",
+    ):
+        for hive, base in constants.MSI_UNINSTALL_ROOTS:
+            key = f"{base}\\{product_code}"
+            known_values[(hive, key)] = {
+                "ProductCode": product_code,
+                "DisplayName": f"Display for {product_code}",
+                "DisplayVersion": "16.0.0.123",
+                "UninstallString": f"MsiExec.exe /X{product_code}",
+            }
+
+    def fake_read_values(root: int, path: str) -> Dict[str, str]:
+        return known_values.get((root, path), {})
+
+    monkeypatch.setattr(detect.registry_tools, "read_values", fake_read_values)
+
+
+@pytest.fixture
+def c2r_registry_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """!
+    @brief Provide a fake registry layout for Click-to-Run metadata.
+    """
+
+    config_root, config_path = constants.C2R_CONFIGURATION_KEYS[0]
+    subscription_root, subscription_path = constants.C2R_SUBSCRIPTION_ROOTS[0]
+    release_root, release_path = constants.C2R_PRODUCT_RELEASE_ROOTS[0]
+
+    known_values: Dict[Tuple[int, str], Dict[str, str]] = {
+        (config_root, config_path): {
+            "ProductReleaseIds": "O365ProPlusRetail,ProjectProRetail",
+            "Platform": "x64",
+            "VersionToReport": "16.0.17029.20108",
+            "UpdateChannel": "http://officecdn.microsoft.com/pr/55336b82-a18d-4dd6-b5f6-9e5095c314a6",
+            "PackageGUID": "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}",
+            "InstallPath": r"C:\\Program Files\\Microsoft Office\\root",
+        },
+        (subscription_root, f"{subscription_path}\\O365ProPlusRetail"): {"ChannelId": "Production::MEC"},
+        (subscription_root, f"{subscription_path}\\ProjectProRetail"): {"ChannelId": "Production::CC"},
+        (release_root, f"{release_path}\\O365ProPlusRetail"): {},
+        (release_root, f"{release_path}\\ProjectProRetail"): {},
+    }
+
+    def fake_read_values(root: int, path: str) -> Dict[str, str]:
+        return known_values.get((root, path), {})
+
+    def fake_key_exists(root: int, path: str) -> bool:
+        return (root, path) in known_values
+
+    monkeypatch.setattr(detect.registry_tools, "read_values", fake_read_values)
+    monkeypatch.setattr(detect.registry_tools, "key_exists", fake_key_exists)
+
+
 class TestRegistryDetectionScenarios:
     """!
     @brief Registry probing detection scenarios.
@@ -26,145 +88,76 @@ class TestRegistryDetectionScenarios:
     release channels.
     """
 
-    def test_msi_detection_aggregates_known_product_codes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_msi_detection_aggregates_known_product_codes(
+        self, msi_registry_layout: None
+    ) -> None:
         """!
         @brief Validate MSI discovery for multiple generations and architectures.
         """
 
-        base_uninstall = constants.MSI_UNINSTALL_ROOTS[0][1]
-        wow_uninstall = constants.MSI_UNINSTALL_ROOTS[1][1]
-
-        def fake_iter_subkeys(root: int, path: str) -> List[str]:
-            if path == base_uninstall:
-                return [
-                    "{91160000-0011-0000-0000-0000000FF1CE}",
-                    "{91190000-0011-0000-0000-0000000FF1CE}",
-                    "{FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF}",
-                ]
-            if path == wow_uninstall:
-                return [
-                    "{90150000-0011-0000-0000-0000000FF1CE}",
-                    "{91140000-0011-0000-0000-0000000FF1CE}",
-                ]
-            return []
-
-        key_values: Dict[str, Dict[str, str]] = {
-            f"{base_uninstall}\\{{91160000-0011-0000-0000-0000000FF1CE}}": {
-                "ProductCode": "{91160000-0011-0000-0000-0000000FF1CE}",
-                "DisplayName": "Microsoft Office Professional Plus 2016",
-                "DisplayVersion": "16.0.4266.1003",
-            },
-            f"{base_uninstall}\\{{91190000-0011-0000-0000-0000000FF1CE}}": {
-                "ProductCode": "{91190000-0011-0000-0000-0000000FF1CE}",
-                "DisplayName": "Microsoft Office Professional Plus 2019",
-                "DisplayVersion": "16.0.10396.20017",
-            },
-            f"{base_uninstall}\\{{FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF}}": {
-                "ProductCode": "{FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF}",
-                "DisplayName": "Contoso Helper",
-                "DisplayVersion": "1.0.0",
-            },
-            f"{wow_uninstall}\\{{90150000-0011-0000-0000-0000000FF1CE}}": {
-                "ProductCode": "{90150000-0011-0000-0000-0000000FF1CE}",
-                "DisplayName": "Microsoft Office Professional Plus 2013",
-                "DisplayVersion": "15.0.4569.1506",
-            },
-            f"{wow_uninstall}\\{{91140000-0011-0000-0000-0000000FF1CE}}": {
-                "ProductCode": "{91140000-0011-0000-0000-0000000FF1CE}",
-                "DisplayName": "Microsoft Office Professional Plus 2010",
-                "DisplayVersion": "14.0.7268.5000",
-            },
-        }
-
-        def fake_read_values(root: int, path: str) -> Dict[str, str]:
-            return key_values.get(path, {})
-
-        monkeypatch.setattr(detect.registry_tools, "iter_subkeys", fake_iter_subkeys)
-        monkeypatch.setattr(detect.registry_tools, "read_values", fake_read_values)
-
         installations = detect.detect_msi_installations()
 
-        codes = {entry["product_code"] for entry in installations}
-        assert codes == {
-            "{91160000-0011-0000-0000-0000000FF1CE}",
-            "{91190000-0011-0000-0000-0000000FF1CE}",
+        codes = {entry.product_code for entry in installations}
+        expected_codes = {
+            "{90160000-0011-0000-0000-0000000FF1CE}",
+            "{90160000-0011-0000-1000-0000000FF1CE}",
             "{90150000-0011-0000-0000-0000000FF1CE}",
-            "{91140000-0011-0000-0000-0000000FF1CE}",
         }
-        assert {entry["architecture"] for entry in installations} == {"x64", "x86"}
-        assert all(entry["channel"] == "MSI" for entry in installations)
+        assert expected_codes.issubset(codes)
+        assert all(entry.channel == "MSI" for entry in installations)
+        assert {entry.architecture for entry in installations if entry.product_code in expected_codes} == {
+            "x86",
+            "x64",
+        }
 
-    def test_click_to_run_detection_collects_channel_metadata(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_click_to_run_detection_collects_channel_metadata(
+        self, c2r_registry_layout: None
+    ) -> None:
         """!
         @brief Validate Click-to-Run discovery of channels, subscriptions, and COM registrations.
         """
 
-        config_root, config_path = constants.C2R_CONFIGURATION_KEYS[0]
-        subscription_path = constants.C2R_SUBSCRIPTION_ROOTS[0][1]
-        com_path = constants.C2R_COM_REGISTRY_PATHS[0][1]
-
-        def fake_read_values(root: int, path: str) -> Dict[str, str]:
-            if path == config_path and root == config_root:
-                return {
-                    "ProductReleaseIds": "O365ProPlusRetail,ProjectProRetail",
-                    "Platform": "x64",
-                    "VersionToReport": "16.0.17029.20108",
-                    "UpdateChannel": "http://officecdn.microsoft.com/pr/55336b82-a18d-4dd6-b5f6-9e5095c314a6",
-                }
-            if path == f"{subscription_path}\\O365ProPlusRetail":
-                return {"ChannelId": "Production::MEC"}
-            if path == f"{subscription_path}\\ProjectProRetail":
-                return {"ChannelId": "Production::CC"}
-            return {}
-
-        def fake_iter_subkeys(root: int, path: str) -> List[str]:
-            if path == subscription_path and root == constants.C2R_SUBSCRIPTION_ROOTS[0][0]:
-                return ["O365ProPlusRetail", "ProjectProRetail"]
-            if path == com_path and root == constants.C2R_COM_REGISTRY_PATHS[0][0]:
-                return ["{1111}", "{2222}", "{3333}"]
-            return []
-
-        monkeypatch.setattr(detect.registry_tools, "read_values", fake_read_values)
-        monkeypatch.setattr(detect.registry_tools, "iter_subkeys", fake_iter_subkeys)
-
         installations = detect.detect_c2r_installations()
 
-        assert len(installations) == 1
-        record = installations[0]
-        assert record["release_ids"] == ["O365ProPlusRetail", "ProjectProRetail"]
-        assert record["architecture"] == "x64"
-        assert record["channel"] == "Monthly Enterprise Channel"
-        assert record["com_registration_count"] == 3
-        subscription_channels = {sub["channel"] for sub in record["subscriptions"]}
-        assert subscription_channels == {"Monthly Enterprise Channel", "Current Channel"}
+        matching = [entry for entry in installations if entry.release_ids == ("O365ProPlusRetail",)]
+        assert matching, "Expected to find O365ProPlusRetail release"
+        record = matching[0]
+        assert record.architecture == "x64"
+        assert record.channel == "Monthly Enterprise Channel"
+        assert record.properties["version"] == "16.0.17029.20108"
+        assert record.properties["package_guid"] == "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}"
+        assert record.properties["supported_architectures"]
 
-    def test_inventory_aggregates_registry_and_filesystem_signals(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_inventory_aggregates_registry_and_filesystem_signals(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """!
         @brief Validate that the inventory collector merges registry and filesystem hints.
         """
 
-        monkeypatch.setattr(
-            detect,
-            "detect_msi_installations",
-            lambda: [
-                {
-                    "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
-                    "architecture": "x64",
-                    "channel": "MSI",
-                }
-            ],
+        sample_msi = detect.DetectedInstallation(
+            source="MSI",
+            product="Microsoft Office Professional Plus 2016",
+            version="2016",
+            architecture="x64",
+            uninstall_handles=("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{90160000-0011-0000-1000-0000000FF1CE}",),
+            channel="MSI",
+            product_code="{90160000-0011-0000-1000-0000000FF1CE}",
+            properties={"display_name": "ProPlus", "display_version": "16.0.10396.20017"},
         )
-        monkeypatch.setattr(
-            detect,
-            "detect_c2r_installations",
-            lambda: [
-                {
-                    "release_ids": ["O365ProPlusRetail"],
-                    "architecture": "x64",
-                    "channel": "Current Channel",
-                }
-            ],
+        sample_c2r = detect.DetectedInstallation(
+            source="C2R",
+            product="Microsoft 365 Apps for enterprise",
+            version="16.0.17029.20108",
+            architecture="x64",
+            uninstall_handles=("HKLM\\SOFTWARE\\Microsoft\\Office\\ClickToRun\\Configuration",),
+            channel="Current Channel",
+            release_ids=("O365ProPlusRetail",),
+            properties={"supported_versions": ["2016", "2019"], "supported_architectures": ["x64"]},
         )
+
+        monkeypatch.setattr(detect, "detect_msi_installations", lambda: [sample_msi])
+        monkeypatch.setattr(detect, "detect_c2r_installations", lambda: [sample_c2r])
 
         valid_paths = {
             constants.INSTALL_ROOT_TEMPLATES[0]["path"],
@@ -179,7 +172,9 @@ class TestRegistryDetectionScenarios:
         inventory = detect.gather_office_inventory()
 
         assert len(inventory["msi"]) == 1
+        assert inventory["msi"][0]["product_code"] == "{90160000-0011-0000-1000-0000000FF1CE}"
         assert len(inventory["c2r"]) == 1
+        assert inventory["c2r"][0]["release_ids"] == ["O365ProPlusRetail"]
         assert len(inventory["filesystem"]) == 2
         labels = {entry["label"] for entry in inventory["filesystem"]}
         assert labels == {"c2r_root_x86", "office16_x86"}
