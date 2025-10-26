@@ -239,3 +239,16 @@ def gather_office_inventory() -> Dict[str, List[Dict[str, object]]]:
         )
 
     return inventory
+
+
+def reprobe(options: Mapping[str, object] | None = None) -> Dict[str, List[Dict[str, object]]]:
+    """!
+    @brief Re-run Office detection after a scrub pass to check for leftovers.
+    @details The optional ``options`` mapping is accepted for parity with future
+    targeted detection strategies, but currently serves only as a hook for
+    logging and diagnostics. The returned inventory mirrors
+    :func:`gather_office_inventory`.
+    """
+
+    _ = options  # Options are presently unused but reserved for parity.
+    return gather_office_inventory()

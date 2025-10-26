@@ -1,82 +1,174 @@
 """!
 @brief Helpers for orchestrating MSI-based Office uninstalls.
-@details This module locates MSI product codes, drives ``msiexec`` with the
-correct flags, monitors progress, and captures logs according to the
-specification.
+@details Translates the OffScrub command sequences present in
+``OfficeScrubber.cmd`` into Python helpers that invoke the matching VBS
+automation scripts with the same argument conventions. This allows the
+scrubber to mimic the legacy workflow while still benefiting from structured
+logging and dry-run enforcement.
 """
 from __future__ import annotations
 
 import subprocess
 import time
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Mapping, MutableMapping
 
 from . import logging_ext
 
-MSIEXEC = "msiexec.exe"
+CSCRIPT = "cscript.exe"
 """!
-@brief Executable used to drive MSI uninstallations.
+@brief Host executable used to run OffScrub VBS helpers.
 """
 
-MSIEXEC_TIMEOUT = 1800
+OFFSCRUB_TIMEOUT = 1800
 """!
-@brief Default timeout (seconds) for ``msiexec`` executions.
+@brief Default timeout (seconds) for OffScrub automation helpers.
+"""
+
+OFFSCRUB_BASE_ARGS: tuple[str, ...] = (
+    "ALL",
+    "/OSE",
+    "/NOCANCEL",
+    "/FORCE",
+    "/ENDCURRENTINSTALLS",
+    "/DELETEUSERSETTINGS",
+    "/CLEARADDINREG",
+    "/REMOVELYNC",
+)
+"""!
+@brief Argument list mirrored from ``_para`` in ``OfficeScrubber.cmd``.
+"""
+
+OFFSCRUB_SCRIPT_MAP: Mapping[str, str] = {
+    "2003": "OffScrub03.vbs",
+    "2007": "OffScrub07.vbs",
+    "2010": "OffScrub10.vbs",
+    "2013": "OffScrub_O15msi.vbs",
+    "2016": "OffScrub_O16msi.vbs",
+    "2019": "OffScrub_O16msi.vbs",
+    "2021": "OffScrub_O16msi.vbs",
+    "2024": "OffScrub_O16msi.vbs",
+    "365": "OffScrub_O16msi.vbs",
+}
+"""!
+@brief Mapping between detected Office versions and OffScrub MSI helpers.
+"""
+
+DEFAULT_OFFSCRUB_SCRIPT = "OffScrub_O16msi.vbs"
+"""!
+@brief Fallback helper used when a specific version is not known.
 """
 
 
-def _sanitise_product_code(product_code: str) -> str:
+def _sanitize_product_code(product_code: str) -> str:
     """!
     @brief Produce a filesystem-safe representation of ``product_code``.
-    @details ``msiexec`` product codes are GUIDs wrapped in braces. The helper
-    strips these braces and collapses whitespace so the value can be used in log
-    filenames without additional quoting.
     """
 
     return product_code.strip().strip("{}").replace("-", "").upper() or "unknown"
 
 
-def _log_target_path(directory: Path | None, product_code: str) -> Path | None:
+def _script_directory() -> Path:
     """!
-    @brief Resolve the log path for a given product code if logging is enabled.
+    @brief Return the default directory where OffScrub scripts are expected.
     """
 
-    if directory is None:
-        return None
-    safe_code = _sanitise_product_code(product_code)
-    return directory / f"msi-{safe_code}.log"
+    return Path(__file__).resolve().parent / "bin"
 
 
-def uninstall_products(product_codes: Iterable[str], *, dry_run: bool = False) -> None:
+def _resolve_offscrub_script(version_hint: str | None) -> str:
     """!
-    @brief Uninstall the supplied MSI product codes while respecting dry-run semantics.
+    @brief Select the correct OffScrub helper given an optional version hint.
     """
+
+    if version_hint:
+        normalized = version_hint.strip().lower()
+        mapped = OFFSCRUB_SCRIPT_MAP.get(normalized)
+        if mapped:
+            return mapped
+        for key, value in OFFSCRUB_SCRIPT_MAP.items():
+            if normalized.startswith(key.lower()):
+                return value
+    return DEFAULT_OFFSCRUB_SCRIPT
+
+
+def build_command(
+    product: Mapping[str, object] | str,
+    *,
+    script_directory: Path | None = None,
+) -> List[str]:
+    """!
+    @brief Compose the OffScrub command line for a given MSI installation.
+    @details The helper accepts either a plain product code or the inventory
+    record emitted by :mod:`detect`. Only fields understood by the OffScrub
+    family are translated into command switches so that the runtime matches the
+    reference batch script.
+    """
+
+    if isinstance(product, MutableMapping):
+        product_code = str(product.get("product_code", "")).strip()
+        version_hint = str(product.get("version", "")).strip()
+    elif isinstance(product, Mapping):
+        product_code = str(product.get("product_code", "")).strip()
+        version_hint = str(product.get("version", "")).strip()
+    else:
+        product_code = str(product).strip()
+        version_hint = ""
+
+    script_dir = script_directory or _script_directory()
+    script_name = _resolve_offscrub_script(version_hint)
+    script_path = script_dir / script_name
+
+    command: List[str] = [str(CSCRIPT), "//NoLogo", str(script_path)]
+    command.extend(OFFSCRUB_BASE_ARGS)
+    if product_code:
+        command.append(f"/PRODUCTCODE={product_code}")
+    return command
+
+
+def uninstall_products(
+    products: Iterable[Mapping[str, object] | str],
+    *,
+    dry_run: bool = False,
+) -> None:
+    """!
+    @brief Uninstall the supplied MSI products using OffScrub semantics.
+    """
+
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
-    log_directory = logging_ext.get_log_directory()
 
-    codes: List[str] = [code for code in (str(code) for code in product_codes) if code.strip()]
-    if not codes:
-        human_logger.info("No MSI product codes supplied for uninstall; skipping.")
+    entries: List[Mapping[str, object] | str] = [product for product in products if product]
+    if not entries:
+        human_logger.info("No MSI products supplied for uninstall; skipping.")
         return
 
     human_logger.info(
-        "Preparing to uninstall %d MSI product(s). Dry-run: %s", len(codes), bool(dry_run)
+        "Preparing to run OffScrub for %d MSI product(s). Dry-run: %s",
+        len(entries),
+        bool(dry_run),
     )
+
     failures: List[str] = []
 
-    for product_code in codes:
-        command: List[str] = [MSIEXEC, "/x", product_code, "/qb!", "/norestart"]
-        log_path = _log_target_path(log_directory, product_code)
-        if log_path is not None:
-            command.extend(["/log", str(log_path)])
+    for product in entries:
+        command = build_command(product)
+        if isinstance(product, Mapping):
+            product_code = str(product.get("product_code", "")).strip()
+            version_hint = str(product.get("version", "")).strip()
+        else:
+            product_code = str(product).strip()
+            version_hint = ""
 
+        safe_code = _sanitize_product_code(product_code or version_hint or "")
         machine_logger.info(
             "msi_uninstall_plan",
             extra={
                 "event": "msi_uninstall_plan",
-                "product_code": product_code,
+                "product_code": product_code or None,
+                "version_hint": version_hint or None,
                 "dry_run": bool(dry_run),
-                "log_path": str(log_path) if log_path else None,
+                "command": command,
             },
         )
 
@@ -84,61 +176,72 @@ def uninstall_products(product_codes: Iterable[str], *, dry_run: bool = False) -
             human_logger.info("Dry-run: would invoke %s", " ".join(command))
             continue
 
-        human_logger.info("Invoking msiexec for %s", product_code)
+        human_logger.info(
+            "Invoking OffScrub helper %s for MSI target %s",
+            command[2],
+            product_code or version_hint or safe_code,
+        )
         start = time.monotonic()
         try:
             result = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
-                timeout=MSIEXEC_TIMEOUT,
+                timeout=OFFSCRUB_TIMEOUT,
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
             duration = time.monotonic() - start
-            message = (
-                f"msiexec timed out after {duration:.1f}s for {product_code}:"
-                f" stdout={exc.stdout!r} stderr={exc.stderr!r}"
+            human_logger.error(
+                "OffScrub timed out after %.1fs for %s", duration, product_code or safe_code
             )
-            human_logger.error(message)
             machine_logger.error(
                 "msi_uninstall_timeout",
                 extra={
                     "event": "msi_uninstall_timeout",
-                    "product_code": product_code,
+                    "product_code": product_code or None,
+                    "version_hint": version_hint or None,
                     "duration": duration,
+                    "stdout": exc.stdout,
+                    "stderr": exc.stderr,
                 },
             )
-            failures.append(product_code)
+            failures.append(product_code or safe_code)
             continue
 
         duration = time.monotonic() - start
         if result.returncode != 0:
             human_logger.error(
-                "msiexec for %s failed with exit code %s", product_code, result.returncode
+                "OffScrub helper for %s failed with exit code %s",
+                product_code or safe_code,
+                result.returncode,
             )
             machine_logger.error(
                 "msi_uninstall_failure",
                 extra={
                     "event": "msi_uninstall_failure",
-                    "product_code": product_code,
+                    "product_code": product_code or None,
+                    "version_hint": version_hint or None,
                     "return_code": result.returncode,
                     "stdout": result.stdout,
                     "stderr": result.stderr,
                     "duration": duration,
                 },
             )
-            failures.append(product_code)
+            failures.append(product_code or safe_code)
             continue
 
         human_logger.info(
-            "Successfully uninstalled %s via msiexec in %.1f seconds.", product_code, duration
+            "Successfully completed OffScrub for %s in %.1f seconds.",
+            product_code or safe_code,
+            duration,
         )
         machine_logger.info(
             "msi_uninstall_success",
             extra={
                 "event": "msi_uninstall_success",
-                "product_code": product_code,
+                "product_code": product_code or None,
+                "version_hint": version_hint or None,
                 "return_code": result.returncode,
                 "stdout": result.stdout,
                 "stderr": result.stderr,

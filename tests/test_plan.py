@@ -73,13 +73,14 @@ class TestPlanBuilder:
         context = plan_steps[0]
         assert context["metadata"]["mode"] == "auto-all"
         assert context["metadata"]["discovered_versions"] == ["2019", "365"]
+        assert context["metadata"]["pass_index"] == 1
 
         licensing = next(step for step in plan_steps if step["category"] == "licensing-cleanup")
-        assert set(licensing["depends_on"]) == {"msi-0", "c2r-0"}
+        assert set(licensing["depends_on"]) == {"msi-1-0", "c2r-1-0"}
         assert licensing["metadata"]["dry_run"] is False
 
         filesystem = next(step for step in plan_steps if step["category"] == "filesystem-cleanup")
-        assert filesystem["depends_on"] == ["licensing-0"]
+        assert filesystem["depends_on"] == ["licensing-1-0"]
 
         msi_step = next(step for step in plan_steps if step["category"] == "msi-uninstall")
         c2r_step = next(step for step in plan_steps if step["category"] == "c2r-uninstall")
@@ -251,4 +252,37 @@ class TestPlanBuilder:
         assert len(plan_steps) == 1
         assert plan_steps[0]["category"] == "context"
         assert plan_steps[0]["metadata"]["mode"] == "diagnose"
+
+    def test_second_pass_ids_include_pass_index(self) -> None:
+        """!
+        @brief Subsequent passes use distinct identifiers for uninstall steps.
+        """
+
+        inventory: Dict[str, List[dict]] = {
+            "msi": [
+                {
+                    "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
+                    "display_name": "Microsoft Office Professional Plus 2016",
+                    "version": "2016",
+                }
+            ],
+            "c2r": [
+                {
+                    "release_ids": ["O365ProPlusRetail"],
+                    "channel": "Monthly Enterprise Channel",
+                    "version": "16.0.17029.20108",
+                    "tags": ["365"],
+                }
+            ],
+        }
+        options = {"auto_all": True}
+
+        plan_steps = plan.build_plan(inventory, options, pass_index=2)
+
+        msi_ids = [step["id"] for step in plan_steps if step["category"] == "msi-uninstall"]
+        c2r_ids = [step["id"] for step in plan_steps if step["category"] == "c2r-uninstall"]
+        assert msi_ids == ["msi-2-0"]
+        assert c2r_ids == ["c2r-2-0"]
+        context = plan_steps[0]
+        assert context["metadata"]["pass_index"] == 2
 

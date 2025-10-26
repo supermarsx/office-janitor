@@ -1,30 +1,53 @@
 """!
 @brief Orchestrate uninstallation, cleanup, and reporting steps.
-@details The scrubber consumes an action plan and coordinates MSI/C2R uninstall
-routines, license cleanup, filesystem and registry purges, and telemetry
-emission as laid out in the specification.
+@details The scrubber now mirrors the multi-pass behaviour of
+``OfficeScrubber.cmd`` by iteratively executing MSI then Click-to-Run uninstall
+steps, re-probing inventory, and continuing until no installations remain or a
+pass cap is reached. Cleanup actions are deferred until the final pass so they
+run once per scrub session.
 """
 from __future__ import annotations
 
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, MutableMapping
 
 from . import (
     c2r_uninstall,
     constants,
+    detect,
     fs_tools,
     licensing,
     logging_ext,
     msi_uninstall,
+    plan as plan_module,
     processes,
     restore_point,
     tasks_services,
 )
 
+DEFAULT_MAX_PASSES = 3
+"""!
+@brief Safety limit mirroring OffScrub's repeated scrub attempts.
+"""
 
-def execute_plan(plan: Iterable[Mapping[str, object]], *, dry_run: bool = False) -> None:
+UNINSTALL_CATEGORIES = {"context", "msi-uninstall", "c2r-uninstall"}
+CLEANUP_CATEGORIES = {"licensing-cleanup", "filesystem-cleanup", "registry-cleanup"}
+
+
+def execute_plan(
+    plan: Iterable[Mapping[str, object]],
+    *,
+    dry_run: bool = False,
+    max_passes: int | None = None,
+) -> None:
     """!
     @brief Run each plan step while respecting dry-run safety requirements.
+    @details The executor runs uninstall steps per pass, re-probes detection, and
+    regenerates uninstall plans until either the system is clean or the maximum
+    number of passes has been reached. Cleanup steps are executed once using the
+    final plan, ensuring filesystem and licensing tasks do not repeat across
+    passes.
     """
+
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
@@ -33,11 +56,17 @@ def execute_plan(plan: Iterable[Mapping[str, object]], *, dry_run: bool = False)
         human_logger.info("No plan steps supplied; nothing to execute.")
         return
 
-    context = next((step for step in steps if step.get("category") == "context"), None)
-    context_metadata = dict(context.get("metadata", {})) if context else {}
+    context_step = next((step for step in steps if step.get("category") == "context"), None)
+    context_metadata = dict(context_step.get("metadata", {})) if context_step else {}
     options = dict(context_metadata.get("options", {})) if context_metadata else {}
 
     global_dry_run = bool(dry_run or context_metadata.get("dry_run", False))
+    max_pass_limit = int(
+        max_passes
+        or options.get("max_passes")
+        or context_metadata.get("max_passes", DEFAULT_MAX_PASSES)
+        or DEFAULT_MAX_PASSES
+    )
 
     machine_logger.info(
         "scrub_plan_start",
@@ -46,6 +75,7 @@ def execute_plan(plan: Iterable[Mapping[str, object]], *, dry_run: bool = False)
             "step_count": len(steps),
             "dry_run": global_dry_run,
             "options": options,
+            "max_passes": max_pass_limit,
         },
     )
 
@@ -62,10 +92,149 @@ def execute_plan(plan: Iterable[Mapping[str, object]], *, dry_run: bool = False)
         tasks_services.stop_services(constants.KNOWN_SERVICES)
         tasks_services.disable_tasks(constants.KNOWN_SCHEDULED_TASKS, dry_run=False)
 
-    for step in steps:
-        category = step.get("category", "unknown")
+    passes_run = 0
+    base_options = dict(options)
+    base_options["dry_run"] = global_dry_run
+
+    current_plan = steps
+    current_pass = int(context_metadata.get("pass_index", 1) or 1)
+    final_plan = current_plan
+
+    while True:
+        passes_run += 1
+        machine_logger.info(
+            "scrub_pass_start",
+            extra={
+                "event": "scrub_pass_start",
+                "pass_index": current_pass,
+                "dry_run": global_dry_run,
+                "step_count": len(current_plan),
+            },
+        )
+
+        _update_context_metadata(current_plan, current_pass, base_options, global_dry_run)
+        _execute_steps(current_plan, UNINSTALL_CATEGORIES, global_dry_run)
+
+        machine_logger.info(
+            "scrub_pass_complete",
+            extra={
+                "event": "scrub_pass_complete",
+                "pass_index": current_pass,
+                "dry_run": global_dry_run,
+            },
+        )
+
+        if global_dry_run:
+            final_plan = current_plan
+            break
+
+        if current_pass >= max_pass_limit:
+            human_logger.warning(
+                "Reached maximum scrub passes (%d); continuing to cleanup phase.",
+                max_pass_limit,
+            )
+            final_plan = current_plan
+            break
+
+        inventory = detect.reprobe(base_options)
+        next_plan_raw = plan_module.build_plan(inventory, base_options, pass_index=current_pass + 1)
+        next_plan = [dict(step) for step in next_plan_raw]
+
+        if not _has_uninstall_steps(next_plan):
+            human_logger.info(
+                "No remaining MSI or Click-to-Run installations detected after pass %d.",
+                current_pass,
+            )
+            final_plan = next_plan
+            current_pass += 1
+            break
+
+        current_plan = next_plan
+        final_plan = next_plan
+        current_pass += 1
+
+    if final_plan:
+        machine_logger.info(
+            "scrub_cleanup_start",
+            extra={
+                "event": "scrub_cleanup_start",
+                "pass_index": current_pass,
+                "dry_run": global_dry_run,
+            },
+        )
+        _update_context_metadata(final_plan, current_pass, base_options, global_dry_run)
+        _execute_steps(final_plan, CLEANUP_CATEGORIES, global_dry_run)
+        machine_logger.info(
+            "scrub_cleanup_complete",
+            extra={
+                "event": "scrub_cleanup_complete",
+                "pass_index": current_pass,
+                "dry_run": global_dry_run,
+            },
+        )
+
+    machine_logger.info(
+        "scrub_plan_complete",
+        extra={
+            "event": "scrub_plan_complete",
+            "step_count": len(final_plan) if final_plan else 0,
+            "dry_run": global_dry_run,
+            "passes": passes_run,
+        },
+    )
+
+
+def _has_uninstall_steps(plan_steps: Iterable[Mapping[str, object]]) -> bool:
+    """!
+    @brief Determine whether a plan contains any uninstall actions.
+    """
+
+    for step in plan_steps:
+        if step.get("category") in {"msi-uninstall", "c2r-uninstall"}:
+            return True
+    return False
+
+
+def _update_context_metadata(
+    plan_steps: Iterable[MutableMapping[str, object]],
+    pass_index: int,
+    options: Mapping[str, object],
+    dry_run: bool,
+) -> None:
+    """!
+    @brief Ensure the context metadata reflects the current pass and dry-run state.
+    """
+
+    for step in plan_steps:
+        if step.get("category") != "context":
+            continue
         metadata = dict(step.get("metadata", {}))
-        step_dry_run = global_dry_run or bool(metadata.get("dry_run", False))
+        metadata["pass_index"] = int(pass_index)
+        metadata["dry_run"] = bool(dry_run)
+        metadata["options"] = dict(options)
+        step["metadata"] = metadata
+        break
+
+
+def _execute_steps(
+    plan_steps: Iterable[Mapping[str, object]],
+    categories: Iterable[str],
+    dry_run: bool,
+) -> None:
+    """!
+    @brief Execute the subset of plan steps matching ``categories``.
+    """
+
+    selected_categories = set(categories)
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    for step in plan_steps:
+        category = step.get("category", "unknown")
+        if category not in selected_categories:
+            continue
+        metadata = dict(step.get("metadata", {}))
+        step_dry_run = bool(dry_run or metadata.get("dry_run", False))
 
         machine_logger.info(
             "scrub_step_start",
@@ -82,11 +251,10 @@ def execute_plan(plan: Iterable[Mapping[str, object]], *, dry_run: bool = False)
                 human_logger.info("Context: %s", metadata)
             elif category == "msi-uninstall":
                 product = metadata.get("product", {})
-                product_code = product.get("product_code") or metadata.get("product_code")
-                if not product_code:
-                    human_logger.warning("Skipping MSI uninstall step without product code: %s", step)
+                if not product:
+                    human_logger.warning("Skipping MSI uninstall step without product metadata: %s", step)
                 else:
-                    msi_uninstall.uninstall_products([str(product_code)], dry_run=step_dry_run)
+                    msi_uninstall.uninstall_products([product], dry_run=step_dry_run)
             elif category == "c2r-uninstall":
                 installation = metadata.get("installation") or metadata
                 if not installation:
@@ -127,8 +295,3 @@ def execute_plan(plan: Iterable[Mapping[str, object]], *, dry_run: bool = False)
                     "dry_run": step_dry_run,
                 },
             )
-
-    machine_logger.info(
-        "scrub_plan_complete",
-        extra={"event": "scrub_plan_complete", "step_count": len(steps), "dry_run": global_dry_run},
-    )
