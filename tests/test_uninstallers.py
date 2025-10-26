@@ -1,3 +1,11 @@
+"""!
+@brief Command composition and dry-run tests for uninstall helpers.
+@details Validates that the OffScrub wrappers constructed by
+:mod:`msi_uninstall` and :mod:`c2r_uninstall` mirror the reference
+``OfficeScrubber.cmd`` command lines, honour dry-run semantics, and raise when
+helpers fail.
+"""
+
 from __future__ import annotations
 
 import pathlib
@@ -25,9 +33,9 @@ class _Result:
         self.stderr = stderr
 
 
-def test_msi_uninstall_invokes_msiexec(monkeypatch, tmp_path) -> None:
+def test_msi_uninstall_invokes_offscrub(monkeypatch, tmp_path) -> None:
     """!
-    @brief Ensure MSI uninstall helper constructs the correct command line.
+    @brief Ensure MSI uninstall helper constructs the OffScrub command line.
     """
 
     logging_ext.setup_logging(tmp_path)
@@ -38,22 +46,22 @@ def test_msi_uninstall_invokes_msiexec(monkeypatch, tmp_path) -> None:
         return _Result()
 
     monkeypatch.setattr(msi_uninstall.subprocess, "run", fake_run)
-    product_code = "{91160000-0011-0000-0000-0000000FF1CE}"
-    msi_uninstall.uninstall_products([product_code])
+    record = {"product_code": "{91160000-0011-0000-0000-0000000FF1CE}", "version": "2019"}
+    msi_uninstall.uninstall_products([record])
 
-    assert calls, "Expected msiexec to be invoked"
+    assert calls, "Expected OffScrub helper to be invoked"
     command = calls[0]
-    assert command[0] == msi_uninstall.MSIEXEC
-    assert "/x" in command
-    assert product_code in command
-    assert "/log" in command
-    log_path = command[command.index("/log") + 1]
-    assert log_path.endswith(".log")
+    assert command[0].lower().endswith("cscript.exe")
+    assert command[1] == "//NoLogo"
+    assert command[2].endswith("OffScrub_O16msi.vbs")
+    for arg in msi_uninstall.OFFSCRUB_BASE_ARGS:
+        assert arg in command
+    assert any(item.startswith("/PRODUCTCODE=") for item in command)
 
 
 def test_msi_uninstall_respects_dry_run(monkeypatch, tmp_path) -> None:
     """!
-    @brief Dry-run mode should skip ``msiexec`` execution.
+    @brief Dry-run mode should skip OffScrub execution.
     """
 
     logging_ext.setup_logging(tmp_path)
@@ -65,9 +73,12 @@ def test_msi_uninstall_respects_dry_run(monkeypatch, tmp_path) -> None:
         return _Result()
 
     monkeypatch.setattr(msi_uninstall.subprocess, "run", fake_run)
-    msi_uninstall.uninstall_products(["{91160000-0011-0000-0000-0000000FF1CE}"], dry_run=True)
+    msi_uninstall.uninstall_products(
+        [{"product_code": "{91160000-0011-0000-0000-0000000FF1CE}", "version": "2016"}],
+        dry_run=True,
+    )
 
-    assert not called, "Dry-run should not invoke msiexec"
+    assert not called, "Dry-run should not invoke OffScrub"
 
 
 def test_msi_uninstall_reports_failures(monkeypatch, tmp_path) -> None:
@@ -83,14 +94,14 @@ def test_msi_uninstall_reports_failures(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(msi_uninstall.subprocess, "run", fake_run)
 
     with pytest.raises(RuntimeError) as excinfo:
-        msi_uninstall.uninstall_products(["{BAD-CODE}"])
+        msi_uninstall.uninstall_products([{"product_code": "{BAD-CODE}", "version": "2013"}])
 
     assert "BAD-CODE" in str(excinfo.value)
 
 
 def test_c2r_uninstall_constructs_command(monkeypatch, tmp_path) -> None:
     """!
-    @brief Validate Click-to-Run uninstall command composition and logging.
+    @brief Validate Click-to-Run OffScrub command composition and logging.
     """
 
     logging_ext.setup_logging(tmp_path)
@@ -102,19 +113,20 @@ def test_c2r_uninstall_constructs_command(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(c2r_uninstall.subprocess, "run", fake_run)
 
-    config = {"release_ids": ["O365ProPlusRetail"]}
+    config = {"release_ids": ["O365ProPlusRetail", "VisioProRetail"]}
     c2r_uninstall.uninstall_products(config)
 
-    assert calls, "Expected OfficeC2RClient to be invoked"
+    assert calls, "Expected OffScrubC2R helper to be invoked"
     command = calls[0]
-    assert "OfficeC2RClient.exe" in command[0]
-    assert any(arg.startswith("productstoremove=") for arg in command)
-    assert "/log" in command
+    assert command[0].lower().endswith("cscript.exe")
+    assert command[2].endswith("OffScrubC2R.vbs")
+    assert set(c2r_uninstall.OFFSCRUB_C2R_ARGS).issubset(command)
+    assert any(item.startswith("/PRODUCTS=") for item in command)
 
 
 def test_c2r_uninstall_dry_run(monkeypatch, tmp_path) -> None:
     """!
-    @brief Dry-run skips ``OfficeC2RClient`` execution.
+    @brief Dry-run skips OffScrubC2R execution.
     """
 
     logging_ext.setup_logging(tmp_path)
@@ -128,4 +140,4 @@ def test_c2r_uninstall_dry_run(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(c2r_uninstall.subprocess, "run", fake_run)
     c2r_uninstall.uninstall_products({"release_ids": ["Test"]}, dry_run=True)
 
-    assert not called, "Dry-run should not invoke OfficeC2RClient"
+    assert not called, "Dry-run should not invoke OffScrubC2R"

@@ -30,13 +30,23 @@ _C2R_RELEASE_HINTS = {
 }
 
 
-def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object]) -> List[dict]:
+def build_plan(
+    inventory: Dict[str, Sequence[dict]],
+    options: Dict[str, object],
+    *,
+    pass_index: int = 1,
+) -> List[dict]:
     """!
     @brief Produce an ordered plan of actions using the current inventory and CLI options.
+    @details ``pass_index`` allows the scrubber to regenerate uninstall steps for
+    subsequent passes while keeping metadata (such as dependencies) distinct per
+    iteration. Cleanup steps remain present in every plan so the executor can run
+    them after the final uninstall pass completes.
     """
     normalized_options = _normalize_options(options)
     mode = _resolve_mode(normalized_options)
     dry_run = bool(normalized_options.get("dry_run", False))
+    normalized_options["dry_run"] = dry_run
     targets, unsupported = _resolve_targets(mode, normalized_options)
 
     selected_inventory = {
@@ -48,25 +58,28 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
         targets = discovered_versions
 
     plan: List[dict] = []
+    context_metadata = {
+        "mode": mode,
+        "dry_run": dry_run,
+        "force": bool(normalized_options.get("force", False)),
+        "target_versions": targets,
+        "unsupported_targets": unsupported,
+        "discovered_versions": discovered_versions,
+        "options": dict(normalized_options),
+        "inventory_counts": {
+            key: len(value) if hasattr(value, "__len__") else len(list(value))
+            for key, value in selected_inventory.items()
+        },
+        "pass_index": int(pass_index),
+    }
+
     plan.append(
         {
             "id": "context",
             "category": "context",
             "description": "Planning context and CLI options.",
             "depends_on": [],
-            "metadata": {
-                "mode": mode,
-                "dry_run": dry_run,
-                "force": bool(normalized_options.get("force", False)),
-                "target_versions": targets,
-                "unsupported_targets": unsupported,
-                "discovered_versions": discovered_versions,
-                "options": dict(normalized_options),
-                "inventory_counts": {
-                    key: len(value) if hasattr(value, "__len__") else len(list(value))
-                    for key, value in selected_inventory.items()
-                },
-            },
+            "metadata": context_metadata,
         }
     )
 
@@ -78,9 +91,11 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
     uninstall_steps: List[str] = []
 
     if include_uninstalls:
-        for index, record in enumerate(_filter_records_by_target(selected_inventory.get("msi", []), targets)):
+        for index, record in enumerate(
+            _filter_records_by_target(selected_inventory.get("msi", []), targets)
+        ):
             version = _infer_version(record)
-            uninstall_id = f"msi-{index}"
+            uninstall_id = f"msi-{pass_index}-{index}"
             plan.append(
                 {
                     "id": uninstall_id,
@@ -101,7 +116,7 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
         c2r_records = _filter_records_by_target(selected_inventory.get("c2r", []), targets)
         for index, record in enumerate(c2r_records):
             version = _infer_version(record)
-            uninstall_id = f"c2r-{index}"
+            uninstall_id = f"c2r-{pass_index}-{index}"
             plan.append(
                 {
                     "id": uninstall_id,
@@ -123,7 +138,7 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
     licensing_step_id = ""
 
     if not normalized_options.get("no_license", False):
-        licensing_step_id = "licensing-0"
+        licensing_step_id = f"licensing-{pass_index}-0"
         plan.append(
             {
                 "id": licensing_step_id,
@@ -142,7 +157,7 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
     if filesystem_entries:
         plan.append(
             {
-                "id": "filesystem-0",
+                "id": f"filesystem-{pass_index}-0",
                 "category": "filesystem-cleanup",
                 "description": "Remove residual Office filesystem artifacts.",
                 "depends_on": cleanup_dependencies,
@@ -158,7 +173,7 @@ def build_plan(inventory: Dict[str, Sequence[dict]], options: Dict[str, object])
     if registry_entries:
         plan.append(
             {
-                "id": "registry-0",
+                "id": f"registry-{pass_index}-0",
                 "category": "registry-cleanup",
                 "description": "Purge Office registry hives and COM registrations.",
                 "depends_on": cleanup_dependencies,
