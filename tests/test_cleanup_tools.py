@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pathlib
+import subprocess
 import sys
-from typing import List
+from typing import List, Sequence
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
@@ -204,32 +205,82 @@ def test_terminate_office_processes_invokes_taskkill(monkeypatch, tmp_path) -> N
     assert commands[1][0] == "taskkill.exe"
 
 
-def test_terminate_process_patterns_uses_tasklist(monkeypatch, tmp_path) -> None:
+def test_enumerate_processes_filters_patterns(monkeypatch, tmp_path) -> None:
     """!
-    @brief Wildcard termination should enumerate processes before invoking taskkill.
+    @brief Process enumeration should return unique matches per pattern.
     """
 
     logging_ext.setup_logging(tmp_path)
-    enumerations: List[List[str]] = []
-    killed: List[List[str]] = []
 
     def fake_run(cmd, **kwargs):
-        if cmd[0].lower() == "tasklist.exe":
-            enumerations.append(cmd)
-            return _Result(
-                stdout="""Image Name                     PID Session Name        Session#    Mem Usage\nose.exe 123 Console                    1     12,000 K\nIntegrator.exe 456 Console                    1     15,000 K\n""",
+        assert cmd[0].lower() == "tasklist.exe"
+        return _Result(
+            stdout=(
+                """Image Name                     PID Session Name        Session#    Mem Usage\n"""
+                "ose.exe 123 Console                    1     12,000 K\n"
+                "WINWORD.EXE 456 Console               1     15,000 K\n"
             )
-        raise AssertionError("Unexpected command")
+        )
+
+    monkeypatch.setattr(processes.subprocess, "run", fake_run)
+
+    matches = processes.enumerate_processes(["ose*.exe", "winword.exe", ""])
+
+    assert matches == ["ose.exe", "winword.exe"]
+
+
+def test_prompt_user_to_close_accepts(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Prompt should return ``True`` when the operator consents.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    answers = iter(["y"])
+
+    result = processes.prompt_user_to_close(
+        ["WINWORD.EXE", "excel.exe"], input_func=lambda _: next(answers)
+    )
+
+    assert result is True
+
+
+def test_prompt_user_to_close_declines(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Prompt should honour refusal after repeated attempts.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    answers = iter(["maybe", "n"])
+
+    result = processes.prompt_user_to_close(
+        ["WINWORD.EXE"], input_func=lambda _: next(answers)
+    )
+
+    assert result is False
+
+
+def test_terminate_process_patterns_uses_enumerator(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Wildcard termination should rely on :func:`enumerate_processes`.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    enumerated: List[List[str]] = []
+    killed: List[List[str]] = []
+
+    def fake_enumerate(patterns, *, timeout):
+        enumerated.append(list(patterns))
+        return ["ose.exe", "integrator.exe"]
 
     def fake_terminate(names, *, timeout=30):
         killed.append(list(names))
 
-    monkeypatch.setattr(processes.subprocess, "run", fake_run)
+    monkeypatch.setattr(processes, "enumerate_processes", fake_enumerate)
     monkeypatch.setattr(processes, "terminate_office_processes", fake_terminate)
 
-    processes.terminate_process_patterns(["ose*.exe", "integrator.exe"])
+    processes.terminate_process_patterns(["ose*.exe", "integrator.exe"], timeout=15)
 
-    assert enumerations
+    assert enumerated == [["ose*.exe", "integrator.exe"]]
     assert killed == [["ose.exe", "integrator.exe"]]
 
 
@@ -271,7 +322,7 @@ def test_disable_tasks_executes(monkeypatch, tmp_path) -> None:
     assert commands[0][0] == "schtasks.exe"
 
 
-def test_remove_tasks_executes_delete(monkeypatch, tmp_path) -> None:
+def test_delete_tasks_executes_delete(monkeypatch, tmp_path) -> None:
     """!
     @brief Task deletion should issue ``schtasks /Delete`` commands.
     """
@@ -284,10 +335,25 @@ def test_remove_tasks_executes_delete(monkeypatch, tmp_path) -> None:
         return _Result()
 
     monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
-    tasks_services.remove_tasks([r"Microsoft\\Office\\Cleanup"], dry_run=False)
+    tasks_services.delete_tasks([r"Microsoft\\Office\\Cleanup"], dry_run=False)
 
     assert commands
     assert commands[0][:2] == ["schtasks.exe", "/Delete"]
+
+
+def test_remove_tasks_aliases_delete(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Legacy ``remove_tasks`` wrapper should delegate to ``delete_tasks``.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    called: List[Sequence[str]] = []
+
+    monkeypatch.setattr(tasks_services, "delete_tasks", lambda names, dry_run=False: called.append(list(names)))
+
+    tasks_services.remove_tasks(["Task"], dry_run=True)
+
+    assert called == [["Task"]]
 
 
 def test_stop_services_invokes_sc(monkeypatch, tmp_path) -> None:
@@ -310,6 +376,25 @@ def test_stop_services_invokes_sc(monkeypatch, tmp_path) -> None:
     assert commands[1][:2] == ["sc.exe", "config"]
 
 
+def test_start_services_invokes_sc(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Service start helper should invoke ``sc.exe start``.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    commands: List[List[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        commands.append(cmd)
+        return _Result()
+
+    monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
+
+    tasks_services.start_services(["ClickToRunSvc"], timeout=5)
+
+    assert commands == [["sc.exe", "start", "ClickToRunSvc"]]
+
+
 def test_delete_services_executes(monkeypatch, tmp_path) -> None:
     """!
     @brief Service deletion should issue ``sc.exe delete``.
@@ -327,6 +412,29 @@ def test_delete_services_executes(monkeypatch, tmp_path) -> None:
 
     assert commands
     assert commands[0][:2] == ["sc.exe", "delete"]
+
+
+def test_query_service_status_retries_and_parses(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Status query should retry on timeouts and parse the ``STATE`` line.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    attempts: List[List[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        attempts.append(cmd)
+        if len(attempts) < 3:
+            raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 0), output="", stderr="")
+        return _Result(stdout="""\nSERVICE_NAME: ClickToRunSvc\n        STATE              : 4  RUNNING\n""")
+
+    monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
+    monkeypatch.setattr(tasks_services.time, "sleep", lambda seconds: None)
+
+    status = tasks_services.query_service_status("ClickToRunSvc", retries=3, delay=0.1, timeout=1)
+
+    assert len(attempts) == 3
+    assert status == "RUNNING"
 
 
 def test_create_restore_point_uses_powershell(monkeypatch, tmp_path) -> None:
