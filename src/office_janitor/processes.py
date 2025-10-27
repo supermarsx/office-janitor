@@ -1,32 +1,167 @@
 """!
-@brief Process and service control helpers.
-@details The process utilities terminate running Office binaries and pause
-background services that block uninstall operations, following the
-specification's safety and retry requirements.
+@brief Process management helpers for Office scrubbing.
+@details Provides helpers to discover and terminate running Office
+processes. The module mirrors the behaviour from the legacy OffScrub
+scripts with structured logging, user prompting, and timeout-aware
+subprocess execution so automated runs stay safe.
 """
 from __future__ import annotations
 
 import fnmatch
 import subprocess
-
-from typing import Iterable, List, Sequence
+from typing import Callable, Iterable, List, Sequence
 
 from . import logging_ext
 
 
-def terminate_office_processes(names: Iterable[str], *, timeout: int = 30) -> None:
+def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> List[str]:
     """!
-    @brief Stop known Office processes before uninstalling.
+    @brief Enumerate running processes matching ``patterns``.
+    @details Invokes ``tasklist`` once and filters results against wildcard
+    expressions, returning unique process names. Errors are logged and result
+    in an empty list so callers can decide on the fallback behaviour.
+    @param patterns Wildcard expressions or explicit process names.
+    @param timeout Maximum seconds to wait for ``tasklist`` to finish.
+    @returns A list of matching process names in lowercase.
     """
+
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
-    processes: List[str] = [name for name in (str(name).strip() for name in names) if name]
+    expanded_patterns: List[str] = [
+        str(pattern).strip().lower() for pattern in patterns if str(pattern).strip()
+    ]
+    if not expanded_patterns:
+        return []
+
+    try:
+        listing = subprocess.run(
+            ["tasklist.exe"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:  # pragma: no cover - not available on non-Windows CI.
+        human_logger.debug("tasklist.exe unavailable; cannot enumerate processes")
+        return []
+    except subprocess.TimeoutExpired as exc:
+        human_logger.warning("Timed out enumerating processes via tasklist")
+        machine_logger.warning(
+            "process_enumeration_timeout",
+            extra={
+                "event": "process_enumeration_timeout",
+                "patterns": expanded_patterns,
+                "stdout": exc.stdout,
+                "stderr": exc.stderr,
+            },
+        )
+        return []
+
+    if listing.returncode != 0:
+        human_logger.debug(
+            "tasklist exited with %s; skipping enumeration", listing.returncode
+        )
+        machine_logger.info(
+            "process_enumeration_failure",
+            extra={
+                "event": "process_enumeration_failure",
+                "patterns": expanded_patterns,
+                "return_code": listing.returncode,
+                "stdout": listing.stdout,
+                "stderr": listing.stderr,
+            },
+        )
+        return []
+
+    running: List[str] = []
+    for line in listing.stdout.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.lower().startswith("image name"):
+            continue
+        name = stripped.split()[0].lower()
+        if name not in running:
+            running.append(name)
+
+    matched: List[str] = []
+    for pattern in expanded_patterns:
+        for name in running:
+            if fnmatch.fnmatch(name, pattern) and name not in matched:
+                matched.append(name)
+
+    machine_logger.info(
+        "process_enumeration_result",
+        extra={
+            "event": "process_enumeration_result",
+            "patterns": expanded_patterns,
+            "matches": matched,
+        },
+    )
+    return matched
+
+
+def prompt_user_to_close(
+    processes: Sequence[str],
+    *,
+    input_func: Callable[[str], str] = input,
+    attempts: int = 3,
+) -> bool:
+    """!
+    @brief Prompt the operator to close running Office processes.
+    @details Presents a human-readable message listing active processes and
+    asks whether the tool should continue with forced termination. The prompt
+    is repeated up to ``attempts`` times for unrecognised responses.
+    @param processes Sequence of process names that remain active.
+    @param input_func Callback used to collect user responses (monkeypatchable).
+    @param attempts Maximum attempts before assuming refusal.
+    @returns ``True`` when the operator consented to termination; otherwise
+    ``False``.
+    """
+
+    remaining = [str(name).strip() for name in processes if str(name).strip()]
+    if not remaining:
+        return True
+
+    human_logger = logging_ext.get_human_logger()
+    message = (
+        "The following Office processes are still running: {names}.\n"
+        "Close them now or Office Janitor can attempt to terminate them automatically."
+    ).format(names=", ".join(remaining))
+    question = "Proceed with forced termination? [y/N]: "
+    human_logger.warning(message)
+
+    for attempt in range(attempts):
+        response = input_func(question).strip().lower()
+        if response in {"y", "yes"}:
+            human_logger.info("Operator approved forced process termination.")
+            return True
+        if response in {"n", "no", ""}:
+            human_logger.info("Operator declined forced process termination.")
+            return False
+        human_logger.debug("Unrecognised response '%s' (attempt %d)", response, attempt + 1)
+
+    human_logger.info("No approval after %d attempts; skipping termination.", attempts)
+    return False
+
+
+def terminate_office_processes(names: Iterable[str], *, timeout: int = 30) -> None:
+    """!
+    @brief Forcefully terminate the specified processes.
+    @details Issues ``taskkill /F /T`` for each process name. Structured logs
+    capture command plans, success, or failure without raising on
+    non-critical errors so subsequent cleanup steps can continue.
+    @param names Collection of process image names.
+    @param timeout Maximum seconds to wait for each ``taskkill`` invocation.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    processes: List[str] = [str(name).strip() for name in names if str(name).strip()]
     if not processes:
         human_logger.debug("No Office processes supplied for termination.")
         return
 
-    human_logger.info("Requesting termination of %d Office processes.", len(processes))
     for process in processes:
         command = ["taskkill.exe", "/IM", process, "/F", "/T"]
         machine_logger.info(
@@ -46,7 +181,9 @@ def terminate_office_processes(names: Iterable[str], *, timeout: int = 30) -> No
                 check=False,
             )
         except FileNotFoundError:  # pragma: no cover - non-Windows fallback.
-            human_logger.debug("taskkill.exe is unavailable; skipping termination for %s", process)
+            human_logger.debug(
+                "taskkill.exe is unavailable; skipping termination for %s", process
+            )
             continue
         except subprocess.TimeoutExpired as exc:
             human_logger.warning("Timed out attempting to stop %s", process)
@@ -61,94 +198,36 @@ def terminate_office_processes(names: Iterable[str], *, timeout: int = 30) -> No
             )
             continue
 
-        if result.returncode != 0:
-            human_logger.debug(
-                "taskkill exited with %s for %s: %s", result.returncode, process, result.stderr.strip()
-            )
-            machine_logger.info(
-                "terminate_process_result",
-                extra={
-                    "event": "terminate_process_result",
-                    "process_name": process,
-                    "return_code": result.returncode,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                },
-            )
-        else:
+        machine_logger.info(
+            "terminate_process_result",
+            extra={
+                "event": "terminate_process_result",
+                "process_name": process,
+                "return_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+        )
+        if result.returncode == 0:
             human_logger.info("Terminated %s", process)
-            machine_logger.info(
-                "terminate_process_success",
-                extra={
-                    "event": "terminate_process_success",
-                    "process_name": process,
-                    "return_code": result.returncode,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                },
+        else:
+            human_logger.debug(
+                "taskkill exited with %s for %s: %s",
+                result.returncode,
+                process,
+                result.stderr.strip(),
             )
 
 
 def terminate_process_patterns(patterns: Sequence[str], *, timeout: int = 30) -> None:
     """!
-    @brief Terminate processes whose names match ``patterns``.
-    @details Mirrors the ``tasklist``/``taskkill`` loops from
-    ``OfficeScrubberAIO.cmd`` so wildcard expressions such as ``ose*.exe`` can be
-    handled in one call. When ``tasklist`` is unavailable the function exits
-    quietly.
+    @brief Terminate processes that match the provided wildcard patterns.
+    @details Uses :func:`enumerate_processes` to expand patterns and forwards
+    the resulting process list to :func:`terminate_office_processes`.
+    @param patterns Wildcard expressions identifying Office executables.
+    @param timeout Maximum seconds for enumeration and termination commands.
     """
 
-    human_logger = logging_ext.get_human_logger()
-    machine_logger = logging_ext.get_machine_logger()
-
-    expanded_patterns = [pattern.lower().strip() for pattern in patterns if pattern]
-    if not expanded_patterns:
-        return
-
-    try:
-        listing = subprocess.run(
-            ["tasklist.exe"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except FileNotFoundError:  # pragma: no cover - non-Windows test environment.
-        human_logger.debug("tasklist.exe unavailable; skipping wildcard process termination")
-        return
-    except subprocess.TimeoutExpired as exc:
-        human_logger.warning("Timed out enumerating processes for wildcard termination")
-        machine_logger.warning(
-            "terminate_process_enumeration_timeout",
-            extra={
-                "event": "terminate_process_enumeration_timeout",
-                "stdout": exc.stdout,
-                "stderr": exc.stderr,
-            },
-        )
-        return
-
-    if listing.returncode != 0:
-        human_logger.debug("tasklist returned %s; skipping wildcard termination", listing.returncode)
-        return
-
-    running: List[str] = []
-    for line in listing.stdout.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("Image Name"):
-            continue
-        name = stripped.split()[0].lower()
-        running.append(name)
-
-    to_terminate: List[str] = []
-    for pattern in expanded_patterns:
-        matches = [name for name in running if fnmatch.fnmatch(name, pattern)]
-        for match in matches:
-            if match not in to_terminate:
-                to_terminate.append(match)
-
-    if not to_terminate:
-        human_logger.debug("No running processes matched patterns: %s", ", ".join(expanded_patterns))
-        return
-
-    terminate_office_processes(to_terminate, timeout=timeout)
+    matches = enumerate_processes(patterns, timeout=timeout)
+    if matches:
+        terminate_office_processes(matches, timeout=timeout)
