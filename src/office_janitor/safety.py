@@ -7,25 +7,11 @@ from __future__ import annotations
 
 from typing import Iterable, Mapping, Sequence
 
-from . import constants
+from . import constants, fs_tools
 
-FILESYSTEM_WHITELIST = (
-    r"C:\\PROGRAM FILES\\MICROSOFT OFFICE",
-    r"C:\\PROGRAM FILES (X86)\\MICROSOFT OFFICE",
-    r"C:\\PROGRAMDATA\\MICROSOFT\\OFFICE",
-    r"C:\\PROGRAMDATA\\MICROSOFT\\CLICKTORUN",
-    r"%LOCALAPPDATA%\\MICROSOFT\\OFFICE",
-    r"%APPDATA%\\MICROSOFT\\OFFICE",
-    r"%APPDATA%\\MICROSOFT\\TEMPLATES",
-    r"%LOCALAPPDATA%\\MICROSOFT\\OFFICE\\TEMPLATES",
-    r"%LOCALAPPDATA%\\MICROSOFT\\OFFICE\\LICENSES",
-)
+FILESYSTEM_WHITELIST = fs_tools.FILESYSTEM_WHITELIST
 
-FILESYSTEM_BLACKLIST = (
-    r"C:\\WINDOWS",
-    r"C:\\WINDOWS\\SYSTEM32",
-    r"C:\\USERS",
-)
+FILESYSTEM_BLACKLIST = fs_tools.FILESYSTEM_BLACKLIST
 
 REGISTRY_WHITELIST = (
     r"HKLM\\SOFTWARE\\MICROSOFT\\OFFICE",
@@ -141,45 +127,11 @@ def _enforce_registry_whitelist(plan_steps: Sequence[Mapping[str, object]]) -> N
 
 
 def _path_allowed(path: str) -> bool:
-    normalized = _normalize_windows_path(path)
-    if _path_whitelisted(normalized):
+    if fs_tools.is_path_whitelisted(path, whitelist=FILESYSTEM_WHITELIST, blacklist=FILESYSTEM_BLACKLIST):
         return True
-    if any(normalized.startswith(_normalize_windows_path(blocked)) for blocked in FILESYSTEM_BLACKLIST):
+    normalized = fs_tools.normalize_windows_path(path)
+    if any(normalized.startswith(fs_tools.normalize_windows_path(blocked)) for blocked in FILESYSTEM_BLACKLIST):
         return False
-    return False
-
-
-def _normalize_windows_path(path: str) -> str:
-    normalized = path.replace("/", "\\").upper()
-    while "\\\\" in normalized:
-        normalized = normalized.replace("\\\\", "\\")
-    return normalized.rstrip("\\")
-
-
-def _path_whitelisted(normalized: str) -> bool:
-    for allowed in FILESYSTEM_WHITELIST:
-        candidate = _normalize_windows_path(allowed)
-        if "%" not in candidate and normalized.startswith(candidate):
-            return True
-        if normalized == candidate:
-            return True
-        if candidate.startswith("%APPDATA%\\"):
-            suffix = candidate[len("%APPDATA%") :]
-            if _match_environment_suffix(normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True):
-                return True
-        if candidate.startswith("%LOCALAPPDATA%\\"):
-            suffix = candidate[len("%LOCALAPPDATA%") :]
-            if _match_environment_suffix(normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True):
-                return True
-    return False
-
-
-def _match_environment_suffix(normalized: str, suffix: str, *, require_users: bool = False) -> bool:
-    if suffix and suffix in normalized:
-        index = normalized.index(suffix)
-        if require_users and "\\USERS\\" not in normalized[:index]:
-            return False
-        return True
     return False
 
 
@@ -233,17 +185,17 @@ def _enforce_template_guard(
 
 
 def _is_template_path(path: str) -> bool:
-    normalized = _normalize_windows_path(path)
+    normalized = fs_tools.normalize_windows_path(path)
     for template in constants.USER_TEMPLATE_PATHS:
-        candidate = _normalize_windows_path(template)
+        candidate = fs_tools.normalize_windows_path(template)
         if "%" not in candidate and normalized.startswith(candidate):
             return True
         if candidate.startswith("%APPDATA%\\"):
             suffix = candidate[len("%APPDATA%") :]
-            if _match_environment_suffix(normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True):
+            if fs_tools.match_environment_suffix(normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True):
                 return True
         if candidate.startswith("%LOCALAPPDATA%\\"):
             suffix = candidate[len("%LOCALAPPDATA%") :]
-            if _match_environment_suffix(normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True):
+            if fs_tools.match_environment_suffix(normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True):
                 return True
     return False

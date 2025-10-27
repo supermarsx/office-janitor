@@ -18,7 +18,7 @@ import subprocess
 import sys
 from typing import Iterable, Mapping, Optional
 
-from . import detect, logging_ext, plan as plan_module, safety, scrub, ui, tui, version
+from . import detect, fs_tools, logging_ext, plan as plan_module, safety, scrub, ui, tui, version
 
 
 def enable_vt_mode_if_possible() -> None:
@@ -146,10 +146,12 @@ def _resolve_log_directory(candidate: Optional[str]) -> pathlib.Path:
 
     if candidate:
         return pathlib.Path(candidate).expanduser().resolve()
-    if os.name == "nt":
-        program_data = os.environ.get("ProgramData", r"C:\\ProgramData")
-        return pathlib.Path(program_data) / "OfficeJanitor" / "logs"
-    return pathlib.Path.cwd() / "logs"
+    default_dir = fs_tools.get_default_log_directory()
+    expanded = default_dir.expanduser()
+    try:
+        return expanded.resolve()
+    except Exception:
+        return expanded
 
 
 def _bootstrap_logging(args: argparse.Namespace) -> tuple[logging.Logger, logging.Logger]:
