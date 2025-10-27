@@ -41,10 +41,12 @@ class StepResult:
     @brief Capture the outcome for a single plan step.
     @details ``status`` is one of ``"success"``, ``"failed"``, or ``"skipped"`` and is
     recorded together with the executed dry-run flag and optional detail fields
-    describing retries, error messages, and backup/export activity. The
-    structure feeds the summary reporter at the end of a plan run and is also
-    attached to retry exceptions for diagnostic logging; the ``exception`` field
-    retains the final raised object for traceback chaining.
+    describing retries, error messages, backup/export activity, and timeline
+    metadata. The structure feeds the summary reporter at the end of a plan run
+    and is also attached to retry exceptions for diagnostic logging; the
+    ``exception`` field retains the final raised object for traceback chaining,
+    while ``started_at``/``completed_at`` capture timing data used by the
+    progress reporter.
     """
 
     step_id: str | None
@@ -54,6 +56,9 @@ class StepResult:
     dry_run: bool
     error: str | None = None
     exception: BaseException | None = None
+    progress: float | None = None
+    started_at: float | None = None
+    completed_at: float | None = None
     details: MutableMapping[str, object] = field(default_factory=dict)
 
 
@@ -121,6 +126,8 @@ class StepExecutor:
         delay = self._resolve_retry_delay(step, metadata)
         attempts_allowed = retries + 1
 
+        progress = min(1.0, max(0.0, index / self._total_steps))
+
         result = StepResult(
             step_id=str(step_id) if step_id is not None else None,
             category=str(category),
@@ -128,10 +135,21 @@ class StepExecutor:
             attempts=0,
             dry_run=dry_run,
         )
+        result.progress = progress
 
         for attempt in range(1, attempts_allowed + 1):
             result.attempts = attempt
-            self._emit_start(step_id, category, dry_run, attempt, index)
+            start_time = time.perf_counter()
+            if result.started_at is None:
+                result.started_at = start_time
+            self._emit_start(
+                step_id,
+                category,
+                dry_run,
+                attempt,
+                index,
+                progress,
+            )
 
             try:
                 detail_payload = self._dispatch(
@@ -143,6 +161,7 @@ class StepExecutor:
                 result.status = "failed"
                 result.error = repr(exc)
                 result.exception = exc
+                result.completed_at = time.perf_counter()
                 self._machine_logger.error(
                     "scrub_step_failure",
                     extra={
@@ -151,6 +170,8 @@ class StepExecutor:
                         "category": category,
                         "attempt": attempt,
                         "error": repr(exc),
+                        "progress": progress,
+                        "duration": self._format_duration(result),
                     },
                 )
                 self._human_logger.error(
@@ -174,6 +195,7 @@ class StepExecutor:
                 result.status = "success"
                 result.error = None
                 result.exception = None
+                result.completed_at = time.perf_counter()
                 if detail_payload:
                     result.details.update(detail_payload)
                 self._machine_logger.info(
@@ -184,6 +206,8 @@ class StepExecutor:
                         "category": category,
                         "dry_run": dry_run,
                         "attempts": attempt,
+                        "progress": progress,
+                        "duration": self._format_duration(result),
                     },
                 )
                 break
@@ -197,6 +221,7 @@ class StepExecutor:
         dry_run: bool,
         attempt: int,
         index: int,
+        progress: float,
     ) -> None:
         self._human_logger.info(
             "Executing step %s/%s (%s:%s) attempt %d",
@@ -214,8 +239,19 @@ class StepExecutor:
                 "category": category,
                 "dry_run": dry_run,
                 "attempt": attempt,
+                "index": index,
+                "total_steps": self._total_steps,
+                "progress": progress,
             },
         )
+
+    def _format_duration(self, result: StepResult) -> float | None:
+        if result.started_at is None or result.completed_at is None:
+            return None
+        duration = result.completed_at - result.started_at
+        if duration < 0:
+            return None
+        return round(duration, 6)
 
     def _dispatch(
         self,
@@ -435,12 +471,27 @@ def execute_plan(
         else:
             all_results.extend(pass_results)
 
+        pass_successes = sum(1 for item in pass_results if item.status == "success")
+        pass_failures = sum(1 for item in pass_results if item.status == "failed")
+        pass_skipped = len(pass_results) - pass_successes - pass_failures
+        pass_duration = sum(
+            (item.completed_at - item.started_at)
+            for item in pass_results
+            if item.started_at is not None
+            and item.completed_at is not None
+            and item.completed_at >= item.started_at
+        )
+
         machine_logger.info(
             "scrub_pass_complete",
             extra={
                 "event": "scrub_pass_complete",
                 "pass_index": current_pass,
                 "dry_run": global_dry_run,
+                "successes": pass_successes,
+                "failures": pass_failures,
+                "skipped": pass_skipped,
+                "duration": round(pass_duration, 6),
             },
         )
 
@@ -493,12 +544,21 @@ def execute_plan(
             raise
         else:
             all_results.extend(cleanup_results)
+        cleanup_duration = sum(
+            (item.completed_at - item.started_at)
+            for item in cleanup_results
+            if item.started_at is not None
+            and item.completed_at is not None
+            and item.completed_at >= item.started_at
+        )
         machine_logger.info(
             "scrub_cleanup_complete",
             extra={
                 "event": "scrub_cleanup_complete",
                 "pass_index": current_pass,
                 "dry_run": global_dry_run,
+                "steps_processed": len(cleanup_results),
+                "duration": round(cleanup_duration, 6),
             },
         )
 
@@ -705,6 +765,16 @@ def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> N
         if bool(item.details.get("backup_performed"))
     )
 
+    durations = [
+        item.completed_at - item.started_at
+        for item in result_list
+        if item.started_at is not None
+        and item.completed_at is not None
+        and item.completed_at >= item.started_at
+    ]
+    total_duration = sum(durations) if durations else 0.0
+    average_duration = (total_duration / len(durations)) if durations else 0.0
+
     machine_logger.info(
         "scrub_summary",
         extra={
@@ -717,6 +787,8 @@ def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> N
             "dry_run": dry_run,
             "backups_requested": backups_requested,
             "backups_performed": backups_performed,
+            "total_duration": round(total_duration, 6),
+            "average_duration": round(average_duration, 6),
         },
     )
 
@@ -730,7 +802,7 @@ def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> N
         human_logger.info(
             (
                 "Scrub summary: %d step(s) processed (%d succeeded, %d failed, %d skipped); "
-                "passes=%d; dry_run=%s; registry backups=%d/%d"
+                "passes=%d; dry_run=%s; registry backups=%d/%d; duration=%.3fs"
             ),
             total,
             successes,
@@ -740,6 +812,7 @@ def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> N
             dry_run,
             backups_performed,
             backups_requested,
+            total_duration,
         )
 
 
