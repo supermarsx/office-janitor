@@ -445,3 +445,64 @@ def test_registry_cleanup_exports_and_deletes(monkeypatch, tmp_path) -> None:
 
     assert recorded["export"] == (["HKLM\\Software\\Test"], str(backup_dir))
     assert recorded["delete"] == (["HKLM\\Software\\Test"], False)
+
+
+def test_filesystem_cleanup_preserves_templates(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Ensure filesystem cleanup skips user templates when preservation is requested.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+
+    removed: list[list[str]] = []
+
+    monkeypatch.setattr(
+        scrub.fs_tools,
+        "remove_paths",
+        lambda paths, dry_run=False: removed.append(list(paths)),
+    )
+
+    context_metadata = {"options": {"keep_templates": True}}
+    metadata = {
+        "paths": [
+            r"C:\\Users\\User\\AppData\\Roaming\\Microsoft\\Templates",
+            r"C:\\ProgramData\\Microsoft\\Office",
+        ],
+        "preserve_templates": True,
+    }
+
+    scrub._perform_filesystem_cleanup(metadata, context_metadata, dry_run=False)
+
+    assert removed == [[r"C:\\ProgramData\\Microsoft\\Office"]]
+
+
+def test_registry_cleanup_generates_backup_when_missing(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Missing backup destinations should fall back to the log directory.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+
+    recorded: dict[str, object] = {}
+
+    def fake_export(keys, destination):
+        recorded["export"] = {"keys": list(keys), "destination": destination}
+
+    def fake_delete(keys, dry_run=False):
+        recorded["delete"] = {"keys": list(keys), "dry_run": dry_run}
+
+    monkeypatch.setattr(scrub.registry_tools, "export_keys", fake_export)
+    monkeypatch.setattr(scrub.registry_tools, "delete_keys", fake_delete)
+
+    metadata = {"keys": ["HKLM\\Software\\Test"], "log_directory": str(tmp_path)}
+
+    scrub._perform_registry_cleanup(
+        metadata,
+        dry_run=False,
+        default_backup=None,
+        default_logdir=str(tmp_path),
+    )
+
+    assert recorded["export"]["keys"] == ["HKLM\\Software\\Test"]
+    assert pathlib.Path(recorded["export"]["destination"]).parent == tmp_path
+    assert recorded["delete"] == {"keys": ["HKLM\\Software\\Test"], "dry_run": False}
