@@ -335,3 +335,215 @@ class TestSafetyPreflight:
         with pytest.raises(ValueError):
             safety.perform_preflight_checks(plan_steps)
 
+
+class TestSafetyRuntimeEnvironment:
+    """!
+    @brief Runtime guard evaluation scenarios.
+    @details Exercises administrative, OS, process, restore point, and dry-run
+    enforcement helpers exposed by the safety module.
+    """
+
+    def test_runtime_guard_accepts_supported_environment(self) -> None:
+        """!
+        @brief Baseline acceptance for supported Windows releases.
+        """
+
+        safety.evaluate_runtime_environment(
+            is_admin=True,
+            os_system="Windows",
+            os_release="10.0.19045",
+            blocking_processes=[],
+            dry_run=False,
+            require_restore_point=True,
+            restore_point_available=True,
+        )
+
+    def test_runtime_guard_requires_admin_when_not_dry_run(self) -> None:
+        """!
+        @brief Administrative rights are mandatory for destructive runs.
+        """
+
+        with pytest.raises(PermissionError):
+            safety.evaluate_runtime_environment(
+                is_admin=False,
+                os_system="Windows",
+                os_release="10.0",
+                blocking_processes=[],
+                dry_run=False,
+                require_restore_point=False,
+                restore_point_available=True,
+            )
+
+    def test_runtime_guard_allows_non_admin_dry_run(self) -> None:
+        """!
+        @brief Dry-run mode skips the administrative guard.
+        """
+
+        safety.evaluate_runtime_environment(
+            is_admin=False,
+            os_system="Windows",
+            os_release="10.0",
+            blocking_processes=[],
+            dry_run=True,
+            require_restore_point=False,
+            restore_point_available=False,
+        )
+
+    def test_runtime_guard_rejects_unsupported_os(self) -> None:
+        """!
+        @brief Windows releases prior to 6.1 are blocked.
+        """
+
+        with pytest.raises(RuntimeError):
+            safety.evaluate_runtime_environment(
+                is_admin=True,
+                os_system="Windows",
+                os_release="5.1",
+                blocking_processes=[],
+                dry_run=False,
+                require_restore_point=False,
+                restore_point_available=True,
+            )
+
+    def test_runtime_guard_force_allows_unsupported_os(self) -> None:
+        """!
+        @brief Force flag bypasses the OS version guard.
+        """
+
+        safety.evaluate_runtime_environment(
+            is_admin=True,
+            os_system="Windows",
+            os_release="5.1",
+            blocking_processes=[],
+            dry_run=False,
+            require_restore_point=False,
+            restore_point_available=True,
+            force=True,
+        )
+
+    def test_runtime_guard_allow_flag_enables_unsupported_os(self) -> None:
+        """!
+        @brief Explicit override flag should bypass only the Windows guard.
+        """
+
+        safety.evaluate_runtime_environment(
+            is_admin=True,
+            os_system="Windows",
+            os_release="5.1",
+            blocking_processes=[],
+            dry_run=False,
+            require_restore_point=False,
+            restore_point_available=True,
+            allow_unsupported_windows=True,
+        )
+
+    def test_runtime_guard_blocks_lingering_processes(self) -> None:
+        """!
+        @brief Lingering Office processes prevent destructive actions.
+        """
+
+        with pytest.raises(RuntimeError):
+            safety.evaluate_runtime_environment(
+                is_admin=True,
+                os_system="Windows",
+                os_release="10.0",
+                blocking_processes=["WINWORD.EXE"],
+                dry_run=False,
+                require_restore_point=False,
+                restore_point_available=True,
+            )
+
+    def test_runtime_guard_force_allows_lingering_processes(self) -> None:
+        """!
+        @brief Force flag bypasses process blocks.
+        """
+
+        safety.evaluate_runtime_environment(
+            is_admin=True,
+            os_system="Windows",
+            os_release="10.0",
+            blocking_processes=["WINWORD.EXE"],
+            dry_run=False,
+            require_restore_point=False,
+            restore_point_available=True,
+            force=True,
+        )
+
+    def test_runtime_guard_dry_run_ignores_process_blocks(self) -> None:
+        """!
+        @brief Dry-run mode ignores process guard failures.
+        """
+
+        safety.evaluate_runtime_environment(
+            is_admin=True,
+            os_system="Windows",
+            os_release="10.0",
+            blocking_processes=["WINWORD.EXE"],
+            dry_run=True,
+            require_restore_point=False,
+            restore_point_available=True,
+        )
+
+    def test_runtime_guard_requires_restore_point(self) -> None:
+        """!
+        @brief Restore point requirement is enforced when enabled.
+        """
+
+        with pytest.raises(RuntimeError):
+            safety.evaluate_runtime_environment(
+                is_admin=True,
+                os_system="Windows",
+                os_release="10.0",
+                blocking_processes=[],
+                dry_run=False,
+                require_restore_point=True,
+                restore_point_available=False,
+            )
+
+    def test_runtime_guard_force_bypasses_restore_point(self) -> None:
+        """!
+        @brief Force flag allows proceeding without restore points.
+        """
+
+        safety.evaluate_runtime_environment(
+            is_admin=True,
+            os_system="Windows",
+            os_release="10.0",
+            blocking_processes=[],
+            dry_run=False,
+            require_restore_point=True,
+            restore_point_available=False,
+            force=True,
+        )
+
+    def test_guard_destructive_action_blocks_dry_run(self) -> None:
+        """!
+        @brief Dry-run prevents destructive operations.
+        """
+
+        with pytest.raises(RuntimeError):
+            safety.guard_destructive_action(
+                "delete files",
+                dry_run=True,
+            )
+
+    def test_guard_destructive_action_respects_force(self) -> None:
+        """!
+        @brief Force flag overrides dry-run enforcement.
+        """
+
+        safety.guard_destructive_action(
+            "delete files",
+            dry_run=True,
+            force=True,
+        )
+
+    def test_guard_destructive_action_allows_live_run(self) -> None:
+        """!
+        @brief Non dry-run mode allows destructive actions.
+        """
+
+        safety.guard_destructive_action(
+            "delete files",
+            dry_run=False,
+        )

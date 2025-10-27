@@ -142,6 +142,7 @@ def test_arg_parser_and_plan_options_cover_modes() -> None:
             "--include",
             "visio,project",
             "--force",
+            "--allow-unsupported-windows",
             "--dry-run",
             "--no-restore-point",
             "--no-license",
@@ -160,6 +161,7 @@ def test_arg_parser_and_plan_options_cover_modes() -> None:
     assert options["target"] == "2016"
     assert options["include"] == "visio,project"
     assert options["force"] is True
+    assert options["allow_unsupported_windows"] is True
     assert options["dry_run"] is True
     assert options["create_restore_point"] is False
     assert options["no_license"] is True
@@ -234,6 +236,7 @@ def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
             "--include",
             "visio,project",
             "--force",
+            "--allow-unsupported-windows",
             "--keep-templates",
             "--no-license",
             "--timeout",
@@ -254,6 +257,7 @@ def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
     assert captured_options["target"] == "2016"
     assert captured_options["include"] == "visio,project"
     assert captured_options["force"] is True
+    assert captured_options["allow_unsupported_windows"] is True
     assert captured_options["keep_templates"] is True
     assert captured_options["no_license"] is True
     assert captured_options["timeout"] == 120

@@ -117,6 +117,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--include", metavar="COMPONENTS", help="Additional suites/apps to include.")
     parser.add_argument("--force", action="store_true", help="Relax certain guardrails when safe.")
+    parser.add_argument(
+        "--allow-unsupported-windows",
+        action="store_true",
+        help="Permit execution on Windows releases below the supported minimum.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Simulate actions without modifying the system.")
     parser.add_argument("--no-restore-point", action="store_true", help="Skip creating a restore point.")
     parser.add_argument("--no-license", action="store_true", help="Skip license cleanup steps.")
@@ -316,6 +321,9 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
         "diagnose": bool(getattr(args, "diagnose", False)),
         "cleanup_only": bool(getattr(args, "cleanup_only", False)),
         "auto_all": bool(getattr(args, "auto_all", False)),
+        "allow_unsupported_windows": bool(
+            getattr(args, "allow_unsupported_windows", False)
+        ),
         "no_license": bool(getattr(args, "no_license", False)),
         "keep_templates": bool(getattr(args, "keep_templates", False)),
         "timeout": getattr(args, "timeout", None),
