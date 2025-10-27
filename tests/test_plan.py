@@ -69,6 +69,7 @@ class TestPlanBuilder:
         categories = [step["category"] for step in plan_steps]
         assert categories == [
             "context",
+            "detect",
             "msi-uninstall",
             "c2r-uninstall",
             "licensing-cleanup",
@@ -82,6 +83,13 @@ class TestPlanBuilder:
         assert context["metadata"]["mode"] == "auto-all"
         assert context["metadata"]["discovered_versions"] == ["2019", "365"]
         assert context["metadata"]["pass_index"] == 1
+        summary = context["metadata"]["summary"]
+        assert summary["total_steps"] == len(plan_steps)
+        assert summary["categories"]["detect"] == 1
+
+        detect_step = plan_steps[1]
+        assert detect_step["category"] == "detect"
+        assert detect_step["depends_on"] == ["context"]
 
         licensing = next(step for step in plan_steps if step["category"] == "licensing-cleanup")
         assert set(licensing["depends_on"]) == {"msi-1-0", "c2r-1-0"}
@@ -131,6 +139,7 @@ class TestPlanBuilder:
         msi_steps = [step for step in plan_steps if step["category"] == "msi-uninstall"]
         assert len(msi_steps) == 1
         assert msi_steps[0]["metadata"]["version"] == "2016"
+        assert msi_steps[0]["depends_on"] == ["detect-1-0"]
 
         context = plan_steps[0]
         assert context["metadata"]["target_versions"] == ["2016"]
@@ -187,7 +196,7 @@ class TestPlanBuilder:
         }
 
         diagnose_plan = plan.build_plan(inventory, {"mode": "auto-all", "diagnose": True})
-        assert [step["category"] for step in diagnose_plan] == ["context"]
+        assert [step["category"] for step in diagnose_plan] == ["context", "detect"]
         assert diagnose_plan[0]["metadata"]["mode"] == "diagnose"
 
         cleanup_plan = plan.build_plan(
@@ -239,6 +248,7 @@ class TestPlanBuilder:
         assert "c2r-uninstall" not in categories
         assert {step["category"] for step in plan_steps} == {
             "context",
+            "detect",
             "licensing-cleanup",
             "task-cleanup",
             "service-cleanup",
@@ -250,7 +260,7 @@ class TestPlanBuilder:
         assert context["metadata"]["mode"] == "cleanup-only"
 
         licensing = next(step for step in plan_steps if step["category"] == "licensing-cleanup")
-        assert licensing["depends_on"] == ["context"]
+        assert licensing["depends_on"] == ["detect-1-0"]
         assert licensing["metadata"]["dry_run"] is True
 
         task_step = next(step for step in plan_steps if step["category"] == "task-cleanup")
@@ -287,6 +297,8 @@ class TestPlanBuilder:
         service_step = next(step for step in plan_steps if step["category"] == "service-cleanup")
         assert service_step["metadata"]["services"] == ["ClickToRunSvc", "ose"]
         assert service_step["depends_on"] == [task_step["id"]]
+        detect_step = next(step for step in plan_steps if step["category"] == "detect")
+        assert detect_step["depends_on"] == ["context"]
 
     def test_diagnose_mode_is_context_only(self) -> None:
         """!
@@ -308,8 +320,7 @@ class TestPlanBuilder:
 
         plan_steps = plan.build_plan(inventory, options)
 
-        assert len(plan_steps) == 1
-        assert plan_steps[0]["category"] == "context"
+        assert [step["category"] for step in plan_steps] == ["context", "detect"]
         assert plan_steps[0]["metadata"]["mode"] == "diagnose"
 
     def test_second_pass_ids_include_pass_index(self) -> None:
@@ -344,4 +355,50 @@ class TestPlanBuilder:
         assert c2r_ids == ["c2r-2-0"]
         context = plan_steps[0]
         assert context["metadata"]["pass_index"] == 2
+        detect_ids = [step["id"] for step in plan_steps if step["category"] == "detect"]
+        assert detect_ids == ["detect-2-0"]
+
+    def test_include_components_recorded_in_context(self) -> None:
+        """!
+        @brief Include flags should be normalized and stored in metadata.
+        """
+
+        inventory: Dict[str, List[dict]] = {}
+        options = {"auto_all": True, "include": "Visio,Project,unknown"}
+
+        plan_steps = plan.build_plan(inventory, options)
+
+        context = plan_steps[0]
+        metadata = context["metadata"]
+        assert metadata["requested_components"] == ["visio", "project"]
+        assert metadata["unsupported_components"] == ["unknown"]
+        summary = metadata["summary"]
+        assert summary["requested_components"] == ["visio", "project"]
+        assert summary["unsupported_components"] == ["unknown"]
+
+    def test_plan_summary_helper(self) -> None:
+        """!
+        @brief :func:`plan.summarize_plan` aggregates categories and versions.
+        """
+
+        inventory: Dict[str, List[dict]] = {
+            "msi": [
+                {
+                    "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
+                    "display_name": "Microsoft Office Professional Plus 2016",
+                    "version": "2016",
+                }
+            ],
+            "filesystem": [{"path": r"C:\\Office"}],
+        }
+        options = {"auto_all": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+        summary = plan.summarize_plan(plan_steps)
+
+        assert summary["total_steps"] == len(plan_steps)
+        assert summary["categories"]["detect"] == 1
+        assert summary["uninstall_versions"] == ["2016"]
+        assert "filesystem-cleanup" in summary["cleanup_categories"]
+        assert summary["actionable_steps"] == len(plan_steps) - 2  # minus context + detect
 

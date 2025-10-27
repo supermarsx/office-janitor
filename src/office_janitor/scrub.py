@@ -288,6 +288,12 @@ def _execute_steps(
         try:
             if category == "context":
                 human_logger.info("Context: %s", metadata)
+            elif category == "detect":
+                summary = metadata.get("summary") if isinstance(metadata, dict) else None
+                if summary:
+                    human_logger.info("Detection summary: %s", summary)
+                else:
+                    human_logger.info("Detection snapshot captured.")
             elif category == "msi-uninstall":
                 product = metadata.get("product", {})
                 if not product:
