@@ -32,7 +32,7 @@ DEFAULT_MAX_PASSES = 3
 @brief Safety limit mirroring OffScrub's repeated scrub attempts.
 """
 
-UNINSTALL_CATEGORIES = {"context", "msi-uninstall", "c2r-uninstall"}
+UNINSTALL_CATEGORIES = {"context", "detect", "msi-uninstall", "c2r-uninstall"}
 CLEANUP_CATEGORIES = {
     "licensing-cleanup",
     "task-cleanup",
