@@ -455,9 +455,11 @@ def _perform_filesystem_cleanup(
     preserve_templates = bool(
         metadata.get("preserve_templates", options.get("keep_templates", False))
     )
-    purge_templates = bool(metadata.get("purge_templates", False))
-    if not preserve_templates and options.get("force", False):
-        purge_templates = True
+    purge_metadata = metadata.get("purge_templates")
+    if purge_metadata is not None:
+        purge_templates = bool(purge_metadata)
+    else:
+        purge_templates = bool(options.get("force", False) and not preserve_templates)
 
     preserved: list[str] = []
     cleanup_targets: list[str] = []
@@ -540,7 +542,9 @@ def _normalize_string_sequence(values: object) -> list[str]:
     normalised: list[str] = []
     seen: set[str] = set()
     for value in values:
-        text = str(value).strip()
+        if not value:
+            continue
+        text = value.strip() if isinstance(value, str) else str(value).strip()
         if not text:
             continue
         normalized = fs_tools.normalize_windows_path(text)
