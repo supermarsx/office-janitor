@@ -7,12 +7,17 @@ contain uninstall handles, source type, and channel information.
 from __future__ import annotations
 
 import csv
+import json
+import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
 from . import constants, registry_tools
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 _OFFICE_PROCESS_TARGETS = tuple(
@@ -117,6 +122,330 @@ def _compose_handle(root: int, path: str) -> str:
     return f"{registry_tools.hive_name(root)}\\{path}"
 
 
+def _safe_read_values(root: int, path: str) -> Dict[str, Any]:
+    """!
+    @brief Read registry values while tolerating missing hives or permissions.
+    @details Wraps :func:`registry_tools.read_values` so callers can safely probe
+    both 32-bit and 64-bit views without surfacing platform-specific
+    exceptions during detection runs on non-Windows hosts.
+    """
+
+    try:
+        return registry_tools.read_values(root, path)
+    except FileNotFoundError:
+        return {}
+    except OSError:
+        return {}
+
+
+def _powershell_escape(text: str) -> str:
+    """!
+    @brief Escape a string literal for embedding within PowerShell commands.
+    """
+
+    return text.replace("'", "''")
+
+
+def _powershell_registry_path(root: int, path: str) -> str:
+    """!
+    @brief Convert registry handles into PowerShell provider paths.
+    """
+
+    hive = registry_tools.hive_name(root)
+    normalized = path.replace("/", "\\")
+    return f"{hive}:\\{normalized}"
+
+
+def _powershell_read_values(root: int, path: str) -> Dict[str, Any]:
+    """!
+    @brief Query registry values using ``powershell`` as a fallback.
+    @details ``winreg`` is unavailable on some unit test hosts. This helper
+    mirrors the value projection from :func:`registry_tools.read_values` by
+    invoking PowerShell to emit JSON for the requested key. Errors return an
+    empty mapping so detection can degrade gracefully.
+    """
+
+    provider_path = _powershell_registry_path(root, path)
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        f"$p='{_powershell_escape(provider_path)}';"
+        "if(Test-Path $p){"
+        "  Get-ItemProperty -Path $p | Select-Object * | ConvertTo-Json -Compress"
+        "}else{''}"
+    )
+    code, output = _run_command(["powershell", "-NoProfile", "-Command", script])
+    if code != 0 or not output.strip():
+        return {}
+
+    text = output.strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    if not isinstance(data, dict):
+        return {}
+
+    filtered: Dict[str, Any] = {}
+    for key, value in data.items():
+        if str(key).startswith("PS"):
+            continue
+        filtered[str(key)] = value
+    return filtered
+
+
+def _read_values_with_fallback(root: int, path: str) -> Dict[str, Any]:
+    """!
+    @brief Read registry values with a PowerShell fallback when necessary.
+    """
+
+    values = _safe_read_values(root, path)
+    if values:
+        return values
+    return _powershell_read_values(root, path)
+
+
+def _key_exists_with_fallback(root: int, path: str) -> bool:
+    """!
+    @brief Determine whether ``root\\path`` exists using registry or PowerShell probes.
+    """
+
+    try:
+        if registry_tools.key_exists(root, path):
+            return True
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
+    provider_path = _powershell_registry_path(root, path)
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        f"if(Test-Path '{_powershell_escape(provider_path)}'){{'True'}}else{{'False'}}"
+    )
+    code, output = _run_command(["powershell", "-NoProfile", "-Command", script])
+    if code != 0 or not output.strip():
+        return False
+    result = output.strip().splitlines()[-1].strip().lower()
+    return result == "true"
+
+
+def _parse_languages(*candidates: object) -> Tuple[str, ...]:
+    """!
+    @brief Normalise language identifiers from registry and subscription data.
+    """
+
+    languages: List[str] = []
+
+    def add_token(token: str) -> None:
+        cleaned = token.strip()
+        if not cleaned:
+            return
+        lower = cleaned.lower()
+        for existing in languages:
+            if existing.lower() == lower:
+                return
+        languages.append(cleaned)
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if isinstance(candidate, str):
+            expanded = candidate.replace(";", ",").replace("|", ",")
+            for part in expanded.split(","):
+                add_token(part)
+            continue
+        if isinstance(candidate, (list, tuple, set)):
+            for part in candidate:
+                if isinstance(part, str):
+                    add_token(part)
+        elif isinstance(candidate, Mapping):
+            for part in candidate.values():
+                if isinstance(part, str):
+                    add_token(part)
+
+    return tuple(languages)
+
+
+def _infer_architecture(name: str, install_path: str | None = None) -> str:
+    """!
+    @brief Infer architecture information from names or installation paths.
+    """
+
+    lowered = name.lower()
+    if "64-bit" in lowered or "(64" in lowered or "x64" in lowered:
+        return "x64"
+    if "32-bit" in lowered or "(32" in lowered or "x86" in lowered:
+        return "x86"
+    if install_path:
+        path_lower = install_path.lower()
+        if "program files (x86)" in path_lower:
+            return "x86"
+        if "program files" in path_lower:
+            return "x64"
+    return "unknown"
+
+
+def _merge_fallback_metadata(
+    existing: Dict[str, Dict[str, Any]], additions: Mapping[str, Mapping[str, Any]]
+) -> None:
+    """!
+    @brief Merge fallback detection metadata keyed by product code.
+    """
+
+    for code, payload in additions.items():
+        if not code:
+            continue
+        key = code.upper()
+        current = existing.get(key)
+        if current is None:
+            existing[key] = dict(payload)
+            continue
+        merged = dict(current)
+        merged.update(payload)
+        existing[key] = merged
+
+
+def _candidate_msi_handles(product_code: str) -> Tuple[str, ...]:
+    """!
+    @brief Determine candidate uninstall handles for an MSI product code.
+    """
+
+    handles: List[str] = []
+    for hive, base_key in constants.MSI_UNINSTALL_ROOTS:
+        key_path = f"{base_key}\\{product_code}"
+        if _key_exists_with_fallback(hive, key_path):
+            handles.append(_compose_handle(hive, key_path))
+    if not handles and constants.MSI_UNINSTALL_ROOTS:
+        hive, base_key = constants.MSI_UNINSTALL_ROOTS[0]
+        handles.append(_compose_handle(hive, f"{base_key}\\{product_code}"))
+    return tuple(handles)
+
+
+def _read_subscription_values(release_id: str) -> Tuple[Dict[str, Any], str | None]:
+    """!
+    @brief Read Click-to-Run subscription metadata for ``release_id``.
+    """
+
+    for hive, base_path in constants.C2R_SUBSCRIPTION_ROOTS:
+        key_path = f"{base_path}\\{release_id}"
+        values = _read_values_with_fallback(hive, key_path)
+        if values:
+            return values, _compose_handle(hive, key_path)
+    return {}, None
+
+
+def _normalize_release_ids(raw: object) -> Tuple[str, ...]:
+    """!
+    @brief Convert registry values into a canonical tuple of release identifiers.
+    """
+
+    tokens: List[str] = []
+    if isinstance(raw, str):
+        expanded = raw.replace(";", ",").replace("|", ",")
+        tokens = [segment.strip() for segment in expanded.split(",") if segment.strip()]
+    elif isinstance(raw, (list, tuple, set)):
+        for entry in raw:
+            text = str(entry).strip()
+            if text:
+                tokens.append(text)
+
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for token in tokens:
+        normalized = token
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return tuple(ordered)
+
+
+def _probe_msi_wmi() -> Dict[str, Dict[str, Any]]:
+    """!
+    @brief Collect MSI product metadata via ``wmic`` when available.
+    """
+
+    code, output = _run_command(
+        ["wmic", "product", "get", "IdentifyingNumber,Name,Version,InstallLocation", "/format:csv"]
+    )
+    if code != 0 or not output.strip():
+        return {}
+
+    lines = [line.strip("\ufeff").strip() for line in output.splitlines() if line.strip()]
+    if not lines:
+        return {}
+
+    try:
+        reader = csv.DictReader(lines)
+    except csv.Error:
+        return {}
+
+    results: Dict[str, Dict[str, Any]] = {}
+    for row in reader:
+        product_code = str(row.get("IdentifyingNumber") or "").strip()
+        name = str(row.get("Name") or "").strip()
+        version = str(row.get("Version") or "").strip()
+        install_path = str(row.get("InstallLocation") or "").strip()
+        if not product_code and not name:
+            continue
+        if name and not any(token in name.lower() for token in ("office", "visio", "project")):
+            continue
+        results[product_code.upper()] = {
+            "product": name or product_code,
+            "version": version,
+            "install_location": install_path,
+            "probe": "wmic",
+        }
+
+    return results
+
+
+def _probe_msi_powershell() -> Dict[str, Dict[str, Any]]:
+    """!
+    @brief Collect MSI product metadata via ``powershell`` CIM queries when available.
+    """
+
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        "$items=Get-CimInstance -ClassName Win32_Product -ErrorAction SilentlyContinue | "
+        "Where-Object { $_.Name -and ( $_.Name -like '*Office*' -or $_.Name -like '*Visio*' -or $_.Name -like '*Project*' ) } | "
+        "Select-Object IdentifyingNumber,Name,Version,InstallLocation;"
+        "if($items){$items|ConvertTo-Json -Compress}else{''}"
+    )
+    code, output = _run_command(["powershell", "-NoProfile", "-Command", script])
+    if code != 0 or not output.strip():
+        return {}
+
+    text = output.strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+
+    records = payload if isinstance(payload, list) else [payload]
+    results: Dict[str, Dict[str, Any]] = {}
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        product_code = str(record.get("IdentifyingNumber") or "").strip()
+        name = str(record.get("Name") or "").strip()
+        version = str(record.get("Version") or "").strip()
+        install_path = str(record.get("InstallLocation") or "").strip()
+        if not product_code and not name:
+            continue
+        results[product_code.upper()] = {
+            "product": name or product_code,
+            "version": version,
+            "install_location": install_path,
+            "probe": "powershell",
+        }
+
+    return results
+
+
 def detect_msi_installations() -> List[DetectedInstallation]:
     """!
     @brief Inspect the registry and return metadata for MSI-based Office installs.
@@ -124,6 +453,11 @@ def detect_msi_installations() -> List[DetectedInstallation]:
 
     installations: List[DetectedInstallation] = []
     seen_handles: set[str] = set()
+    seen_codes: set[str] = set()
+
+    fallback_sources: Dict[str, Dict[str, Any]] = {}
+    _merge_fallback_metadata(fallback_sources, _probe_msi_wmi())
+    _merge_fallback_metadata(fallback_sources, _probe_msi_powershell())
 
     for product_code, metadata in constants.MSI_PRODUCT_MAP.items():
         registry_roots: Iterable[Tuple[int, str]] = metadata.get(
@@ -131,7 +465,7 @@ def detect_msi_installations() -> List[DetectedInstallation]:
         )
         for hive, base_key in registry_roots:
             key_path = f"{base_key}\\{product_code}"
-            values = registry_tools.read_values(hive, key_path)
+            values = _read_values_with_fallback(hive, key_path)
             if not values:
                 continue
 
@@ -139,28 +473,54 @@ def detect_msi_installations() -> List[DetectedInstallation]:
             if handle in seen_handles:
                 continue
 
-            display_name = str(values.get("DisplayName") or metadata.get("product") or product_code)
-            display_version = str(values.get("DisplayVersion") or "")
+            fallback_meta = fallback_sources.pop(product_code.upper(), None)
+            display_name = str(
+                values.get("DisplayName") or metadata.get("product") or product_code
+            )
+            display_version = str(
+                values.get("DisplayVersion")
+                or metadata.get("version")
+                or (fallback_meta or {}).get("version")
+                or "unknown"
+            )
             uninstall_string = str(values.get("UninstallString") or "")
+            install_location = str(
+                values.get("InstallLocation") or (fallback_meta or {}).get("install_location") or ""
+            )
+            raw_architecture = str(metadata.get("architecture", "")).strip()
+            architecture = raw_architecture or _infer_architecture(display_name, install_location or None)
+            if not architecture:
+                architecture = "unknown"
             family = constants.resolve_msi_family(product_code) or str(metadata.get("family", ""))
+            languages = _parse_languages(
+                values.get("InstallLanguage"),
+                values.get("Language"),
+                values.get("ProductLanguage"),
+            )
 
             properties: Dict[str, object] = {
                 "display_name": display_name,
                 "display_version": display_version,
+                "supported_versions": list(metadata.get("supported_versions", ())),
+                "edition": metadata.get("edition", ""),
             }
             if uninstall_string:
                 properties["uninstall_string"] = uninstall_string
-            properties["supported_versions"] = list(metadata.get("supported_versions", ()))
-            properties["edition"] = metadata.get("edition", "")
+            if install_location:
+                properties["install_location"] = install_location
             if family:
                 properties["family"] = family
+            if languages:
+                properties["languages"] = list(languages)
+            if fallback_meta and fallback_meta.get("probe"):
+                properties["supplemental_probes"] = [str(fallback_meta["probe"])]
 
             installations.append(
                 DetectedInstallation(
                     source="MSI",
                     product=str(metadata.get("product", display_name)),
-                    version=str(metadata.get("version", "unknown")),
-                    architecture=str(metadata.get("architecture", "unknown")),
+                    version=display_version or "unknown",
+                    architecture=architecture or "unknown",
                     uninstall_handles=(handle,),
                     channel="MSI",
                     product_code=product_code,
@@ -168,6 +528,38 @@ def detect_msi_installations() -> List[DetectedInstallation]:
                 )
             )
             seen_handles.add(handle)
+            seen_codes.add(product_code.upper())
+
+    for product_code, metadata in fallback_sources.items():
+        if product_code in seen_codes:
+            continue
+        display_name = str(metadata.get("product") or product_code)
+        version = str(metadata.get("version") or "unknown") or "unknown"
+        install_location = str(metadata.get("install_location") or "")
+        architecture = _infer_architecture(display_name, install_location or None) or "unknown"
+        handles = _candidate_msi_handles(product_code)
+        properties: Dict[str, object] = {
+            "display_name": display_name,
+            "display_version": version,
+        }
+        if install_location:
+            properties["install_location"] = install_location
+        probe = metadata.get("probe")
+        if probe:
+            properties["supplemental_probes"] = [str(probe)]
+
+        installations.append(
+            DetectedInstallation(
+                source="MSI",
+                product=display_name,
+                version=version or "unknown",
+                architecture=architecture,
+                uninstall_handles=handles,
+                channel="MSI",
+                product_code=product_code,
+                properties=properties,
+            )
+        )
 
     return installations
 
@@ -180,12 +572,13 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
     installations: List[DetectedInstallation] = []
 
     for hive, config_path in constants.C2R_CONFIGURATION_KEYS:
-        config_values = registry_tools.read_values(hive, config_path)
+        config_values = _read_values_with_fallback(hive, config_path)
         if not config_values:
             continue
 
-        raw_release_ids = str(config_values.get("ProductReleaseIds", "")).split(",")
-        release_ids = tuple(sorted(rid.strip() for rid in raw_release_ids if rid.strip()))
+        release_ids = _normalize_release_ids(
+            config_values.get("ProductReleaseIds") or config_values.get("ReleaseIds")
+        )
         if not release_ids:
             continue
 
@@ -207,13 +600,27 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
             or config_values.get("ChannelId")
             or config_values.get("CDNBaseUrl")
         )
-        channel = _friendly_channel(str(channel_identifier) if channel_identifier else None)
-        package_guid = str(config_values.get("PackageGUID") or "")
-        install_path = str(config_values.get("InstallPath") or "")
+        global_channel = _friendly_channel(str(channel_identifier) if channel_identifier else None)
+        package_guid = str(config_values.get("PackageGUID") or config_values.get("PackageGuid") or "")
+        install_path = str(
+            config_values.get("InstallPath")
+            or config_values.get("ClientFolder")
+            or config_values.get("InstallOfficePath")
+            or ""
+        )
+        configuration_languages = _parse_languages(
+            config_values.get("Language"),
+            config_values.get("InstallLanguage"),
+            config_values.get("ClientCulture"),
+            config_values.get("InstalledLanguages"),
+        )
+        base_handle = _compose_handle(hive, config_path)
 
         for release_id in release_ids:
             product_metadata = constants.C2R_PRODUCT_RELEASES.get(release_id)
-            product_name = str(product_metadata.get("product", release_id)) if product_metadata else release_id
+            product_name = (
+                str((product_metadata or {}).get("product", release_id)) if product_metadata else release_id
+            )
             supported_versions = tuple(
                 str(v) for v in (product_metadata or {}).get("supported_versions", ())
             )
@@ -223,16 +630,43 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
             family = constants.resolve_c2r_family(release_id) or str(
                 (product_metadata or {}).get("family", "")
             )
-            uninstall_handles = [_compose_handle(hive, config_path)]
 
+            uninstall_handles: set[str] = {base_handle}
             registry_paths = (product_metadata or {}).get("registry_paths", {})
             release_roots: Iterable[Tuple[int, str]] = registry_paths.get(
                 "product_release_ids", constants.C2R_PRODUCT_RELEASE_ROOTS
             )
             for rel_hive, rel_base in release_roots:
                 release_key = f"{rel_base}\\{release_id}"
-                if registry_tools.key_exists(rel_hive, release_key):
-                    uninstall_handles.append(_compose_handle(rel_hive, release_key))
+                if _key_exists_with_fallback(rel_hive, release_key):
+                    uninstall_handles.add(_compose_handle(rel_hive, release_key))
+
+            subscription_values, subscription_handle = _read_subscription_values(release_id)
+            if subscription_handle:
+                uninstall_handles.add(subscription_handle)
+            subscription_channel = _friendly_channel(
+                str(
+                    subscription_values.get("ChannelId")
+                    or subscription_values.get("UpdateChannel")
+                    or subscription_values.get("CDNBaseUrl")
+                    or ""
+                )
+                if subscription_values
+                else None
+            )
+            release_channel = (
+                subscription_channel if subscription_channel != "unknown" else global_channel
+            )
+            release_languages = _parse_languages(
+                configuration_languages,
+                subscription_values.get("Language"),
+                subscription_values.get("InstalledLanguages"),
+                subscription_values.get("ClientCulture"),
+            )
+
+            architecture_choice = architecture
+            if architecture_choice == "unknown" and supported_architectures:
+                architecture_choice = supported_architectures[0]
 
             properties: Dict[str, object] = {
                 "release_id": release_id,
@@ -246,15 +680,21 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
                 properties["install_path"] = install_path
             if family:
                 properties["family"] = family
+            if release_languages:
+                properties["languages"] = list(release_languages)
+            if subscription_channel != "unknown":
+                properties["channel_source"] = "subscription"
+            else:
+                properties["channel_source"] = "configuration"
 
             installations.append(
                 DetectedInstallation(
                     source="C2R",
                     product=product_name,
                     version=version,
-                    architecture=architecture,
-                    uninstall_handles=tuple(uninstall_handles),
-                    channel=channel,
+                    architecture=architecture_choice or "unknown",
+                    uninstall_handles=tuple(sorted(uninstall_handles)),
+                    channel=release_channel,
                     release_ids=(release_id,),
                     properties=properties,
                 )
@@ -463,13 +903,7 @@ def gather_activation_state() -> Dict[str, Any]:
     if hive is None:
         return {}
 
-    try:
-        values = registry_tools.read_values(hive, relative_path)
-    except FileNotFoundError:
-        return {}
-    except OSError:
-        return {}
-
+    values = _read_values_with_fallback(hive, relative_path)
     if not values:
         return {}
 
@@ -493,13 +927,7 @@ def gather_registry_residue() -> List[Dict[str, str]]:
     entries: List[Dict[str, str]] = []
 
     for hive, path in _REGISTRY_RESIDUE_TEMPLATES:
-        try:
-            exists = registry_tools.key_exists(hive, path)
-        except FileNotFoundError:
-            exists = False
-        except OSError:
-            exists = False
-        if not exists:
+        if not _key_exists_with_fallback(hive, path):
             continue
         entries.append({"path": _compose_handle(hive, path)})
 
