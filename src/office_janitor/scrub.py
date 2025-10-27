@@ -392,45 +392,18 @@ def _execute_steps(
                 else:
                     tasks_services.delete_services(services, dry_run=step_dry_run)
             elif category == "filesystem-cleanup":
-                paths = metadata.get("paths", [])
-                if not paths:
-                    human_logger.info("No filesystem paths supplied; skipping step.")
-                else:
-                    fs_tools.remove_paths(paths, dry_run=step_dry_run)
+                _perform_filesystem_cleanup(
+                    metadata,
+                    context_metadata,
+                    dry_run=step_dry_run,
+                )
             elif category == "registry-cleanup":
-                keys = [str(key) for key in metadata.get("keys", []) if key]
-                if not keys:
-                    human_logger.info("No registry keys supplied; skipping step.")
-                else:
-                    step_backup = _normalize_path(metadata.get("backup_destination")) or backup_destination
-                    step_logdir = _normalize_path(metadata.get("log_directory")) or log_directory
-
-                    if step_backup is None and step_logdir is not None:
-                        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
-                            "registry-backup-%Y%m%d-%H%M%S"
-                        )
-                        step_backup = str(Path(step_logdir) / timestamp)
-
-                    if step_dry_run:
-                        human_logger.info(
-                            "Dry-run: would export %d registry keys to %s before deletion.",
-                            len(keys),
-                            step_backup or "(no destination)",
-                        )
-                    else:
-                        if step_backup is not None:
-                            human_logger.info(
-                                "Exporting %d registry keys to %s before deletion.",
-                                len(keys),
-                                step_backup,
-                            )
-                            registry_tools.export_keys(keys, step_backup)
-                        else:
-                            human_logger.warning(
-                                "Proceeding without registry backup; no destination available."
-                            )
-
-                    registry_tools.delete_keys(keys, dry_run=step_dry_run)
+                _perform_registry_cleanup(
+                    metadata,
+                    dry_run=step_dry_run,
+                    default_backup=backup_destination,
+                    default_logdir=log_directory,
+                )
             else:
                 human_logger.info("Unhandled plan category %s; skipping.", category)
         except Exception as exc:
@@ -454,3 +427,157 @@ def _execute_steps(
                     "dry_run": step_dry_run,
                 },
             )
+
+
+def _perform_filesystem_cleanup(
+    metadata: Mapping[str, object],
+    context_metadata: Mapping[str, object],
+    *,
+    dry_run: bool,
+) -> None:
+    """!
+    @brief Remove filesystem leftovers while preserving user templates when requested.
+    @details The helper deduplicates filesystem targets, honours the ``keep_templates``
+    flag propagated through the context metadata, and emits preservation messages for
+    any protected template directories. Only the remaining paths are forwarded to
+    :func:`fs_tools.remove_paths` so template data survives unless an explicit purge
+    override is supplied.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+
+    paths = _normalize_string_sequence(metadata.get("paths", []))
+    if not paths:
+        human_logger.info("No filesystem paths supplied; skipping step.")
+        return
+
+    options = dict(context_metadata.get("options", {})) if context_metadata else {}
+    preserve_templates = bool(
+        metadata.get("preserve_templates", options.get("keep_templates", False))
+    )
+    purge_metadata = metadata.get("purge_templates")
+    if purge_metadata is not None:
+        purge_templates = bool(purge_metadata)
+    else:
+        purge_templates = bool(options.get("force", False) and not preserve_templates)
+
+    preserved: list[str] = []
+    cleanup_targets: list[str] = []
+
+    for path in paths:
+        if preserve_templates and not purge_templates and _is_user_template_path(path):
+            preserved.append(path)
+            continue
+        cleanup_targets.append(path)
+
+    for template_path in preserved:
+        human_logger.info("Preserving user template path %s", template_path)
+
+    if not cleanup_targets:
+        human_logger.info("All filesystem cleanup targets were preserved; nothing to remove.")
+        return
+
+    fs_tools.remove_paths(cleanup_targets, dry_run=dry_run)
+
+
+def _perform_registry_cleanup(
+    metadata: Mapping[str, object],
+    *,
+    dry_run: bool,
+    default_backup: str | None,
+    default_logdir: str | None,
+) -> None:
+    """!
+    @brief Export and delete registry leftovers with backup awareness.
+    @details Consolidates the registry cleanup logic so backup destinations are
+    normalised once and deletions are skipped when no keys remain. The helper
+    reuses plan metadata when provided and generates a timestamped backup path when
+    only a log directory is available, mirroring the OffScrub behaviour.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+
+    keys = _normalize_string_sequence(metadata.get("keys", []))
+    if not keys:
+        human_logger.info("No registry keys supplied; skipping step.")
+        return
+
+    step_backup = _normalize_option_path(metadata.get("backup_destination")) or default_backup
+    step_logdir = _normalize_option_path(metadata.get("log_directory")) or default_logdir
+
+    if step_backup is None and step_logdir is not None:
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("registry-backup-%Y%m%d-%H%M%S")
+        step_backup = str(Path(step_logdir) / timestamp)
+
+    if dry_run:
+        human_logger.info(
+            "Dry-run: would export %d registry keys to %s before deletion.",
+            len(keys),
+            step_backup or "(no destination)",
+        )
+    else:
+        if step_backup is not None:
+            human_logger.info(
+                "Exporting %d registry keys to %s before deletion.",
+                len(keys),
+                step_backup,
+            )
+            registry_tools.export_keys(keys, step_backup)
+        else:
+            human_logger.warning(
+                "Proceeding without registry backup; no destination available."
+            )
+
+    registry_tools.delete_keys(keys, dry_run=dry_run)
+
+
+def _normalize_string_sequence(values: object) -> list[str]:
+    """!
+    @brief Convert an arbitrary value into a unique, ordered list of strings.
+    """
+
+    if not isinstance(values, Iterable) or isinstance(values, (str, bytes)):
+        return []
+
+    normalised: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        text = value.strip() if isinstance(value, str) else str(value).strip()
+        if not text:
+            continue
+        normalized = fs_tools.normalize_windows_path(text)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalised.append(text)
+    return normalised
+
+
+def _is_user_template_path(path: str) -> bool:
+    """!
+    @brief Determine whether ``path`` points at a user template directory.
+    @details Mirrors :func:`safety._is_template_path` without importing private
+    helpers so filesystem cleanup can independently honour preservation rules.
+    """
+
+    normalized = fs_tools.normalize_windows_path(path)
+    for template in constants.USER_TEMPLATE_PATHS:
+        candidate = fs_tools.normalize_windows_path(template)
+        if "%" not in candidate and normalized.startswith(candidate):
+            return True
+        if candidate.startswith("%APPDATA%\\"):
+            suffix = candidate[len("%APPDATA%") :]
+            if fs_tools.match_environment_suffix(
+                normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True
+            ):
+                return True
+        if candidate.startswith("%LOCALAPPDATA%\\"):
+            suffix = candidate[len("%LOCALAPPDATA%") :]
+            if fs_tools.match_environment_suffix(
+                normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True
+            ):
+                return True
+    return False
+
