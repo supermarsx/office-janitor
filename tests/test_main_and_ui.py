@@ -54,9 +54,16 @@ def test_main_auto_all_executes_scrub_pipeline(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
     monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: recorded.append(("safety", len(plan))))
-
+    
     scrub_calls: List[bool] = []
     monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(bool(dry_run)))
+
+    guard_calls: List[tuple[dict, bool]] = []
+
+    def capture_guard(options, *, dry_run=False):  # type: ignore[no-untyped-def]
+        guard_calls.append((dict(options), bool(dry_run)))
+
+    monkeypatch.setattr(main, "_enforce_runtime_guards", capture_guard)
 
     exit_code = main.main(["--auto-all", "--dry-run", "--logdir", str(tmp_path / "logs")])
 
@@ -65,6 +72,7 @@ def test_main_auto_all_executes_scrub_pipeline(monkeypatch, tmp_path) -> None:
     assert recorded[0][0] == "plan"
     assert recorded[0][1]["mode"] == "auto-all"
     assert any(item[0] == "safety" for item in recorded)
+    assert guard_calls and guard_calls[0][1] is True
 
 
 def test_main_diagnose_skips_execution(monkeypatch, tmp_path) -> None:
@@ -99,10 +107,18 @@ def test_main_diagnose_skips_execution(monkeypatch, tmp_path) -> None:
     scrub_calls: List[bool] = []
     monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(True))
 
+    guard_calls: List[tuple[dict, bool]] = []
+
+    def capture_guard(options, *, dry_run=False):  # type: ignore[no-untyped-def]
+        guard_calls.append((dict(options), bool(dry_run)))
+
+    monkeypatch.setattr(main, "_enforce_runtime_guards", capture_guard)
+
     exit_code = main.main(["--diagnose", "--logdir", str(tmp_path / "logs")])
 
     assert exit_code == 0
     assert scrub_calls == []
+    assert guard_calls == []
 
 
 def test_main_interactive_uses_cli(monkeypatch, tmp_path) -> None:
@@ -114,6 +130,12 @@ def test_main_interactive_uses_cli(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
     monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
     monkeypatch.setattr(main, "_should_use_tui", lambda args: False)
+
+    monkeypatch.setattr(
+        main,
+        "_enforce_runtime_guards",
+        lambda options, *, dry_run=False: (_ for _ in ()).throw(AssertionError("Guard should not run")),
+    )
 
     captured = {}
 
@@ -142,6 +164,7 @@ def test_arg_parser_and_plan_options_cover_modes() -> None:
             "--include",
             "visio,project",
             "--force",
+            "--allow-unsupported-windows",
             "--dry-run",
             "--no-restore-point",
             "--no-license",
@@ -160,6 +183,7 @@ def test_arg_parser_and_plan_options_cover_modes() -> None:
     assert options["target"] == "2016"
     assert options["include"] == "visio,project"
     assert options["force"] is True
+    assert options["allow_unsupported_windows"] is True
     assert options["dry_run"] is True
     assert options["create_restore_point"] is False
     assert options["no_license"] is True
@@ -225,6 +249,13 @@ def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(main.scrub, "execute_plan", fake_execute)
 
+    guard_calls: List[tuple[dict, bool]] = []
+
+    def capture_guard(options, *, dry_run=False):  # type: ignore[no-untyped-def]
+        guard_calls.append((dict(options), bool(dry_run)))
+
+    monkeypatch.setattr(main, "_enforce_runtime_guards", capture_guard)
+
     plan_path = tmp_path / "plan.json"
     backup_dir = tmp_path / "backup"
     exit_code = main.main(
@@ -234,6 +265,7 @@ def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
             "--include",
             "visio,project",
             "--force",
+            "--allow-unsupported-windows",
             "--keep-templates",
             "--no-license",
             "--timeout",
@@ -254,6 +286,7 @@ def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
     assert captured_options["target"] == "2016"
     assert captured_options["include"] == "visio,project"
     assert captured_options["force"] is True
+    assert captured_options["allow_unsupported_windows"] is True
     assert captured_options["keep_templates"] is True
     assert captured_options["no_license"] is True
     assert captured_options["timeout"] == 120
@@ -261,6 +294,11 @@ def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
     assert (backup_dir / "plan.json").exists()
     assert (backup_dir / "inventory.json").exists()
     assert plan_path.exists()
+    assert guard_calls
+    guard_options, guard_dry_run = guard_calls[0]
+    assert guard_options["allow_unsupported_windows"] is True
+    assert guard_options["force"] is True
+    assert guard_dry_run is False
 
 
 def test_ui_run_cli_detect_option(monkeypatch) -> None:
@@ -605,6 +643,13 @@ def test_main_diagnose_writes_default_artifacts(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
     monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: None)
 
+    guard_calls: List[tuple[dict, bool]] = []
+
+    def capture_guard(options, *, dry_run=False):  # type: ignore[no-untyped-def]
+        guard_calls.append((dict(options), bool(dry_run)))
+
+    monkeypatch.setattr(main, "_enforce_runtime_guards", capture_guard)
+
     exit_code = main.main(["--diagnose", "--logdir", str(tmp_path)])
 
     assert exit_code == 0
@@ -616,4 +661,5 @@ def test_main_diagnose_writes_default_artifacts(monkeypatch, tmp_path) -> None:
     assert data[0]["metadata"]["mode"] == "diagnose"
     inventory_data = json.loads(inventory_path.read_text(encoding="utf-8"))
     assert inventory_data["msi"] == ["Office"]
+    assert guard_calls == []
 

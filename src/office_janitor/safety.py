@@ -1,7 +1,11 @@
 """!
-@brief Safety and guardrail enforcement.
-@details Implements dry-run, whitelist/blacklist checks, and preflight
-validation to keep cleanup actions safe as called for in the specification.
+@brief Safety and guardrail enforcement helpers.
+@details Centralises preflight checks shared across the application, including
+administrative validation, supported operating system checks, process
+preflight policies, dry-run guardrails, and the existing plan validation
+constraints. The functions exported here are invoked by the CLI entry point
+and by destructive subsystems prior to mutating the host so that ``--dry-run``
+and ``--force`` semantics remain consistent.
 """
 from __future__ import annotations
 
@@ -12,6 +16,10 @@ from . import constants, fs_tools
 FILESYSTEM_WHITELIST = fs_tools.FILESYSTEM_WHITELIST
 
 FILESYSTEM_BLACKLIST = fs_tools.FILESYSTEM_BLACKLIST
+
+SUPPORTED_SYSTEMS = {"windows", "nt"}
+
+MINIMUM_SUPPORTED_WINDOWS_RELEASE = (6, 1)
 
 REGISTRY_WHITELIST = (
     r"HKLM\\SOFTWARE\\MICROSOFT\\OFFICE",
@@ -59,6 +67,84 @@ def perform_preflight_checks(plan: Iterable[Mapping[str, object]]) -> None:
     _enforce_filesystem_whitelist(plan_steps)
     _enforce_registry_whitelist(plan_steps)
     _enforce_template_guard(plan_steps, metadata)
+
+
+def evaluate_runtime_environment(
+    *,
+    is_admin: bool,
+    os_system: str,
+    os_release: str,
+    blocking_processes: Sequence[str],
+    dry_run: bool,
+    require_restore_point: bool,
+    restore_point_available: bool,
+    force: bool = False,
+    allow_unsupported_windows: bool = False,
+) -> None:
+    """!
+    @brief Validate runtime prerequisites before destructive execution.
+    @details Aggregates guard conditions enforced before mutating the host. The
+    function is intentionally side-effect free so callers can execute it during
+    planning or immediately prior to scrub execution. ``--force`` only skips
+    advisory guards (unsupported OS releases, lingering processes, or missing
+    restore points) and never bypasses immutable requirements such as
+    administrative rights.
+    @param is_admin Indicates whether the current process is elevated.
+    @param os_system Result of ``platform.system()`` (or equivalent).
+    @param os_release Operating system release string (e.g. ``"10.0.19045"``).
+    @param blocking_processes Processes that must be terminated prior to
+    modification.
+    @param dry_run When ``True`` destructive actions are not executed.
+    @param require_restore_point Caller intent for creating a restore point.
+    @param restore_point_available Whether restore points are currently
+    available on the host.
+    @param force Indicates ``--force`` was supplied, allowing certain guard
+    rails to be bypassed.
+    @param allow_unsupported_windows Overrides the Windows release minimum
+    guard without relaxing other safety rails.
+    @raises PermissionError If administrative rights are missing for a
+    destructive run.
+    @raises RuntimeError If any advisory guard blocks execution.
+    """
+
+    _enforce_admin_guard(is_admin=is_admin, dry_run=dry_run)
+    _enforce_os_guard(
+        os_system=os_system,
+        os_release=os_release,
+        force=force,
+        allow_unsupported_windows=allow_unsupported_windows,
+    )
+    _enforce_process_guard(
+        blocking_processes=blocking_processes, dry_run=dry_run, force=force
+    )
+    _enforce_restore_point_guard(
+        require_restore_point=require_restore_point,
+        restore_point_available=restore_point_available,
+        dry_run=dry_run,
+        force=force,
+    )
+
+
+def guard_destructive_action(action: str, *, dry_run: bool, force: bool = False) -> None:
+    """!
+    @brief Prevent destructive actions from running during dry-run simulations.
+    @details Callers should invoke this helper before deleting files, removing
+    registry keys, or performing any irreversible change. The guard raises a
+    :class:`RuntimeError` when ``dry_run`` is active unless ``--force`` is also
+    provided, mirroring the specification's expectation that destructive
+    behaviour remains opt-in during simulations.
+    @param action Human readable description of the operation used in the error
+    message.
+    @param dry_run Indicates whether the global run is dry-run only.
+    @param force When ``True`` the guard is bypassed.
+    @raises RuntimeError If ``dry_run`` is active without ``force``.
+    """
+
+    if dry_run and not force:
+        description = action or "destructive operation"
+        raise RuntimeError(
+            f"{description} is blocked while running in dry-run mode. Use --force to override."
+        )
 
 
 def _extract_context(plan_steps: Sequence[Mapping[str, object]]) -> Mapping[str, object]:
@@ -199,3 +285,90 @@ def _is_template_path(path: str) -> bool:
             if fs_tools.match_environment_suffix(normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True):
                 return True
     return False
+
+
+def _enforce_admin_guard(*, is_admin: bool, dry_run: bool) -> None:
+    if dry_run:
+        return
+    if not is_admin:
+        raise PermissionError(
+            "Administrative rights are required for destructive operations."
+        )
+
+
+def _enforce_os_guard(
+    *,
+    os_system: str,
+    os_release: str,
+    force: bool,
+    allow_unsupported_windows: bool,
+) -> None:
+    system = str(os_system).strip().lower()
+    if system and system not in SUPPORTED_SYSTEMS:
+        raise RuntimeError(
+            f"Unsupported operating system '{os_system}'. Windows is required."
+        )
+
+    release_tuple = _parse_windows_release(os_release)
+    if (
+        release_tuple < MINIMUM_SUPPORTED_WINDOWS_RELEASE
+        and not force
+        and not allow_unsupported_windows
+    ):
+        raise RuntimeError(
+            "Windows 7 / Server 2008 R2 or newer is required for destructive operations."
+        )
+
+
+def _enforce_process_guard(
+    *,
+    blocking_processes: Sequence[str],
+    dry_run: bool,
+    force: bool,
+) -> None:
+    if dry_run:
+        return
+
+    active = [str(proc).strip() for proc in blocking_processes if str(proc).strip()]
+    if not active or force:
+        return
+
+    joined = ", ".join(active)
+    raise RuntimeError(
+        "The following Office processes must be closed before continuing: " + joined
+    )
+
+
+def _enforce_restore_point_guard(
+    *,
+    require_restore_point: bool,
+    restore_point_available: bool,
+    dry_run: bool,
+    force: bool,
+) -> None:
+    if dry_run or not require_restore_point:
+        return
+
+    if restore_point_available or force:
+        return
+
+    raise RuntimeError(
+        "System restore points are unavailable; re-run with --force or --no-restore-point."
+    )
+
+
+def _parse_windows_release(release: str) -> tuple[int, int]:
+    parts: list[int] = []
+    for token in str(release).split('.'):
+        if len(parts) >= 2:
+            break
+        token = token.strip()
+        if not token:
+            continue
+        digits = ''.join(ch for ch in token if ch.isdigit())
+        if not digits:
+            continue
+        parts.append(int(digits))
+    while len(parts) < 2:
+        parts.append(0)
+    return parts[0], parts[1]

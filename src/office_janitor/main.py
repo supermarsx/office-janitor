@@ -14,11 +14,24 @@ import json
 import logging
 import os
 import pathlib
+import platform
 import subprocess
 import sys
 from typing import Iterable, Mapping, Optional
 
-from . import detect, fs_tools, logging_ext, plan as plan_module, safety, scrub, ui, tui, version
+from . import (
+    constants,
+    detect,
+    fs_tools,
+    logging_ext,
+    plan as plan_module,
+    processes,
+    safety,
+    scrub,
+    ui,
+    tui,
+    version,
+)
 
 
 def enable_vt_mode_if_possible() -> None:
@@ -117,6 +130,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--include", metavar="COMPONENTS", help="Additional suites/apps to include.")
     parser.add_argument("--force", action="store_true", help="Relax certain guardrails when safe.")
+    parser.add_argument(
+        "--allow-unsupported-windows",
+        action="store_true",
+        help="Permit execution on Windows releases below the supported minimum.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Simulate actions without modifying the system.")
     parser.add_argument("--no-restore-point", action="store_true", help="Skip creating a restore point.")
     parser.add_argument("--no-license", action="store_true", help="Skip license cleanup steps.")
@@ -217,7 +235,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         human_log.info("Diagnostics complete; plan written and no actions executed.")
         return 0
 
-    scrub.execute_plan(generated_plan, dry_run=bool(getattr(args, "dry_run", False)))
+    scrub_dry_run = bool(getattr(args, "dry_run", False))
+    _enforce_runtime_guards(options, dry_run=scrub_dry_run)
+    scrub.execute_plan(generated_plan, dry_run=scrub_dry_run)
     return 0
 
 
@@ -290,6 +310,12 @@ def _build_app_state(
             human_log.info("Diagnostics complete; plan written and no actions executed.")
             return
 
+        guard_options = dict(_collect_plan_options(args, mode_override))
+        guard_options["dry_run"] = dry_run
+        if overrides:
+            guard_options.update({key: overrides[key] for key in overrides})
+
+        _enforce_runtime_guards(guard_options, dry_run=dry_run)
         scrub.execute_plan(plan_data, dry_run=dry_run)
 
     return {
@@ -316,6 +342,9 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
         "diagnose": bool(getattr(args, "diagnose", False)),
         "cleanup_only": bool(getattr(args, "cleanup_only", False)),
         "auto_all": bool(getattr(args, "auto_all", False)),
+        "allow_unsupported_windows": bool(
+            getattr(args, "allow_unsupported_windows", False)
+        ),
         "no_license": bool(getattr(args, "no_license", False)),
         "keep_templates": bool(getattr(args, "keep_templates", False)),
         "timeout": getattr(args, "timeout", None),
@@ -449,6 +478,134 @@ def _handle_plan_artifacts(
             encoding="utf-8",
         )
         human_log.info("Wrote backup artifacts to %s", resolved_backup)
+
+
+def _enforce_runtime_guards(options: Mapping[str, object], *, dry_run: bool) -> None:
+    """!
+    @brief Evaluate runtime safety prerequisites prior to executing the scrubber.
+    @details Gathers host telemetry and forwards it to
+    :func:`safety.evaluate_runtime_environment` so operating system, process, and
+    restore point guards are enforced consistently across CLI entry points.
+    """
+
+    system, release = _detect_operating_system()
+    require_restore_point = bool(options.get("create_restore_point", False))
+    restore_point_available = True
+    if require_restore_point and not dry_run:
+        restore_point_available = _restore_points_available()
+
+    safety.evaluate_runtime_environment(
+        is_admin=_current_process_is_admin(),
+        os_system=system,
+        os_release=release,
+        blocking_processes=_discover_blocking_processes(),
+        dry_run=dry_run,
+        require_restore_point=require_restore_point,
+        restore_point_available=restore_point_available,
+        force=bool(options.get("force", False)),
+        allow_unsupported_windows=bool(options.get("allow_unsupported_windows", False)),
+    )
+
+
+def _detect_operating_system() -> tuple[str, str]:
+    """!
+    @brief Collect the current operating system identifier and release version.
+    """
+
+    try:
+        system = platform.system()
+    except Exception:
+        system = ""
+
+    release = ""
+    try:
+        release = platform.version()
+    except Exception:
+        release = ""
+
+    if not release:
+        try:
+            release = platform.release()
+        except Exception:
+            release = ""
+
+    return system, release
+
+
+def _discover_blocking_processes() -> list[str]:
+    """!
+    @brief Enumerate Office-related processes that may block destructive actions.
+    """
+
+    patterns = list(constants.DEFAULT_OFFICE_PROCESSES) + list(constants.OFFICE_PROCESS_PATTERNS)
+    try:
+        return processes.enumerate_processes(patterns)
+    except Exception:
+        return []
+
+
+def _current_process_is_admin() -> bool:
+    """!
+    @brief Determine whether the current interpreter is running with elevated privileges.
+    """
+
+    if os.name == "nt":
+        try:
+            shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+            return bool(shell32.IsUserAnAdmin())
+        except Exception:
+            return False
+
+    geteuid = getattr(os, "geteuid", None)
+    if callable(geteuid):
+        try:
+            return bool(geteuid() == 0)
+        except Exception:
+            return False
+
+    return False
+
+
+def _restore_points_available() -> bool:
+    """!
+    @brief Detect whether system restore points are currently available.
+    """
+
+    if os.name != "nt":
+        return False
+
+    script = "\n".join(
+        (
+            "Try {",
+            "  Get-ComputerRestorePoint -ErrorAction Stop | Select-Object -First 1 | Out-String",
+            "  Exit 0",
+            " } Catch { Exit 1 }",
+        )
+    )
+
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+    return result.returncode == 0
 
 
 if __name__ == "__main__":  # pragma: no cover - for manual execution
