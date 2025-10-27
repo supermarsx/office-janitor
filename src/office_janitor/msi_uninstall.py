@@ -1,213 +1,324 @@
 """!
 @brief Helpers for orchestrating MSI-based Office uninstalls.
-@details Translates the OffScrub command sequences present in
-``OfficeScrubber.cmd`` into Python helpers that invoke the matching VBS
-automation scripts with the same argument conventions. This allows the
-scrubber to mimic the legacy workflow while still benefiting from structured
-logging and dry-run enforcement.
+@details The routines in this module discover uninstall metadata, compose
+`msiexec` command lines, retry failures, and verify registry state to confirm
+that the requested product has been removed. Structured telemetry emitted via
+:mod:`office_janitor.command_runner` keeps the behaviour aligned with the
+reference OffScrub scripts while remaining fully Python-native.
 """
 from __future__ import annotations
 
-import subprocess
 import time
-from pathlib import Path
-from typing import Iterable, List, Mapping, MutableMapping
+from dataclasses import dataclass
+from typing import Iterable, List, Mapping, MutableMapping, Sequence
 
-from . import constants, logging_ext
+from . import command_runner, constants, logging_ext, registry_tools
 
-OFFSCRUB_BASE_ARGS = constants.MSI_OFFSCRUB_ARGS
+MSIEXEC_TIMEOUT = 3600
 """!
-@brief Backwards-compatible alias for MSI OffScrub arguments.
-"""
-from .off_scrub_scripts import ensure_offscrub_script
-
-OFFSCRUB_TIMEOUT = 1800
-"""!
-@brief Default timeout (seconds) for OffScrub automation helpers.
+@brief Maximum seconds to wait for a single ``msiexec`` invocation.
 """
 
+MSIEXEC_BASE_COMMAND = ("msiexec.exe", "/x")
+"""!
+@brief Command prefix used for MSI product removal.
+"""
 
-def _sanitize_product_code(product_code: str) -> str:
+MSIEXEC_ADDITIONAL_ARGS = ("/qb!", "/norestart")
+"""!
+@brief UI and reboot suppression arguments mirrored from OffScrub scripts.
+"""
+
+MSI_RETRY_ATTEMPTS = 2
+"""!
+@brief Number of retries after the initial uninstall attempt (total attempts = retries + 1).
+"""
+
+MSI_RETRY_DELAY = 5.0
+"""!
+@brief Seconds to wait between retry attempts.
+"""
+
+MSI_VERIFICATION_ATTEMPTS = 3
+"""!
+@brief Number of registry probes performed when confirming removal.
+"""
+
+MSI_VERIFICATION_DELAY = 5.0
+"""!
+@brief Seconds to wait between registry verification probes.
+"""
+
+
+@dataclass
+class _MsiProduct:
     """!
-    @brief Produce a filesystem-safe representation of ``product_code``.
+    @brief Normalised metadata describing an MSI product slated for removal.
     """
 
-    return product_code.strip().strip("{}").replace("-", "").upper() or "unknown"
+    product_code: str
+    display_name: str
+    version: str
+    uninstall_handles: Sequence[str]
 
 
-def _resolve_offscrub_script(version_hint: str | None) -> str:
+def _normalise_product_code(raw: str) -> str:
     """!
-    @brief Select the correct OffScrub helper given an optional version hint.
+    @brief Sanitise ``raw`` into the ``{GUID}`` form expected by ``msiexec``.
     """
 
-    if version_hint:
-        normalized = version_hint.strip().lower()
-        mapped = constants.MSI_OFFSCRUB_SCRIPT_MAP.get(normalized)
-        if mapped:
-            return mapped
-        for key, value in constants.MSI_OFFSCRUB_SCRIPT_MAP.items():
-            if normalized.startswith(key.lower()):
-                return value
-    return constants.MSI_OFFSCRUB_DEFAULT_SCRIPT
+    token = raw.strip().strip("\0")
+    if not token:
+        return ""
+    core = token.strip("{}")
+    if not core:
+        return ""
+    return f"{{{core.upper()}}}"
 
 
-def build_command(
-    product: Mapping[str, object] | str,
-    *,
-    script_directory: Path | None = None,
-) -> List[str]:
+def _default_handles_for_code(product_code: str) -> List[str]:
     """!
-    @brief Compose the OffScrub command line for a given MSI installation.
-    @details The helper accepts either a plain product code or the inventory
-    record emitted by :mod:`detect`. Only fields understood by the OffScrub
-    family are translated into command switches so that the runtime matches the
-    reference batch script.
+    @brief Construct registry handle strings for known uninstall roots.
     """
 
+    handles: List[str] = []
+    metadata = constants.MSI_PRODUCT_MAP.get(product_code.upper())
+    registry_roots = metadata.get("registry_roots", constants.MSI_UNINSTALL_ROOTS) if metadata else constants.MSI_UNINSTALL_ROOTS
+    for hive, base in registry_roots:
+        handles.append(f"{registry_tools.hive_name(hive)}\\{base}\\{product_code}")
+    return handles
+
+
+def _normalise_product_entry(product: Mapping[str, object] | str) -> _MsiProduct:
+    """!
+    @brief Convert caller supplied product metadata into an internal structure.
+    """
+
+    mapping: MutableMapping[str, object]
     if isinstance(product, MutableMapping):
-        product_code = str(product.get("product_code", "")).strip()
-        version_hint = str(product.get("version", "")).strip()
+        mapping = dict(product)
     elif isinstance(product, Mapping):
-        product_code = str(product.get("product_code", "")).strip()
-        version_hint = str(product.get("version", "")).strip()
+        mapping = dict(product)
     else:
-        product_code = str(product).strip()
-        version_hint = ""
+        mapping = {"product_code": str(product)}
 
-    script_name = _resolve_offscrub_script(version_hint)
-    script_path = ensure_offscrub_script(script_name, base_directory=script_directory)
+    raw_code = str(
+        mapping.get("product_code")
+        or mapping.get("ProductCode")
+        or mapping.get("code")
+        or ""
+    )
+    product_code = _normalise_product_code(raw_code)
+    if not product_code:
+        raise ValueError("MSI uninstall entry missing product code")
 
-    command: List[str] = [str(constants.OFFSCRUB_EXECUTABLE)]
-    command.extend(str(arg) for arg in constants.OFFSCRUB_HOST_ARGS)
-    command.append(str(script_path))
-    command.extend(constants.MSI_OFFSCRUB_ARGS)
-    if product_code:
-        command.append(f"/PRODUCTCODE={product_code}")
-    return command
+    properties = mapping.get("properties")
+    if isinstance(properties, Mapping):
+        property_map = properties
+    else:
+        property_map = {}
+
+    metadata = constants.MSI_PRODUCT_MAP.get(product_code.upper(), {})
+    display_name = str(
+        mapping.get("product")
+        or property_map.get("display_name")
+        or metadata.get("product")
+        or product_code
+    )
+    version = str(
+        mapping.get("version")
+        or property_map.get("display_version")
+        or metadata.get("version")
+        or "unknown"
+    )
+
+    handles: Sequence[str] = ()
+    raw_handles = mapping.get("uninstall_handles")
+    if isinstance(raw_handles, Sequence) and not isinstance(raw_handles, (str, bytes)):
+        handles = [str(handle).strip() for handle in raw_handles if str(handle).strip()]
+    if not handles:
+        handles = _default_handles_for_code(product_code)
+
+    return _MsiProduct(
+        product_code=product_code,
+        display_name=display_name,
+        version=version,
+        uninstall_handles=tuple(handles),
+    )
+
+
+def _parse_registry_handle(handle: str) -> tuple[int, str] | None:
+    """!
+    @brief Break a ``HKLM\\...`` style handle into hive/path components.
+    """
+
+    cleaned = str(handle).strip()
+    if not cleaned or "\\" not in cleaned:
+        return None
+    prefix, _, path = cleaned.partition("\\")
+    hive = constants.REGISTRY_ROOTS.get(prefix.upper())
+    if hive is None or not path:
+        return None
+    return hive, path
+
+
+def _is_product_present(entry: _MsiProduct) -> bool:
+    """!
+    @brief Determine whether the product still has uninstall registry entries.
+    """
+
+    for handle in entry.uninstall_handles:
+        parsed = _parse_registry_handle(handle)
+        if parsed and registry_tools.key_exists(parsed[0], parsed[1]):
+            return True
+    for hive, base in constants.MSI_UNINSTALL_ROOTS:
+        if registry_tools.key_exists(hive, f"{base}\\{entry.product_code}"):
+            return True
+    return False
+
+
+def build_command(product_code: str) -> List[str]:
+    """!
+    @brief Compose the ``msiexec`` command used to uninstall ``product_code``.
+    """
+
+    normalized = _normalise_product_code(product_code)
+    return [*MSIEXEC_BASE_COMMAND, normalized, *MSIEXEC_ADDITIONAL_ARGS]
+
+
+def _await_removal(entry: _MsiProduct) -> bool:
+    """!
+    @brief Poll registry keys to confirm the product has been removed.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    for attempt in range(1, MSI_VERIFICATION_ATTEMPTS + 1):
+        present = _is_product_present(entry)
+        machine_logger.info(
+            "msi_uninstall_verify",
+            extra={
+                "event": "msi_uninstall_verify",
+                "product_code": entry.product_code,
+                "attempt": attempt,
+                "present": present,
+            },
+        )
+        if not present:
+            human_logger.info(
+                "Confirmed removal of %s (%s)", entry.display_name, entry.product_code
+            )
+            return True
+        if attempt < MSI_VERIFICATION_ATTEMPTS:
+            time.sleep(MSI_VERIFICATION_DELAY)
+    return False
 
 
 def uninstall_products(
     products: Iterable[Mapping[str, object] | str],
     *,
     dry_run: bool = False,
+    retries: int = MSI_RETRY_ATTEMPTS,
 ) -> None:
     """!
-    @brief Uninstall the supplied MSI products using OffScrub semantics.
+    @brief Uninstall the supplied MSI products via ``msiexec``.
+    @details Each product is normalised, executed with retry semantics, and
+    verified for removal using registry probes. Non-zero exit codes or failed
+    verifications raise :class:`RuntimeError` summarising the offending product
+    codes.
+    @param products Iterable of product codes or inventory mappings.
+    @param dry_run When ``True`` log intent without executing ``msiexec``.
+    @param retries Additional attempts after the first failure.
     """
 
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
-    entries: List[Mapping[str, object] | str] = [product for product in products if product]
+    entries: List[_MsiProduct] = []
+    for product in products:
+        if not product:
+            continue
+        entries.append(_normalise_product_entry(product))
+
     if not entries:
         human_logger.info("No MSI products supplied for uninstall; skipping.")
         return
 
-    human_logger.info(
-        "Preparing to run OffScrub for %d MSI product(s). Dry-run: %s",
-        len(entries),
-        bool(dry_run),
-    )
-
     failures: List[str] = []
+    total_attempts = max(1, int(retries) + 1)
 
-    for product in entries:
-        command = build_command(product)
-        if isinstance(product, Mapping):
-            product_code = str(product.get("product_code", "")).strip()
-            version_hint = str(product.get("version", "")).strip()
-        else:
-            product_code = str(product).strip()
-            version_hint = ""
-
-        safe_code = _sanitize_product_code(product_code or version_hint or "")
+    for entry in entries:
         machine_logger.info(
             "msi_uninstall_plan",
             extra={
                 "event": "msi_uninstall_plan",
-                "product_code": product_code or None,
-                "version_hint": version_hint or None,
+                "product_code": entry.product_code,
+                "display_name": entry.display_name,
+                "version": entry.version,
                 "dry_run": bool(dry_run),
-                "command": command,
+                "handles": list(entry.uninstall_handles),
             },
         )
 
-        if dry_run:
-            human_logger.info("Dry-run: would invoke %s", " ".join(command))
+        if not dry_run and not _is_product_present(entry):
+            human_logger.info(
+                "%s (%s) is already absent; skipping msiexec.",
+                entry.display_name,
+                entry.product_code,
+            )
             continue
 
-        human_logger.info(
-            "Invoking OffScrub helper %s for MSI target %s",
-            command[2],
-            product_code or version_hint or safe_code,
-        )
-        start = time.monotonic()
-        try:
-            result = subprocess.run(
+        command = build_command(entry.product_code)
+        result: command_runner.CommandResult | None = None
+
+        for attempt in range(1, total_attempts + 1):
+            message = (
+                "Uninstalling MSI product %s (%s) [attempt %d/%d]"
+                % (entry.display_name, entry.product_code, attempt, total_attempts)
+            )
+            result = command_runner.run_command(
                 command,
-                capture_output=True,
-                text=True,
-                timeout=OFFSCRUB_TIMEOUT,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            duration = time.monotonic() - start
-            human_logger.error(
-                "OffScrub timed out after %.1fs for %s", duration, product_code or safe_code
-            )
-            machine_logger.error(
-                "msi_uninstall_timeout",
+                event="msi_uninstall",
+                timeout=MSIEXEC_TIMEOUT,
+                dry_run=dry_run,
+                human_message=message,
                 extra={
-                    "event": "msi_uninstall_timeout",
-                    "product_code": product_code or None,
-                    "version_hint": version_hint or None,
-                    "duration": duration,
-                    "stdout": exc.stdout,
-                    "stderr": exc.stderr,
+                    "product_code": entry.product_code,
+                    "display_name": entry.display_name,
+                    "version": entry.version,
+                    "attempt": attempt,
+                    "attempts": total_attempts,
                 },
             )
-            failures.append(product_code or safe_code)
-            continue
+            if result.skipped:
+                break
+            if result.returncode == 0:
+                break
+            if attempt < total_attempts:
+                human_logger.warning(
+                    "Retrying msiexec for %s (%s)", entry.display_name, entry.product_code
+                )
+                time.sleep(MSI_RETRY_DELAY)
+        else:
+            # Loop exhausted without break.
+            result = result
 
-        duration = time.monotonic() - start
+        if result is None:
+            continue
+        if result.skipped or dry_run:
+            continue
         if result.returncode != 0:
-            human_logger.error(
-                "OffScrub helper for %s failed with exit code %s",
-                product_code or safe_code,
-                result.returncode,
-            )
-            machine_logger.error(
-                "msi_uninstall_failure",
-                extra={
-                    "event": "msi_uninstall_failure",
-                    "product_code": product_code or None,
-                    "version_hint": version_hint or None,
-                    "return_code": result.returncode,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "duration": duration,
-                },
-            )
-            failures.append(product_code or safe_code)
+            failures.append(entry.product_code)
             continue
 
-        human_logger.info(
-            "Successfully completed OffScrub for %s in %.1f seconds.",
-            product_code or safe_code,
-            duration,
-        )
-        machine_logger.info(
-            "msi_uninstall_success",
-            extra={
-                "event": "msi_uninstall_success",
-                "product_code": product_code or None,
-                "version_hint": version_hint or None,
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "duration": duration,
-            },
-        )
+        if not _await_removal(entry):
+            human_logger.error(
+                "Registry still reports %s (%s) after msiexec", entry.display_name, entry.product_code
+            )
+            failures.append(entry.product_code)
 
     if failures:
-        raise RuntimeError(f"Failed to uninstall MSI products: {', '.join(failures)}")
+        raise RuntimeError(
+            "Failed to uninstall MSI products: %s" % ", ".join(sorted(set(failures)))
+        )
