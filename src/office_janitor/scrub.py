@@ -9,6 +9,8 @@ run once per scrub session.
 from __future__ import annotations
 
 import datetime
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping, MutableMapping
 
@@ -31,6 +33,301 @@ DEFAULT_MAX_PASSES = 3
 """!
 @brief Safety limit mirroring OffScrub's repeated scrub attempts.
 """
+
+
+@dataclass(slots=True)
+class StepResult:
+    """!
+    @brief Capture the outcome for a single plan step.
+    @details ``status`` is one of ``"success"``, ``"failed"``, or ``"skipped"`` and is
+    recorded together with the executed dry-run flag and optional detail fields
+    describing retries, error messages, and backup/export activity. The
+    structure feeds the summary reporter at the end of a plan run and is also
+    attached to retry exceptions for diagnostic logging; the ``exception`` field
+    retains the final raised object for traceback chaining.
+    """
+
+    step_id: str | None
+    category: str
+    status: str
+    attempts: int
+    dry_run: bool
+    error: str | None = None
+    exception: BaseException | None = None
+    details: MutableMapping[str, object] = field(default_factory=dict)
+
+
+class StepExecutionError(RuntimeError):
+    """!
+    @brief Raised when a plan step exhausts retries without succeeding.
+    @details Carries the :class:`StepResult` describing the failure as well as
+    any prior results accumulated during the batch. Callers append the partial
+    results to the global execution state before propagating the exception so
+    the summary reporter can emit a best-effort recap.
+    """
+
+    def __init__(self, result: StepResult, partial_results: Iterable[StepResult]):
+        self.result: StepResult = result
+        self.partial_results: list[StepResult] = list(partial_results)
+        message = (
+            f"Plan step {result.step_id or result.category} failed after "
+            f"{result.attempts} attempt(s)"
+        )
+        super().__init__(message)
+
+
+class StepExecutor:
+    """!
+    @brief Execute individual plan steps with retry handling and logging.
+    @details The executor normalises per-step dry-run flags, emits human and
+    machine readable progress updates, and performs retries when metadata
+    specifies ``retries``/``retry_delay`` entries. Results are emitted as
+    :class:`StepResult` instances so the caller can maintain a unified summary.
+    """
+
+    def __init__(
+        self,
+        *,
+        dry_run: bool,
+        context_metadata: Mapping[str, object],
+        backup_destination: str | None,
+        log_directory: str | None,
+        total_steps: int,
+    ) -> None:
+        self._dry_run = dry_run
+        self._context_metadata = context_metadata
+        self._backup_destination = backup_destination
+        self._log_directory = log_directory
+        self._total_steps = max(1, total_steps)
+        self._human_logger = logging_ext.get_human_logger()
+        self._machine_logger = logging_ext.get_machine_logger()
+
+    def run_step(self, step: Mapping[str, object], *, index: int) -> StepResult:
+        """!
+        @brief Execute ``step`` and return a :class:`StepResult`.
+        @details Retries are sourced from ``step['retries']`` or
+        ``step['metadata']['retries']``. Optional delay values are honoured via
+        ``retry_delay``/``retry_delay_seconds`` keys. When an exception is
+        raised, it is logged and retried until attempts are exhausted. The final
+        result includes a ``details`` payload indicating whether registry
+        backups occurred.
+        """
+
+        category = step.get("category", "unknown")
+        step_id = step.get("id")
+        metadata = dict(step.get("metadata", {}))
+        dry_run = bool(self._dry_run or metadata.get("dry_run", False))
+        retries = self._resolve_retry_count(step, metadata)
+        delay = self._resolve_retry_delay(step, metadata)
+        attempts_allowed = retries + 1
+
+        result = StepResult(
+            step_id=str(step_id) if step_id is not None else None,
+            category=str(category),
+            status="skipped",
+            attempts=0,
+            dry_run=dry_run,
+        )
+
+        for attempt in range(1, attempts_allowed + 1):
+            result.attempts = attempt
+            self._emit_start(step_id, category, dry_run, attempt, index)
+
+            try:
+                detail_payload = self._dispatch(
+                    category=category,
+                    metadata=metadata,
+                    dry_run=dry_run,
+                )
+            except Exception as exc:  # pragma: no cover - exercised in failure paths
+                result.status = "failed"
+                result.error = repr(exc)
+                result.exception = exc
+                self._machine_logger.error(
+                    "scrub_step_failure",
+                    extra={
+                        "event": "scrub_step_failure",
+                        "step_id": step_id,
+                        "category": category,
+                        "attempt": attempt,
+                        "error": repr(exc),
+                    },
+                )
+                self._human_logger.error(
+                    "Plan step %s (%s) failed on attempt %d: %s",
+                    step_id or category,
+                    category,
+                    attempt,
+                    exc,
+                )
+                if attempt < attempts_allowed:
+                    if delay:
+                        self._human_logger.info(
+                            "Retrying step %s in %d second(s)...",
+                            step_id or category,
+                            delay,
+                        )
+                        time.sleep(delay)
+                    continue
+                break
+            else:
+                result.status = "success"
+                result.error = None
+                result.exception = None
+                if detail_payload:
+                    result.details.update(detail_payload)
+                self._machine_logger.info(
+                    "scrub_step_complete",
+                    extra={
+                        "event": "scrub_step_complete",
+                        "step_id": step_id,
+                        "category": category,
+                        "dry_run": dry_run,
+                        "attempts": attempt,
+                    },
+                )
+                break
+
+        return result
+
+    def _emit_start(
+        self,
+        step_id: object,
+        category: object,
+        dry_run: bool,
+        attempt: int,
+        index: int,
+    ) -> None:
+        self._human_logger.info(
+            "Executing step %s/%s (%s:%s) attempt %d",
+            index,
+            self._total_steps,
+            category,
+            step_id or "<unknown>",
+            attempt,
+        )
+        self._machine_logger.info(
+            "scrub_step_start",
+            extra={
+                "event": "scrub_step_start",
+                "step_id": step_id,
+                "category": category,
+                "dry_run": dry_run,
+                "attempt": attempt,
+            },
+        )
+
+    def _dispatch(
+        self,
+        *,
+        category: object,
+        metadata: Mapping[str, object],
+        dry_run: bool,
+    ) -> Mapping[str, object] | None:
+        if category == "context":
+            self._human_logger.info("Context: %s", metadata)
+            return None
+        if category == "detect":
+            summary = metadata.get("summary") if isinstance(metadata, dict) else None
+            if summary:
+                self._human_logger.info("Detection summary: %s", summary)
+            else:
+                self._human_logger.info("Detection snapshot captured.")
+            return None
+        if category == "msi-uninstall":
+            product = metadata.get("product", {})
+            if not product:
+                self._human_logger.warning(
+                    "Skipping MSI uninstall step without product metadata: %s",
+                    metadata,
+                )
+            else:
+                msi_uninstall.uninstall_products([product], dry_run=dry_run)
+            return None
+        if category == "c2r-uninstall":
+            installation = metadata.get("installation") or metadata
+            if not installation:
+                self._human_logger.warning(
+                    "Skipping C2R uninstall step without installation metadata",
+                )
+            else:
+                c2r_uninstall.uninstall_products(installation, dry_run=dry_run)
+            return None
+        if category == "licensing-cleanup":
+            extended = dict(metadata)
+            extended["dry_run"] = dry_run
+            licensing.cleanup_licenses(extended)
+            return None
+        if category == "task-cleanup":
+            tasks = [str(task) for task in metadata.get("tasks", []) if task]
+            if not tasks:
+                self._human_logger.info("No scheduled tasks supplied; skipping step.")
+            else:
+                tasks_services.remove_tasks(tasks, dry_run=dry_run)
+            return None
+        if category == "service-cleanup":
+            services = [str(service) for service in metadata.get("services", []) if service]
+            if not services:
+                self._human_logger.info("No services supplied; skipping step.")
+            else:
+                tasks_services.delete_services(services, dry_run=dry_run)
+            return None
+        if category == "filesystem-cleanup":
+            _perform_filesystem_cleanup(
+                metadata,
+                self._context_metadata,
+                dry_run=dry_run,
+            )
+            return None
+        if category == "registry-cleanup":
+            backup_info = _perform_registry_cleanup(
+                metadata,
+                dry_run=dry_run,
+                default_backup=self._backup_destination,
+                default_logdir=self._log_directory,
+            )
+            return dict(backup_info)
+
+        self._human_logger.info("Unhandled plan category %s; skipping.", category)
+        return None
+
+    @staticmethod
+    def _resolve_retry_count(
+        step: Mapping[str, object], metadata: Mapping[str, object]
+    ) -> int:
+        values = [
+            step.get("retries"),
+            metadata.get("retries"),
+            metadata.get("retry_attempts"),
+        ]
+        for value in values:
+            if value is None:
+                continue
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                continue
+            return max(0, parsed)
+        return 0
+
+    @staticmethod
+    def _resolve_retry_delay(
+        step: Mapping[str, object], metadata: Mapping[str, object]
+    ) -> int:
+        values = [
+            step.get("retry_delay"),
+            metadata.get("retry_delay"),
+            metadata.get("retry_delay_seconds"),
+        ]
+        for value in values:
+            if value is None:
+                continue
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                continue
+            return max(0, parsed)
+        return 0
 
 UNINSTALL_CATEGORIES = {"context", "detect", "msi-uninstall", "c2r-uninstall"}
 CLEANUP_CATEGORIES = {
@@ -64,6 +361,8 @@ def execute_plan(
     if not steps:
         human_logger.info("No plan steps supplied; nothing to execute.")
         return
+
+    all_results: list[StepResult] = []
 
     context_step = next((step for step in steps if step.get("category") == "context"), None)
     context_metadata = dict(context_step.get("metadata", {})) if context_step else {}
@@ -127,7 +426,14 @@ def execute_plan(
         if _has_uninstall_steps(current_plan):
             uninstalls_seen = True
 
-        _execute_steps(current_plan, UNINSTALL_CATEGORIES, global_dry_run)
+        try:
+            pass_results = _execute_steps(current_plan, UNINSTALL_CATEGORIES, global_dry_run)
+        except StepExecutionError as exc:
+            all_results.extend(exc.partial_results)
+            _log_summary(all_results, passes_run, global_dry_run)
+            raise
+        else:
+            all_results.extend(pass_results)
 
         machine_logger.info(
             "scrub_pass_complete",
@@ -179,7 +485,14 @@ def execute_plan(
         )
         _update_context_metadata(final_plan, current_pass, base_options, global_dry_run)
         _annotate_cleanup_metadata(final_plan, base_options, uninstalls_seen)
-        _execute_steps(final_plan, CLEANUP_CATEGORIES, global_dry_run)
+        try:
+            cleanup_results = _execute_steps(final_plan, CLEANUP_CATEGORIES, global_dry_run)
+        except StepExecutionError as exc:
+            all_results.extend(exc.partial_results)
+            _log_summary(all_results, passes_run, global_dry_run)
+            raise
+        else:
+            all_results.extend(cleanup_results)
         machine_logger.info(
             "scrub_cleanup_complete",
             extra={
@@ -188,6 +501,8 @@ def execute_plan(
                 "dry_run": global_dry_run,
             },
         )
+
+    _log_summary(all_results, passes_run, global_dry_run)
 
     machine_logger.info(
         "scrub_plan_complete",
@@ -300,9 +615,10 @@ def _execute_steps(
     plan_steps: Iterable[Mapping[str, object]],
     categories: Iterable[str],
     dry_run: bool,
-) -> None:
+) -> list[StepResult]:
     """!
     @brief Execute the subset of plan steps matching ``categories``.
+    @return Ordered list of :class:`StepResult` entries describing each step.
     """
 
     def _normalize_path(value: object) -> str | None:
@@ -311,8 +627,6 @@ def _execute_steps(
         return None
 
     selected_categories = set(categories)
-    human_logger = logging_ext.get_human_logger()
-    machine_logger = logging_ext.get_machine_logger()
 
     context_metadata: Mapping[str, object] = {}
     context_options: Mapping[str, object] = {}
@@ -338,95 +652,95 @@ def _execute_steps(
         if configured_logdir is not None:
             log_directory = str(configured_logdir)
 
-    for step in plan_steps:
-        category = step.get("category", "unknown")
-        if category not in selected_categories:
-            continue
-        metadata = dict(step.get("metadata", {}))
-        step_dry_run = bool(dry_run or metadata.get("dry_run", False))
+    selected_steps = [
+        step
+        for step in plan_steps
+        if step.get("category", "unknown") in selected_categories
+    ]
 
-        machine_logger.info(
-            "scrub_step_start",
-            extra={
-                "event": "scrub_step_start",
-                "step_id": step.get("id"),
-                "category": category,
-                "dry_run": step_dry_run,
-            },
+    executor = StepExecutor(
+        dry_run=dry_run,
+        context_metadata=context_metadata,
+        backup_destination=backup_destination,
+        log_directory=log_directory,
+        total_steps=len(selected_steps) or 1,
+    )
+
+    results: list[StepResult] = []
+
+    for index, step in enumerate(selected_steps, start=1):
+        result = executor.run_step(step, index=index)
+        results.append(result)
+        if result.status == "failed":
+            raise StepExecutionError(result, results) from result.exception
+
+    return results
+
+
+def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> None:
+    """!
+    @brief Emit a consolidated summary for the executed plan steps.
+    @details Counts successful, failed, and skipped steps and highlights registry
+    backup activity so operators can confirm safeguards executed as intended.
+    The structured log entry mirrors the human-readable message to keep both
+    channels aligned.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    result_list = list(results)
+    total = len(result_list)
+    successes = sum(1 for item in result_list if item.status == "success")
+    failures = sum(1 for item in result_list if item.status == "failed")
+    skipped = total - successes - failures
+    backups_requested = sum(
+        1
+        for item in result_list
+        if bool(item.details.get("backup_requested"))
+    )
+    backups_performed = sum(
+        1
+        for item in result_list
+        if bool(item.details.get("backup_performed"))
+    )
+
+    machine_logger.info(
+        "scrub_summary",
+        extra={
+            "event": "scrub_summary",
+            "total_steps": total,
+            "successes": successes,
+            "failures": failures,
+            "skipped": skipped,
+            "passes": passes,
+            "dry_run": dry_run,
+            "backups_requested": backups_requested,
+            "backups_performed": backups_performed,
+        },
+    )
+
+    if total == 0:
+        human_logger.info(
+            "Scrub summary: no matching steps executed; passes=%d; dry_run=%s",
+            passes,
+            dry_run,
         )
-
-        try:
-            if category == "context":
-                human_logger.info("Context: %s", metadata)
-            elif category == "detect":
-                summary = metadata.get("summary") if isinstance(metadata, dict) else None
-                if summary:
-                    human_logger.info("Detection summary: %s", summary)
-                else:
-                    human_logger.info("Detection snapshot captured.")
-            elif category == "msi-uninstall":
-                product = metadata.get("product", {})
-                if not product:
-                    human_logger.warning("Skipping MSI uninstall step without product metadata: %s", step)
-                else:
-                    msi_uninstall.uninstall_products([product], dry_run=step_dry_run)
-            elif category == "c2r-uninstall":
-                installation = metadata.get("installation") or metadata
-                if not installation:
-                    human_logger.warning("Skipping C2R uninstall step without installation metadata")
-                else:
-                    c2r_uninstall.uninstall_products(installation, dry_run=step_dry_run)
-            elif category == "licensing-cleanup":
-                metadata["dry_run"] = step_dry_run
-                licensing.cleanup_licenses(metadata)
-            elif category == "task-cleanup":
-                tasks = [str(task) for task in metadata.get("tasks", []) if task]
-                if not tasks:
-                    human_logger.info("No scheduled tasks supplied; skipping step.")
-                else:
-                    tasks_services.remove_tasks(tasks, dry_run=step_dry_run)
-            elif category == "service-cleanup":
-                services = [str(service) for service in metadata.get("services", []) if service]
-                if not services:
-                    human_logger.info("No services supplied; skipping step.")
-                else:
-                    tasks_services.delete_services(services, dry_run=step_dry_run)
-            elif category == "filesystem-cleanup":
-                _perform_filesystem_cleanup(
-                    metadata,
-                    context_metadata,
-                    dry_run=step_dry_run,
-                )
-            elif category == "registry-cleanup":
-                _perform_registry_cleanup(
-                    metadata,
-                    dry_run=step_dry_run,
-                    default_backup=backup_destination,
-                    default_logdir=log_directory,
-                )
-            else:
-                human_logger.info("Unhandled plan category %s; skipping.", category)
-        except Exception as exc:
-            machine_logger.error(
-                "scrub_step_failure",
-                extra={
-                    "event": "scrub_step_failure",
-                    "step_id": step.get("id"),
-                    "category": category,
-                    "error": repr(exc),
-                },
-            )
-            raise
-        else:
-            machine_logger.info(
-                "scrub_step_complete",
-                extra={
-                    "event": "scrub_step_complete",
-                    "step_id": step.get("id"),
-                    "category": category,
-                    "dry_run": step_dry_run,
-                },
-            )
+    else:
+        human_logger.info(
+            (
+                "Scrub summary: %d step(s) processed (%d succeeded, %d failed, %d skipped); "
+                "passes=%d; dry_run=%s; registry backups=%d/%d"
+            ),
+            total,
+            successes,
+            failures,
+            skipped,
+            passes,
+            dry_run,
+            backups_performed,
+            backups_requested,
+        )
 
 
 def _perform_filesystem_cleanup(
@@ -486,13 +800,15 @@ def _perform_registry_cleanup(
     dry_run: bool,
     default_backup: str | None,
     default_logdir: str | None,
-) -> None:
+) -> Mapping[str, object]:
     """!
     @brief Export and delete registry leftovers with backup awareness.
     @details Consolidates the registry cleanup logic so backup destinations are
     normalised once and deletions are skipped when no keys remain. The helper
     reuses plan metadata when provided and generates a timestamped backup path when
-    only a log directory is available, mirroring the OffScrub behaviour.
+    only a log directory is available, mirroring the OffScrub behaviour. Returns a
+    mapping describing whether a backup destination was requested or written so
+    the caller can surface the information in the final summary.
     """
 
     human_logger = logging_ext.get_human_logger()
@@ -500,7 +816,7 @@ def _perform_registry_cleanup(
     keys = _normalize_string_sequence(metadata.get("keys", []))
     if not keys:
         human_logger.info("No registry keys supplied; skipping step.")
-        return
+        return {"backup_requested": False, "backup_performed": False, "keys_processed": 0}
 
     step_backup = _normalize_option_path(metadata.get("backup_destination")) or default_backup
     step_logdir = _normalize_option_path(metadata.get("log_directory")) or default_logdir
@@ -508,6 +824,9 @@ def _perform_registry_cleanup(
     if step_backup is None and step_logdir is not None:
         timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("registry-backup-%Y%m%d-%H%M%S")
         step_backup = str(Path(step_logdir) / timestamp)
+
+    backup_requested = bool(step_backup)
+    backup_performed = False
 
     if dry_run:
         human_logger.info(
@@ -523,12 +842,20 @@ def _perform_registry_cleanup(
                 step_backup,
             )
             registry_tools.export_keys(keys, step_backup)
+            backup_performed = True
         else:
             human_logger.warning(
                 "Proceeding without registry backup; no destination available."
             )
 
     registry_tools.delete_keys(keys, dry_run=dry_run)
+
+    return {
+        "backup_destination": step_backup,
+        "backup_requested": backup_requested,
+        "backup_performed": backup_performed,
+        "keys_processed": len(keys),
+    }
 
 
 def _normalize_string_sequence(values: object) -> list[str]:
