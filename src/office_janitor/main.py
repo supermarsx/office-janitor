@@ -574,18 +574,22 @@ def _restore_points_available() -> bool:
     if os.name != "nt":
         return False
 
+    script = "\n".join(
+        (
+            "Try {",
+            "  Get-ComputerRestorePoint -ErrorAction Stop | Select-Object -First 1 | Out-String",
+            "  Exit 0",
+            " } Catch { Exit 1 }",
+        )
+    )
+
     command = [
         "powershell.exe",
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        (
-            "Try {"
-            "  Get-ComputerRestorePoint -ErrorAction Stop | Select-Object -First 1 | Out-String"
-            "  Exit 0"
-            " } Catch { Exit 1 }"
-        ),
+        script,
     ]
 
     try:
