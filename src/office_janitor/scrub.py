@@ -455,9 +455,9 @@ def _perform_filesystem_cleanup(
     preserve_templates = bool(
         metadata.get("preserve_templates", options.get("keep_templates", False))
     )
-    purge_templates = bool(metadata.get("purge_templates", False)) or bool(
-        options.get("force", False)
-    )
+    purge_templates = bool(metadata.get("purge_templates", False))
+    if not preserve_templates and options.get("force", False):
+        purge_templates = True
 
     preserved: list[str] = []
     cleanup_targets: list[str] = []
