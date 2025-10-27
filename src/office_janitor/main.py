@@ -17,7 +17,7 @@ import pathlib
 import platform
 import subprocess
 import sys
-from typing import Iterable, Mapping, Optional
+from typing import Iterable, List, Mapping, Optional
 
 from . import (
     constants,
@@ -462,21 +462,25 @@ def _handle_plan_artifacts(
                 registry_metadata.setdefault("log_directory", str(logdir))
                 step["metadata"] = registry_metadata
 
-    plan_output: Optional[pathlib.Path] = None
-    if getattr(args, "plan", None):
-        plan_output = pathlib.Path(args.plan).expanduser().resolve()
-    elif mode == "diagnose":
-        plan_output = logdir / "diagnostics-plan.json"
+    serialized_plan = json.dumps(plan_steps, indent=2, sort_keys=True)
+    primary_plan_path = logdir / f"plan-{timestamp}.json"
+    primary_plan_path.write_text(serialized_plan, encoding="utf-8")
+    human_log.info("Wrote plan to %s", primary_plan_path)
 
-    if plan_output is not None:
-        plan_output.write_text(json.dumps(plan_steps, indent=2, sort_keys=True), encoding="utf-8")
-        human_log.info("Wrote plan to %s", plan_output)
+    additional_plan_targets: List[pathlib.Path] = []
+    if getattr(args, "plan", None):
+        additional_plan_targets.append(pathlib.Path(args.plan).expanduser().resolve())
+    elif mode == "diagnose":
+        additional_plan_targets.append(logdir / "diagnostics-plan.json")
+
+    for target in additional_plan_targets:
+        if target == primary_plan_path:
+            continue
+        target.write_text(serialized_plan, encoding="utf-8")
+        human_log.info("Wrote plan to %s", target)
 
     if backup_dir and resolved_backup is not None:
-        (resolved_backup / "plan.json").write_text(
-            json.dumps(plan_steps, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        (resolved_backup / "plan.json").write_text(serialized_plan, encoding="utf-8")
         human_log.info("Wrote backup artifacts to %s", resolved_backup)
 
 

@@ -6,12 +6,14 @@ and backups, matching the workflow outlined in the specification.
 """
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Mapping, Sequence
+from typing import Dict, Iterable, List, Mapping, MutableMapping, Sequence
 
 from . import constants
 
 _SUPPORTED_TARGETS = tuple(constants.SUPPORTED_TARGETS)
 _SUPPORTED_TARGET_SET = {str(value) for value in _SUPPORTED_TARGETS}
+_SUPPORTED_COMPONENT_MAP = {item.lower(): item for item in constants.SUPPORTED_COMPONENTS}
+_NON_ACTIONABLE_CATEGORIES = {"context", "detect"}
 
 _C2R_RELEASE_HINTS = {
     "o365": "365",
@@ -40,7 +42,9 @@ def build_plan(
     mode = _resolve_mode(normalized_options)
     dry_run = bool(normalized_options.get("dry_run", False))
     normalized_options["dry_run"] = dry_run
-    targets, unsupported = _resolve_targets(mode, normalized_options)
+    targets, unsupported_targets = _resolve_targets(mode, normalized_options)
+    components, unsupported_components = _resolve_components(normalized_options.get("include"))
+    normalized_options["include_components"] = components
 
     selected_inventory = {
         key: list(value) if not isinstance(value, list) else value
@@ -50,19 +54,24 @@ def build_plan(
     if not targets:
         targets = discovered_versions
 
+    inventory_summary = _summarize_inventory(selected_inventory, discovered_versions)
+
     plan: List[dict] = []
     context_metadata = {
         "mode": mode,
         "dry_run": dry_run,
         "force": bool(normalized_options.get("force", False)),
         "target_versions": targets,
-        "unsupported_targets": unsupported,
+        "unsupported_targets": unsupported_targets,
         "discovered_versions": discovered_versions,
         "options": dict(normalized_options),
         "inventory_counts": {
             key: len(value) if hasattr(value, "__len__") else len(list(value))
             for key, value in selected_inventory.items()
         },
+        "requested_components": components,
+        "unsupported_components": unsupported_components,
+        "inventory_summary": inventory_summary,
         "pass_index": int(pass_index),
     }
 
@@ -76,12 +85,26 @@ def build_plan(
         }
     )
 
-    if mode == "diagnose":
-        return plan
+    detect_step_id = f"detect-{pass_index}-0"
+    plan.append(
+        {
+            "id": detect_step_id,
+            "category": "detect",
+            "description": "Record detection snapshot for downstream steps.",
+            "depends_on": ["context"],
+            "metadata": {
+                "summary": inventory_summary,
+                "dry_run": dry_run,
+            },
+        }
+    )
 
-    include_uninstalls = mode not in {"cleanup-only"}
+    diagnose_mode = mode == "diagnose"
+
+    include_uninstalls = (not diagnose_mode) and mode not in {"cleanup-only"}
 
     uninstall_steps: List[str] = []
+    prerequisites = [detect_step_id]
 
     if include_uninstalls:
         for index, record in enumerate(
@@ -96,7 +119,7 @@ def build_plan(
                     "description": record.get(
                         "display_name", f"Uninstall MSI product {record.get('product_code', 'unknown')}"
                     ),
-                    "depends_on": ["context"],
+                    "depends_on": prerequisites,
                     "metadata": {
                         "product": record,
                         "version": version,
@@ -117,7 +140,7 @@ def build_plan(
                     "description": record.get(
                         "description", "Uninstall Click-to-Run packages"
                     ),
-                    "depends_on": ["context"],
+                    "depends_on": prerequisites,
                     "metadata": {
                         "installation": record,
                         "version": version,
@@ -127,10 +150,10 @@ def build_plan(
             )
             uninstall_steps.append(uninstall_id)
 
-    cleanup_dependencies: List[str] = uninstall_steps or ["context"]
+    cleanup_dependencies: List[str] = uninstall_steps or [detect_step_id]
     licensing_step_id = ""
 
-    if not normalized_options.get("no_license", False):
+    if (not diagnose_mode) and not normalized_options.get("no_license", False):
         licensing_step_id = f"licensing-{pass_index}-0"
         plan.append(
             {
@@ -146,7 +169,7 @@ def build_plan(
         )
         cleanup_dependencies = [licensing_step_id]
 
-    task_names = _collect_task_names(selected_inventory.get("tasks", []))
+    task_names = [] if diagnose_mode else _collect_task_names(selected_inventory.get("tasks", []))
     if task_names:
         task_step_id = f"tasks-{pass_index}-0"
         plan.append(
@@ -163,7 +186,7 @@ def build_plan(
         )
         cleanup_dependencies = [task_step_id]
 
-    service_names = _collect_service_names(selected_inventory.get("services", []))
+    service_names = [] if diagnose_mode else _collect_service_names(selected_inventory.get("services", []))
     if service_names:
         service_step_id = f"services-{pass_index}-0"
         plan.append(
@@ -180,7 +203,7 @@ def build_plan(
         )
         cleanup_dependencies = [service_step_id]
 
-    filesystem_entries = _collect_paths(selected_inventory.get("filesystem", []))
+    filesystem_entries = [] if diagnose_mode else _collect_paths(selected_inventory.get("filesystem", []))
     if filesystem_entries:
         plan.append(
             {
@@ -198,7 +221,7 @@ def build_plan(
             }
         )
 
-    registry_entries = _collect_registry_paths(selected_inventory.get("registry", []))
+    registry_entries = [] if diagnose_mode else _collect_registry_paths(selected_inventory.get("registry", []))
     if registry_entries:
         plan.append(
             {
@@ -213,6 +236,11 @@ def build_plan(
             }
         )
 
+    summary = summarize_plan(plan)
+    context_step = plan[0]
+    metadata = dict(context_step.get("metadata", {}))
+    metadata["summary"] = summary
+    context_step["metadata"] = metadata
     return plan
 
 
@@ -280,6 +308,32 @@ def _resolve_targets(mode: str, options: Mapping[str, object]) -> tuple[List[str
 
     valid_targets = [candidate for candidate in ordered_targets if candidate not in unsupported]
     return valid_targets, unsupported
+
+
+def _resolve_components(include_option: object) -> tuple[List[str], List[str]]:
+    if not include_option:
+        return [], []
+
+    raw_components: List[str] = []
+    if isinstance(include_option, str):
+        raw_components = [item.strip() for item in include_option.split(",") if item.strip()]
+    elif isinstance(include_option, Iterable):
+        raw_components = [str(item).strip() for item in include_option if str(item).strip()]
+
+    seen: set[str] = set()
+    resolved: List[str] = []
+    unsupported: List[str] = []
+    for candidate in raw_components:
+        lower = candidate.lower()
+        if lower in seen:
+            continue
+        seen.add(lower)
+        mapped = _SUPPORTED_COMPONENT_MAP.get(lower)
+        if mapped:
+            resolved.append(mapped)
+        else:
+            unsupported.append(candidate)
+    return resolved, unsupported
 
 
 def _discover_versions(inventory: Mapping[str, Sequence[dict]]) -> List[str]:
@@ -382,3 +436,93 @@ def _collect_service_names(entries: Sequence[Mapping[str, object]]) -> List[str]
         if isinstance(candidate, str) and candidate:
             services.append(candidate)
     return services
+
+
+def _summarize_inventory(
+    inventory: Mapping[str, Sequence[Mapping[str, object]]], discovered_versions: Sequence[str]
+) -> Dict[str, object]:
+    counts: Dict[str, int] = {}
+    total_entries = 0
+    for key, items in inventory.items():
+        try:
+            count = len(items)  # type: ignore[arg-type]
+        except TypeError:
+            count = len(list(items))
+        counts[key] = count
+        total_entries += count
+    return {
+        "counts": counts,
+        "total_entries": total_entries,
+        "discovered_versions": list(discovered_versions),
+    }
+
+
+def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> Dict[str, object]:
+    """!
+    @brief Build a lightweight summary structure for UI and telemetry surfaces.
+    @details Aggregates category counts, uninstall targets, and request metadata so
+    interactive front-ends can present concise plan details without walking every
+    step. Non-actionable categories such as ``context`` and ``detect`` are
+    excluded from the actionable step count.
+    """
+
+    summary: Dict[str, object] = {
+        "total_steps": len(plan_steps),
+        "actionable_steps": 0,
+        "categories": {},
+        "uninstall_versions": [],
+        "cleanup_categories": [],
+        "mode": "",
+        "dry_run": False,
+        "target_versions": [],
+        "discovered_versions": [],
+        "requested_components": [],
+        "unsupported_components": [],
+        "inventory_counts": {},
+    }
+
+    context_metadata: MutableMapping[str, object] | None = None
+    categories: Dict[str, int] = {}
+    uninstall_versions: set[str] = set()
+    cleanup_categories: List[str] = []
+
+    for step in plan_steps:
+        category = str(step.get("category", ""))
+        categories[category] = categories.get(category, 0) + 1
+        if category not in _NON_ACTIONABLE_CATEGORIES:
+            summary["actionable_steps"] = int(summary.get("actionable_steps", 0)) + 1
+        if category in {"msi-uninstall", "c2r-uninstall"}:
+            metadata = step.get("metadata", {})
+            if isinstance(metadata, Mapping):
+                version = metadata.get("version")
+                if version:
+                    uninstall_versions.add(str(version))
+        if category.endswith("cleanup") and category not in cleanup_categories:
+            cleanup_categories.append(category)
+        if category == "context" and isinstance(step.get("metadata"), MutableMapping):
+            context_metadata = step["metadata"]  # type: ignore[assignment]
+
+    summary["categories"] = categories
+    summary["uninstall_versions"] = _sort_versions(uninstall_versions)
+    summary["cleanup_categories"] = cleanup_categories
+
+    if context_metadata is not None:
+        summary["mode"] = str(context_metadata.get("mode", ""))
+        summary["dry_run"] = bool(context_metadata.get("dry_run", False))
+        summary["target_versions"] = list(context_metadata.get("target_versions", []))
+        summary["discovered_versions"] = list(context_metadata.get("discovered_versions", []))
+        summary["requested_components"] = list(context_metadata.get("requested_components", []))
+        summary["unsupported_components"] = list(context_metadata.get("unsupported_components", []))
+        summary["inventory_counts"] = dict(context_metadata.get("inventory_counts", {}))
+
+    return summary
+
+
+def _sort_versions(versions: Iterable[str]) -> List[str]:
+    order_map = {value: index for index, value in enumerate(_SUPPORTED_TARGETS)}
+
+    def _sort_key(value: str) -> tuple[int, str]:
+        lower = value.strip()
+        return (order_map.get(lower, len(order_map)), lower)
+
+    return sorted({str(value) for value in versions if value}, key=_sort_key)

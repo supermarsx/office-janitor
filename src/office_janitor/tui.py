@@ -10,6 +10,8 @@ import sys
 import time
 from typing import Callable, List, Mapping, MutableMapping, Optional
 
+from . import plan as plan_module
+
 
 class OfficeJanitorTUI:
     """!
@@ -362,9 +364,50 @@ def _format_inventory(inventory: Mapping[str, object]) -> List[str]:
 def _format_plan(plan_data: Optional[list[dict]]) -> List[str]:
     if not plan_data:
         return ["Plan not created"]
-    lines = ["Plan Steps:"]
-    for step in plan_data:
-        lines.append(f" - {step.get('id', 'unknown')}: {step.get('category', 'unknown')}")
+
+    summary = plan_module.summarize_plan(plan_data)
+    lines: List[str] = ["Plan summary:"]
+    lines.append(
+        " Steps: {total} (actionable {actionable})".format(
+            total=summary.get("total_steps", 0),
+            actionable=summary.get("actionable_steps", 0),
+        )
+    )
+
+    mode = summary.get("mode")
+    dry_run = summary.get("dry_run")
+    if mode:
+        lines.append(f" Mode: {mode}{' [dry-run]' if dry_run else ''}")
+
+    target_versions = summary.get("target_versions") or []
+    discovered = summary.get("discovered_versions") or []
+    if target_versions:
+        lines.append(" Targets: " + ", ".join(str(item) for item in target_versions))
+    if discovered:
+        lines.append(" Detected: " + ", ".join(str(item) for item in discovered))
+
+    uninstall_versions = summary.get("uninstall_versions") or []
+    if uninstall_versions:
+        lines.append(" Uninstalls: " + ", ".join(str(item) for item in uninstall_versions))
+
+    cleanup_categories = summary.get("cleanup_categories") or []
+    if cleanup_categories:
+        lines.append(" Cleanup: " + ", ".join(str(item) for item in cleanup_categories))
+
+    requested_components = summary.get("requested_components") or []
+    if requested_components:
+        lines.append(" Include: " + ", ".join(str(item) for item in requested_components))
+    unsupported_components = summary.get("unsupported_components") or []
+    if unsupported_components:
+        lines.append(
+            " Unsupported include: " + ", ".join(str(item) for item in unsupported_components)
+        )
+
+    categories = summary.get("categories") or {}
+    if categories:
+        formatted = ", ".join(f"{key}={value}" for key, value in categories.items())
+        lines.append(" Categories: " + formatted)
+
     return lines
 
 
