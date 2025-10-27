@@ -109,6 +109,7 @@ def execute_plan(
     current_plan = steps
     current_pass = int(context_metadata.get("pass_index", 1) or 1)
     final_plan = current_plan
+    uninstalls_seen = _has_uninstall_steps(current_plan)
 
     while True:
         passes_run += 1
@@ -123,6 +124,9 @@ def execute_plan(
         )
 
         _update_context_metadata(current_plan, current_pass, base_options, global_dry_run)
+        if _has_uninstall_steps(current_plan):
+            uninstalls_seen = True
+
         _execute_steps(current_plan, UNINSTALL_CATEGORIES, global_dry_run)
 
         machine_logger.info(
@@ -136,6 +140,7 @@ def execute_plan(
 
         if global_dry_run:
             final_plan = current_plan
+            uninstalls_seen = uninstalls_seen or _has_uninstall_steps(current_plan)
             break
 
         if current_pass >= max_pass_limit:
@@ -173,6 +178,7 @@ def execute_plan(
             },
         )
         _update_context_metadata(final_plan, current_pass, base_options, global_dry_run)
+        _annotate_cleanup_metadata(final_plan, base_options, uninstalls_seen)
         _execute_steps(final_plan, CLEANUP_CATEGORIES, global_dry_run)
         machine_logger.info(
             "scrub_cleanup_complete",
@@ -203,6 +209,70 @@ def _has_uninstall_steps(plan_steps: Iterable[Mapping[str, object]]) -> bool:
         if step.get("category") in {"msi-uninstall", "c2r-uninstall"}:
             return True
     return False
+
+
+def _normalize_option_path(value: object) -> str | None:
+    """!
+    @brief Convert plan metadata path entries to string form.
+    """
+
+    if isinstance(value, (str, Path)):
+        return str(value)
+    return None
+
+
+def _annotate_cleanup_metadata(
+    plan_steps: Iterable[MutableMapping[str, object]],
+    options: Mapping[str, object],
+    uninstall_detected: bool,
+) -> None:
+    """!
+    @brief Inject runtime metadata used by cleanup steps prior to execution.
+    """
+
+    context_step: MutableMapping[str, object] | None = None
+    for step in plan_steps:
+        if step.get("category") == "context":
+            context_step = step
+            break
+
+    context_metadata: MutableMapping[str, object] = {}
+    context_options: MutableMapping[str, object] = {}
+    if context_step is not None:
+        context_metadata = dict(context_step.get("metadata", {}))
+        context_options = dict(context_metadata.get("options", {}))
+
+    backup_candidate = (
+        context_metadata.get("backup_destination")
+        or context_options.get("backup_destination")
+        or context_options.get("backup")
+        or options.get("backup_destination")
+        or options.get("backup")
+    )
+    backup_path = _normalize_option_path(backup_candidate)
+    force_flag = bool(options.get("force", False))
+
+    if context_step is not None:
+        context_metadata["uninstall_detected"] = uninstall_detected
+        if backup_path and "backup_destination" not in context_metadata:
+            context_metadata["backup_destination"] = backup_path
+        if backup_path:
+            context_options.setdefault("backup_destination", backup_path)
+            context_options.setdefault("backup", backup_path)
+        context_metadata["options"] = context_options
+        context_step["metadata"] = context_metadata
+
+    for step in plan_steps:
+        if step.get("category") != "licensing-cleanup":
+            continue
+        metadata = dict(step.get("metadata", {}))
+        metadata.setdefault("force", force_flag)
+        metadata.setdefault("uninstall_detected", uninstall_detected)
+        if backup_path and "backup_destination" not in metadata:
+            metadata["backup_destination"] = backup_path
+        if "mode" not in metadata and context_metadata.get("mode"):
+            metadata["mode"] = context_metadata.get("mode")
+        step["metadata"] = metadata
 
 
 def _update_context_metadata(

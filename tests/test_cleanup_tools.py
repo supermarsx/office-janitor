@@ -40,6 +40,7 @@ def test_cleanup_licenses_runs_commands(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     run_calls: List[List[str]] = []
     removed: List[tuple[List[str], bool]] = []
+    exports: List[tuple[List[str], pathlib.Path]] = []
 
     def fake_run(cmd, **kwargs):
         run_calls.append(cmd)
@@ -48,15 +49,28 @@ def test_cleanup_licenses_runs_commands(monkeypatch, tmp_path) -> None:
     def fake_remove_paths(paths, *, dry_run: bool):
         removed.append(([str(path) for path in paths], dry_run))
 
+    def fake_export(keys, destination, *, dry_run=False, logger=None):
+        exports.append((list(keys), pathlib.Path(destination)))
+        return []
+
     monkeypatch.setattr(licensing.subprocess, "run", fake_run)
     monkeypatch.setattr(licensing.fs_tools, "remove_paths", fake_remove_paths)
+    monkeypatch.setattr(licensing.registry_tools, "export_keys", fake_export)
 
-    licensing.cleanup_licenses({"paths": [tmp_path / "cache"]})
+    backup_dir = tmp_path / "backup"
+    licensing.cleanup_licenses(
+        {
+            "paths": [tmp_path / "cache"],
+            "uninstall_detected": True,
+            "backup_destination": backup_dir,
+        }
+    )
 
     assert run_calls, "Expected subprocess commands for licensing cleanup"
     assert run_calls[0][0] == "powershell.exe"
     assert run_calls[1][0] == "cscript.exe"
     assert removed == [([str(tmp_path / "cache")], False)]
+    assert exports == [(list(licensing.DEFAULT_REGISTRY_KEYS), backup_dir)]
 
 
 def test_cleanup_licenses_dry_run(monkeypatch, tmp_path) -> None:
@@ -66,6 +80,7 @@ def test_cleanup_licenses_dry_run(monkeypatch, tmp_path) -> None:
 
     logging_ext.setup_logging(tmp_path)
     called = False
+    exported = False
 
     def fake_run(cmd, **kwargs):
         nonlocal called
@@ -75,12 +90,59 @@ def test_cleanup_licenses_dry_run(monkeypatch, tmp_path) -> None:
     def fake_remove_paths(paths, *, dry_run: bool):
         assert dry_run is True
 
+    def fake_export(*args, **kwargs):
+        nonlocal exported
+        exported = True
+
     monkeypatch.setattr(licensing.subprocess, "run", fake_run)
     monkeypatch.setattr(licensing.fs_tools, "remove_paths", fake_remove_paths)
+    monkeypatch.setattr(licensing.registry_tools, "export_keys", fake_export)
 
-    licensing.cleanup_licenses({"dry_run": True, "paths": [tmp_path / "cache"]})
+    licensing.cleanup_licenses(
+        {
+            "dry_run": True,
+            "paths": [tmp_path / "cache"],
+            "uninstall_detected": True,
+            "backup_destination": tmp_path / "backup",
+        }
+    )
 
     assert not called
+    assert not exported
+
+
+def test_cleanup_licenses_skips_without_uninstall(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Cleanup should be deferred until uninstall steps finish unless forced.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    called = False
+    removed = False
+    exported = False
+
+    def fake_run(cmd, **kwargs):
+        nonlocal called
+        called = True
+        return _Result()
+
+    def fake_remove_paths(paths, *, dry_run: bool):
+        nonlocal removed
+        removed = True
+
+    def fake_export(*args, **kwargs):
+        nonlocal exported
+        exported = True
+
+    monkeypatch.setattr(licensing.subprocess, "run", fake_run)
+    monkeypatch.setattr(licensing.fs_tools, "remove_paths", fake_remove_paths)
+    monkeypatch.setattr(licensing.registry_tools, "export_keys", fake_export)
+
+    licensing.cleanup_licenses({"paths": [tmp_path / "cache"]})
+
+    assert called is False
+    assert removed is False
+    assert exported is False
 
 
 def test_render_license_script_defaults_to_constants() -> None:
