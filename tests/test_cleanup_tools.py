@@ -511,8 +511,32 @@ def test_create_restore_point_uses_powershell(monkeypatch, tmp_path) -> None:
         captured.append(cmd)
         return _Result()
 
+    monkeypatch.setattr(restore_point.os, "name", "nt")
     monkeypatch.setattr(restore_point.subprocess, "run", fake_run)
-    restore_point.create_restore_point("Before Office cleanup")
+    result = restore_point.create_restore_point("Before Office cleanup")
 
     assert captured
     assert captured[0][0] == "powershell.exe"
+    assert "SystemRestore" in captured[0][-1]
+    assert result is True
+
+
+def test_create_restore_point_dry_run_skips_execution(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Dry-run mode should avoid invoking PowerShell.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    calls: List[List[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _Result()
+
+    monkeypatch.setattr(restore_point.os, "name", "nt")
+    monkeypatch.setattr(restore_point.subprocess, "run", fake_run)
+
+    result = restore_point.create_restore_point("Simulated cleanup", dry_run=True)
+
+    assert result is True
+    assert not calls

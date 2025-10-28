@@ -41,7 +41,7 @@ def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         scrub.restore_point,
         "create_restore_point",
-        lambda description: events.append("restore_point"),
+        lambda description, **kwargs: events.append("restore_point"),
     )
 
     monkeypatch.setattr(
@@ -197,11 +197,13 @@ def test_execute_plan_dry_run_skips_mutations(monkeypatch, tmp_path) -> None:
 
     logging_ext.setup_logging(tmp_path)
 
-    monkeypatch.setattr(
-        scrub.restore_point,
-        "create_restore_point",
-        lambda description: (_ for _ in ()).throw(AssertionError("restore point should not run")),
-    )
+    restore_calls: list[tuple[str, bool]] = []
+
+    def fake_restore(description: str, *, dry_run: bool = False) -> bool:
+        restore_calls.append((description, dry_run))
+        return dry_run
+
+    monkeypatch.setattr(scrub.restore_point, "create_restore_point", fake_restore)
     monkeypatch.setattr(
         scrub.processes,
         "terminate_office_processes",
@@ -290,6 +292,7 @@ def test_execute_plan_dry_run_skips_mutations(monkeypatch, tmp_path) -> None:
 
     scrub.execute_plan(plan, dry_run=True)
 
+    assert restore_calls == []
     assert recorded == [
         "msi:True",
         "c2r:True",
@@ -308,7 +311,11 @@ def test_execute_plan_repeats_until_clean(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     events: List[str] = []
 
-    monkeypatch.setattr(scrub.restore_point, "create_restore_point", lambda description: None)
+    monkeypatch.setattr(
+        scrub.restore_point,
+        "create_restore_point",
+        lambda description, **kwargs: None,
+    )
     monkeypatch.setattr(scrub.processes, "terminate_office_processes", lambda names: None)
     monkeypatch.setattr(scrub.tasks_services, "stop_services", lambda services, timeout=30: None)
     monkeypatch.setattr(scrub.tasks_services, "disable_tasks", lambda tasks, dry_run=False: None)
