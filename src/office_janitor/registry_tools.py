@@ -12,12 +12,11 @@ from __future__ import annotations
 import logging
 import re
 import shutil
-import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Tuple
 
-from . import safety
+from . import exec_utils, safety
 
 try:  # pragma: no cover - exercised through mocks on non-Windows platforms.
     import winreg
@@ -443,9 +442,12 @@ def export_keys(
             continue
 
         if reg_executable:
-            subprocess.run(
+            exec_utils.run_command(
                 [reg_executable, "export", key, str(export_path), "/y"],
+                event="registry_export",
+                dry_run=dry_run,
                 check=True,
+                extra={"key": key, "path": str(export_path)},
             )
             exported.append(export_path)
             continue
@@ -478,9 +480,15 @@ def delete_keys(
             "Preparing registry deletion",
             extra={"action": "registry-delete", "key": key, "dry_run": dry_run},
         )
-        if dry_run or not reg_executable:
+        if not reg_executable:
             continue
-        subprocess.run([reg_executable, "delete", key, "/f"], check=True)
+        exec_utils.run_command(
+            [reg_executable, "delete", key, "/f"],
+            event="registry_delete",
+            dry_run=dry_run,
+            check=True,
+            extra={"key": key},
+        )
 
 
 __all__ = [

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pathlib
-import subprocess
 import sys
 from typing import List, Sequence
 
@@ -18,18 +17,34 @@ from office_janitor import (
     processes,
     restore_point,
     tasks_services,
+    exec_utils,
 )
 
 
-class _Result:
+def _command_result(
+    command: Sequence[str],
+    *,
+    returncode: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+    skipped: bool = False,
+    timed_out: bool = False,
+    error: str | None = None,
+) -> exec_utils.CommandResult:
     """!
-    @brief Minimal mock of :class:`subprocess.CompletedProcess` used for testing.
+    @brief Helper to fabricate :class:`CommandResult` instances for tests.
     """
 
-    def __init__(self, returncode: int = 0, stdout: str = "", stderr: str = "") -> None:
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
+    return exec_utils.CommandResult(
+        command=[str(part) for part in command],
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        duration=0.0,
+        skipped=skipped,
+        timed_out=timed_out,
+        error=error,
+    )
 
 
 def test_cleanup_licenses_runs_commands(monkeypatch, tmp_path) -> None:
@@ -42,9 +57,9 @@ def test_cleanup_licenses_runs_commands(monkeypatch, tmp_path) -> None:
     removed: List[tuple[List[str], bool]] = []
     exports: List[tuple[List[str], pathlib.Path]] = []
 
-    def fake_run(cmd, **kwargs):
-        run_calls.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        run_calls.append([str(part) for part in command])
+        return _command_result(command)
 
     def fake_remove_paths(paths, *, dry_run: bool):
         removed.append(([str(path) for path in paths], dry_run))
@@ -53,7 +68,7 @@ def test_cleanup_licenses_runs_commands(monkeypatch, tmp_path) -> None:
         exports.append((list(keys), pathlib.Path(destination)))
         return []
 
-    monkeypatch.setattr(licensing.subprocess, "run", fake_run)
+    monkeypatch.setattr(licensing.exec_utils, "run_command", fake_run)
     monkeypatch.setattr(licensing.fs_tools, "remove_paths", fake_remove_paths)
     monkeypatch.setattr(licensing.registry_tools, "export_keys", fake_export)
 
@@ -79,13 +94,12 @@ def test_cleanup_licenses_dry_run(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    called = False
     exported = False
+    dry_run_flags: List[bool] = []
 
-    def fake_run(cmd, **kwargs):
-        nonlocal called
-        called = True
-        return _Result()
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        dry_run_flags.append(dry_run)
+        return _command_result(command, skipped=dry_run)
 
     def fake_remove_paths(paths, *, dry_run: bool):
         assert dry_run is True
@@ -94,7 +108,7 @@ def test_cleanup_licenses_dry_run(monkeypatch, tmp_path) -> None:
         nonlocal exported
         exported = True
 
-    monkeypatch.setattr(licensing.subprocess, "run", fake_run)
+    monkeypatch.setattr(licensing.exec_utils, "run_command", fake_run)
     monkeypatch.setattr(licensing.fs_tools, "remove_paths", fake_remove_paths)
     monkeypatch.setattr(licensing.registry_tools, "export_keys", fake_export)
 
@@ -107,7 +121,7 @@ def test_cleanup_licenses_dry_run(monkeypatch, tmp_path) -> None:
         }
     )
 
-    assert not called
+    assert dry_run_flags and all(dry_run_flags)
     assert not exported
 
 
@@ -121,10 +135,10 @@ def test_cleanup_licenses_skips_without_uninstall(monkeypatch, tmp_path) -> None
     removed = False
     exported = False
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(command, *, event, **kwargs):
         nonlocal called
         called = True
-        return _Result()
+        return _command_result(command)
 
     def fake_remove_paths(paths, *, dry_run: bool):
         nonlocal removed
@@ -134,7 +148,7 @@ def test_cleanup_licenses_skips_without_uninstall(monkeypatch, tmp_path) -> None
         nonlocal exported
         exported = True
 
-    monkeypatch.setattr(licensing.subprocess, "run", fake_run)
+    monkeypatch.setattr(licensing.exec_utils, "run_command", fake_run)
     monkeypatch.setattr(licensing.fs_tools, "remove_paths", fake_remove_paths)
     monkeypatch.setattr(licensing.registry_tools, "export_keys", fake_export)
 
@@ -216,11 +230,11 @@ def test_reset_acl_invokes_icacls(monkeypatch) -> None:
 
     call_args: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        call_args.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        call_args.append([str(part) for part in command])
+        return _command_result(command)
 
-    monkeypatch.setattr(fs_tools.subprocess, "run", fake_run)
+    monkeypatch.setattr(fs_tools.exec_utils, "run_command", fake_run)
     fs_tools.reset_acl(pathlib.Path("C:/temp"))
 
     assert call_args[0][:2] == ["icacls", "C:/temp"]
@@ -233,14 +247,14 @@ def test_make_paths_writable_invokes_attrib(monkeypatch, tmp_path) -> None:
 
     commands: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        commands.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        commands.append([str(part) for part in command])
+        return _command_result(command)
 
     target = tmp_path / "dir"
     target.mkdir()
 
-    monkeypatch.setattr(fs_tools.subprocess, "run", fake_run)
+    monkeypatch.setattr(fs_tools.exec_utils, "run_command", fake_run)
     fs_tools.make_paths_writable([target])
 
     assert commands
@@ -255,11 +269,11 @@ def test_terminate_office_processes_invokes_taskkill(monkeypatch, tmp_path) -> N
     logging_ext.setup_logging(tmp_path)
     commands: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        commands.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        commands.append([str(part) for part in command])
+        return _command_result(command)
 
-    monkeypatch.setattr(processes.subprocess, "run", fake_run)
+    monkeypatch.setattr(processes.exec_utils, "run_command", fake_run)
     processes.terminate_office_processes(["winword.exe", "excel.exe"])
 
     assert commands
@@ -274,17 +288,18 @@ def test_enumerate_processes_filters_patterns(monkeypatch, tmp_path) -> None:
 
     logging_ext.setup_logging(tmp_path)
 
-    def fake_run(cmd, **kwargs):
-        assert cmd[0].lower() == "tasklist.exe"
-        return _Result(
+    def fake_run(command, *, event, **kwargs):
+        assert str(command[0]).lower() == "tasklist.exe"
+        return _command_result(
+            command,
             stdout=(
                 """Image Name                     PID Session Name        Session#    Mem Usage\n"""
                 "ose.exe 123 Console                    1     12,000 K\n"
                 "WINWORD.EXE 456 Console               1     15,000 K\n"
-            )
+            ),
         )
 
-    monkeypatch.setattr(processes.subprocess, "run", fake_run)
+    monkeypatch.setattr(processes.exec_utils, "run_command", fake_run)
 
     matches = processes.enumerate_processes(["ose*.exe", "winword.exe", ""])
 
@@ -352,17 +367,16 @@ def test_disable_tasks_respects_dry_run(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    called = False
+    dry_run_flags: List[bool] = []
 
-    def fake_run(cmd, **kwargs):
-        nonlocal called
-        called = True
-        return _Result()
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        dry_run_flags.append(dry_run)
+        return _command_result(command, skipped=dry_run)
 
-    monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
+    monkeypatch.setattr(tasks_services.exec_utils, "run_command", fake_run)
     tasks_services.disable_tasks([r"Microsoft\\Office\\Task"], dry_run=True)
 
-    assert not called
+    assert dry_run_flags and all(dry_run_flags)
 
 
 def test_disable_tasks_executes(monkeypatch, tmp_path) -> None:
@@ -373,11 +387,11 @@ def test_disable_tasks_executes(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     commands: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        commands.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        commands.append([str(part) for part in command])
+        return _command_result(command)
 
-    monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
+    monkeypatch.setattr(tasks_services.exec_utils, "run_command", fake_run)
     tasks_services.disable_tasks([r"Microsoft\\Office\\Task"], dry_run=False)
 
     assert commands
@@ -392,11 +406,11 @@ def test_delete_tasks_executes_delete(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     commands: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        commands.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        commands.append([str(part) for part in command])
+        return _command_result(command)
 
-    monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
+    monkeypatch.setattr(tasks_services.exec_utils, "run_command", fake_run)
     tasks_services.delete_tasks([r"Microsoft\\Office\\Cleanup"], dry_run=False)
 
     assert commands
@@ -426,11 +440,11 @@ def test_stop_services_invokes_sc(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     commands: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        commands.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        commands.append([str(part) for part in command])
+        return _command_result(command)
 
-    monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
+    monkeypatch.setattr(tasks_services.exec_utils, "run_command", fake_run)
     tasks_services.stop_services(["ClickToRunSvc"], timeout=10)
 
     assert len(commands) == 2
@@ -446,11 +460,11 @@ def test_start_services_invokes_sc(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     commands: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        commands.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        commands.append([str(part) for part in command])
+        return _command_result(command)
 
-    monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
+    monkeypatch.setattr(tasks_services.exec_utils, "run_command", fake_run)
 
     tasks_services.start_services(["ClickToRunSvc"], timeout=5)
 
@@ -465,11 +479,11 @@ def test_delete_services_executes(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     commands: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        commands.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        commands.append([str(part) for part in command])
+        return _command_result(command)
 
-    monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
+    monkeypatch.setattr(tasks_services.exec_utils, "run_command", fake_run)
     tasks_services.delete_services(["ose"], dry_run=False)
 
     assert commands
@@ -484,13 +498,23 @@ def test_query_service_status_retries_and_parses(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     attempts: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        attempts.append(cmd)
+    def fake_run(command, *, event, **kwargs):
+        attempts.append([str(part) for part in command])
         if len(attempts) < 3:
-            raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 0), output="", stderr="")
-        return _Result(stdout="""\nSERVICE_NAME: ClickToRunSvc\n        STATE              : 4  RUNNING\n""")
+            return _command_result(
+                command,
+                returncode=1,
+                stdout="",
+                stderr="",
+                timed_out=True,
+                error="timeout",
+            )
+        return _command_result(
+            command,
+            stdout="""\nSERVICE_NAME: ClickToRunSvc\n        STATE              : 4  RUNNING\n""",
+        )
 
-    monkeypatch.setattr(tasks_services.subprocess, "run", fake_run)
+    monkeypatch.setattr(tasks_services.exec_utils, "run_command", fake_run)
     monkeypatch.setattr(tasks_services.time, "sleep", lambda seconds: None)
 
     status = tasks_services.query_service_status("ClickToRunSvc", retries=3, delay=0.1, timeout=1)
@@ -507,12 +531,12 @@ def test_create_restore_point_uses_powershell(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     captured: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        captured.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, **kwargs):
+        captured.append([str(part) for part in command])
+        return _command_result(command)
 
     monkeypatch.setattr(restore_point.os, "name", "nt")
-    monkeypatch.setattr(restore_point.subprocess, "run", fake_run)
+    monkeypatch.setattr(restore_point.exec_utils, "run_command", fake_run)
     result = restore_point.create_restore_point("Before Office cleanup")
 
     assert captured
@@ -529,14 +553,14 @@ def test_create_restore_point_dry_run_skips_execution(monkeypatch, tmp_path) -> 
     logging_ext.setup_logging(tmp_path)
     calls: List[List[str]] = []
 
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        calls.append((list(command), dry_run))
+        return _command_result(command, skipped=dry_run)
 
     monkeypatch.setattr(restore_point.os, "name", "nt")
-    monkeypatch.setattr(restore_point.subprocess, "run", fake_run)
+    monkeypatch.setattr(restore_point.exec_utils, "run_command", fake_run)
 
     result = restore_point.create_restore_point("Simulated cleanup", dry_run=True)
 
     assert result is True
-    assert not calls
+    assert calls and all(flag for _, flag in calls)

@@ -9,12 +9,11 @@ from __future__ import annotations
 import csv
 import json
 import logging
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
-from . import constants, registry_tools
+from . import constants, exec_utils, registry_tools
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -760,19 +759,22 @@ def _run_command(arguments: Iterable[str]) -> Tuple[int, str]:
     degrade gracefully in non-Windows environments.
     """
 
-    try:
-        completed = subprocess.run(  # noqa: S603 - intentional command execution
-            list(arguments),
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        return 127, ""
-    except OSError:
+    command_list = [str(part) for part in arguments]
+    if not command_list:
         return 1, ""
-    output = completed.stdout or completed.stderr or ""
-    return completed.returncode, output
+
+    event = (
+        "detect_"
+        + command_list[0]
+        .lower()
+        .replace("/", "_")
+        .replace("\\", "_")
+        .replace(".", "_")
+    )
+    result = exec_utils.run_command(command_list, event=event)
+
+    output = result.stdout or result.stderr or ""
+    return result.returncode, output
 
 
 def gather_running_office_processes() -> List[Dict[str, str]]:

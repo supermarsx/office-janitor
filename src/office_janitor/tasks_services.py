@@ -7,11 +7,10 @@ respecting dry-run and timeout safeguards.
 """
 from __future__ import annotations
 
-import subprocess
 import time
 from typing import Iterable, List, Sequence
 
-from . import logging_ext
+from . import exec_utils, logging_ext
 
 
 def disable_tasks(task_names: Iterable[str], *, dry_run: bool = False) -> None:
@@ -23,48 +22,26 @@ def disable_tasks(task_names: Iterable[str], *, dry_run: bool = False) -> None:
     """
 
     human_logger = logging_ext.get_human_logger()
-    machine_logger = logging_ext.get_machine_logger()
 
     tasks: List[str] = [name for name in (str(name).strip() for name in task_names) if name]
     for task in tasks:
-        command = ["schtasks.exe", "/Change", "/TN", task, "/Disable"]
-        machine_logger.info(
-            "task_disable_plan",
-            extra={
-                "event": "task_disable_plan",
-                "task": task,
-                "dry_run": bool(dry_run),
-                "command": command,
-            },
+        result = exec_utils.run_command(
+            ["schtasks.exe", "/Change", "/TN", task, "/Disable"],
+            event="task_disable",
+            timeout=60,
+            dry_run=dry_run,
+            human_message=f"Disabling scheduled task {task}",
+            extra={"task": task},
         )
 
-        if dry_run:
-            human_logger.info("Dry-run: would disable scheduled task %s", task)
+        if result.skipped:
             continue
 
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
-        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+        if result.returncode == 127:
             human_logger.debug("schtasks.exe unavailable; cannot disable %s", task)
             continue
 
-        machine_logger.info(
-            "task_disable_result",
-            extra={
-                "event": "task_disable_result",
-                "task": task,
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-            },
-        )
-        if result.returncode == 0:
+        if result.returncode == 0 and not result.error:
             human_logger.info("Disabled scheduled task %s", task)
         else:
             human_logger.debug(
@@ -83,46 +60,25 @@ def delete_tasks(task_names: Sequence[str], *, dry_run: bool = False) -> None:
     """
 
     human_logger = logging_ext.get_human_logger()
-    machine_logger = logging_ext.get_machine_logger()
 
     for task in (str(name).strip() for name in task_names if str(name).strip()):
-        command = ["schtasks.exe", "/Delete", "/TN", task, "/F"]
-        machine_logger.info(
-            "task_delete_plan",
-            extra={
-                "event": "task_delete_plan",
-                "task": task,
-                "dry_run": bool(dry_run),
-                "command": command,
-            },
+        result = exec_utils.run_command(
+            ["schtasks.exe", "/Delete", "/TN", task, "/F"],
+            event="task_delete",
+            timeout=60,
+            dry_run=dry_run,
+            human_message=f"Deleting scheduled task {task}",
+            extra={"task": task},
         )
-        if dry_run:
-            human_logger.info("Dry-run: would delete scheduled task %s", task)
+
+        if result.skipped:
             continue
 
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
-        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+        if result.returncode == 127:
             human_logger.debug("schtasks.exe unavailable; cannot delete %s", task)
             continue
 
-        machine_logger.info(
-            "task_delete_result",
-            extra={
-                "event": "task_delete_result",
-                "task": task,
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-            },
-        )
-        if result.returncode == 0:
+        if result.returncode == 0 and not result.error:
             human_logger.info("Deleted scheduled task %s", task)
         else:
             human_logger.debug(
@@ -143,105 +99,49 @@ def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
     """
 
     human_logger = logging_ext.get_human_logger()
-    machine_logger = logging_ext.get_machine_logger()
 
     services: List[str] = [name for name in (str(name).strip() for name in service_names) if name]
     for service in services:
-        stop_command = ["sc.exe", "stop", service]
-        disable_command = ["sc.exe", "config", service, "start=", "disabled"]
-        machine_logger.info(
-            "service_stop_plan",
-            extra={
-                "event": "service_stop_plan",
-                "service": service,
-                "command": stop_command,
-            },
+        stop_result = exec_utils.run_command(
+            ["sc.exe", "stop", service],
+            event="service_stop",
+            timeout=timeout,
+            human_message=f"Stopping service {service}",
+            extra={"service": service},
         )
 
-        try:
-            stop_result = subprocess.run(
-                stop_command,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+        if stop_result.returncode == 127:
             human_logger.debug("sc.exe unavailable; cannot stop %s", service)
             continue
-        except subprocess.TimeoutExpired as exc:
+
+        if stop_result.timed_out:
             human_logger.warning("Timed out stopping service %s", service)
-            machine_logger.warning(
-                "service_stop_timeout",
-                extra={
-                    "event": "service_stop_timeout",
-                    "service": service,
-                    "stdout": exc.stdout,
-                    "stderr": exc.stderr,
-                },
-            )
             continue
 
-        machine_logger.info(
-            "service_stop_result",
-            extra={
-                "event": "service_stop_result",
-                "service": service,
-                "return_code": stop_result.returncode,
-                "stdout": stop_result.stdout,
-                "stderr": stop_result.stderr,
-            },
-        )
-        if stop_result.returncode == 0:
+        if stop_result.returncode == 0 and not stop_result.error:
             human_logger.info("Stopped service %s", service)
         else:
             human_logger.debug(
                 "Service %s stop returned %s", service, stop_result.returncode
             )
 
-        machine_logger.info(
-            "service_disable_plan",
-            extra={
-                "event": "service_disable_plan",
-                "service": service,
-                "command": disable_command,
-            },
+        disable_result = exec_utils.run_command(
+            ["sc.exe", "config", service, "start=", "disabled"],
+            event="service_disable",
+            timeout=timeout,
+            human_message=f"Disabling service {service}",
+            extra={"service": service},
         )
-        try:
-            disable_result = subprocess.run(
-                disable_command,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+
+        if disable_result.returncode == 127:
             human_logger.debug("sc.exe unavailable; cannot disable %s", service)
             continue
-        except subprocess.TimeoutExpired as exc:
+
+        if disable_result.timed_out:
             human_logger.warning("Timed out disabling service %s", service)
-            machine_logger.warning(
-                "service_disable_timeout",
-                extra={
-                    "event": "service_disable_timeout",
-                    "service": service,
-                    "stdout": exc.stdout,
-                    "stderr": exc.stderr,
-                },
-            )
             continue
 
-        machine_logger.info(
-            "service_disable_result",
-            extra={
-                "event": "service_disable_result",
-                "service": service,
-                "return_code": disable_result.returncode,
-                "stdout": disable_result.stdout,
-                "stderr": disable_result.stderr,
-            },
-        )
-        if disable_result.returncode == 0:
+        if disable_result.returncode == 0 and not disable_result.error:
             human_logger.info("Configured service %s to be disabled", service)
         else:
             human_logger.debug(
@@ -257,54 +157,26 @@ def start_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
     """
 
     human_logger = logging_ext.get_human_logger()
-    machine_logger = logging_ext.get_machine_logger()
 
     services: List[str] = [name for name in (str(name).strip() for name in service_names) if name]
     for service in services:
-        command = ["sc.exe", "start", service]
-        machine_logger.info(
-            "service_start_plan",
-            extra={
-                "event": "service_start_plan",
-                "service": service,
-                "command": command,
-            },
+        result = exec_utils.run_command(
+            ["sc.exe", "start", service],
+            event="service_start",
+            timeout=timeout,
+            human_message=f"Starting service {service}",
+            extra={"service": service},
         )
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+
+        if result.returncode == 127:
             human_logger.debug("sc.exe unavailable; cannot start %s", service)
             continue
-        except subprocess.TimeoutExpired as exc:
+
+        if result.timed_out:
             human_logger.warning("Timed out starting service %s", service)
-            machine_logger.warning(
-                "service_start_timeout",
-                extra={
-                    "event": "service_start_timeout",
-                    "service": service,
-                    "stdout": exc.stdout,
-                    "stderr": exc.stderr,
-                },
-            )
             continue
 
-        machine_logger.info(
-            "service_start_result",
-            extra={
-                "event": "service_start_result",
-                "service": service,
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-            },
-        )
-        if result.returncode == 0:
+        if result.returncode == 0 and not result.error:
             human_logger.info("Started service %s", service)
         else:
             human_logger.debug(
@@ -320,47 +192,25 @@ def delete_services(service_names: Sequence[str], *, dry_run: bool = False) -> N
     """
 
     human_logger = logging_ext.get_human_logger()
-    machine_logger = logging_ext.get_machine_logger()
 
     for service in (str(name).strip() for name in service_names if str(name).strip()):
-        command = ["sc.exe", "delete", service]
-        machine_logger.info(
-            "service_delete_plan",
-            extra={
-                "event": "service_delete_plan",
-                "service": service,
-                "dry_run": bool(dry_run),
-                "command": command,
-            },
+        result = exec_utils.run_command(
+            ["sc.exe", "delete", service],
+            event="service_delete",
+            timeout=30,
+            dry_run=dry_run,
+            human_message=f"Deleting service {service}",
+            extra={"service": service},
         )
 
-        if dry_run:
-            human_logger.info("Dry-run: would delete service %s", service)
+        if result.skipped:
             continue
 
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+        if result.returncode == 127:
             human_logger.debug("sc.exe unavailable; cannot delete %s", service)
             continue
 
-        machine_logger.info(
-            "service_delete_result",
-            extra={
-                "event": "service_delete_result",
-                "service": service,
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-            },
-        )
-        if result.returncode == 0:
+        if result.returncode == 0 and not result.error:
             human_logger.info("Deleted service %s", service)
         else:
             human_logger.debug(
@@ -393,60 +243,28 @@ def query_service_status(
         return "UNKNOWN"
 
     human_logger = logging_ext.get_human_logger()
-    machine_logger = logging_ext.get_machine_logger()
 
     for attempt in range(1, max(1, retries) + 1):
-        command = ["sc.exe", "query", service_name]
-        machine_logger.info(
-            "service_query_plan",
-            extra={
-                "event": "service_query_plan",
-                "service": service_name,
-                "attempt": attempt,
-                "command": command,
-            },
+        result = exec_utils.run_command(
+            ["sc.exe", "query", service_name],
+            event="service_query",
+            timeout=timeout,
+            extra={"service": service_name, "attempt": attempt},
         )
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except FileNotFoundError:  # pragma: no cover - non-Windows fallback
+
+        if result.returncode == 127:
             human_logger.debug("sc.exe unavailable; cannot query %s", service_name)
             return "UNKNOWN"
-        except subprocess.TimeoutExpired as exc:
+
+        if result.timed_out:
             human_logger.warning(
                 "Timed out querying status for %s (attempt %d)", service_name, attempt
-            )
-            machine_logger.warning(
-                "service_query_timeout",
-                extra={
-                    "event": "service_query_timeout",
-                    "service": service_name,
-                    "attempt": attempt,
-                    "stdout": exc.stdout,
-                    "stderr": exc.stderr,
-                },
             )
             if attempt < retries:
                 time.sleep(delay)
             continue
 
-        machine_logger.info(
-            "service_query_result",
-            extra={
-                "event": "service_query_result",
-                "service": service_name,
-                "attempt": attempt,
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-            },
-        )
-        if result.returncode == 0:
+        if result.returncode == 0 and not result.error:
             status = _parse_service_state(result.stdout)
             if status:
                 human_logger.debug("Service %s status: %s", service_name, status)

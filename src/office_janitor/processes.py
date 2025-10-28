@@ -8,10 +8,9 @@ subprocess execution so automated runs stay safe.
 from __future__ import annotations
 
 import fnmatch
-import subprocess
 from typing import Callable, Iterable, List, Sequence
 
-from . import logging_ext
+from . import exec_utils, logging_ext
 
 
 def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> List[str]:
@@ -34,31 +33,31 @@ def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> List[s
     if not expanded_patterns:
         return []
 
-    try:
-        listing = subprocess.run(
-            ["tasklist.exe"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except FileNotFoundError:  # pragma: no cover - not available on non-Windows CI.
+    listing = exec_utils.run_command(
+        ["tasklist.exe"],
+        event="process_enumerate",
+        timeout=timeout,
+        extra={"patterns": expanded_patterns},
+    )
+
+    if listing.returncode == 127:
         human_logger.debug("tasklist.exe unavailable; cannot enumerate processes")
         return []
-    except subprocess.TimeoutExpired as exc:
+
+    if listing.timed_out:
         human_logger.warning("Timed out enumerating processes via tasklist")
         machine_logger.warning(
             "process_enumeration_timeout",
             extra={
                 "event": "process_enumeration_timeout",
                 "patterns": expanded_patterns,
-                "stdout": exc.stdout,
-                "stderr": exc.stderr,
+                "stdout": listing.stdout,
+                "stderr": listing.stderr,
             },
         )
         return []
 
-    if listing.returncode != 0:
+    if listing.returncode != 0 or listing.error:
         human_logger.debug(
             "tasklist exited with %s; skipping enumeration", listing.returncode
         )
@@ -70,6 +69,7 @@ def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> List[s
                 "return_code": listing.returncode,
                 "stdout": listing.stdout,
                 "stderr": listing.stderr,
+                "error": listing.error,
             },
         )
         return []
@@ -163,52 +163,34 @@ def terminate_office_processes(names: Iterable[str], *, timeout: int = 30) -> No
         return
 
     for process in processes:
-        command = ["taskkill.exe", "/IM", process, "/F", "/T"]
-        machine_logger.info(
-            "terminate_process_plan",
-            extra={
-                "event": "terminate_process_plan",
-                "process_name": process,
-                "command": command,
-            },
+        result = exec_utils.run_command(
+            ["taskkill.exe", "/IM", process, "/F", "/T"],
+            event="terminate_process",
+            timeout=timeout,
+            human_message=f"Terminating {process}",
+            extra={"process_name": process},
         )
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except FileNotFoundError:  # pragma: no cover - non-Windows fallback.
+
+        if result.returncode == 127:
             human_logger.debug(
                 "taskkill.exe is unavailable; skipping termination for %s", process
             )
             continue
-        except subprocess.TimeoutExpired as exc:
+
+        if result.timed_out:
             human_logger.warning("Timed out attempting to stop %s", process)
             machine_logger.warning(
                 "terminate_process_timeout",
                 extra={
                     "event": "terminate_process_timeout",
                     "process_name": process,
-                    "stdout": exc.stdout,
-                    "stderr": exc.stderr,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
                 },
             )
             continue
 
-        machine_logger.info(
-            "terminate_process_result",
-            extra={
-                "event": "terminate_process_result",
-                "process_name": process,
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-            },
-        )
-        if result.returncode == 0:
+        if result.returncode == 0 and not result.error:
             human_logger.info("Terminated %s", process)
         else:
             human_logger.debug(
