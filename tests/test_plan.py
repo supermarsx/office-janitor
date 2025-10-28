@@ -402,3 +402,30 @@ class TestPlanBuilder:
         assert "filesystem-cleanup" in summary["cleanup_categories"]
         assert summary["actionable_steps"] == len(plan_steps) - 2  # minus context + detect
 
+    def test_dry_run_metadata_propagates_to_steps(self) -> None:
+        """!
+        @brief Dry-run flag should reach every actionable step emitted by the planner.
+        """
+
+        inventory: Dict[str, List[dict]] = {
+            "msi": [
+                {
+                    "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
+                    "display_name": "Microsoft Office Professional Plus 2016",
+                    "version": "2016",
+                }
+            ],
+            "services": [{"name": "ClickToRunSvc"}],
+            "filesystem": [{"path": r"C:\\Program Files\\Microsoft Office"}],
+        }
+        options = {"auto_all": True, "dry_run": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+
+        assert plan_steps[0]["metadata"]["dry_run"] is True
+        for step in plan_steps[1:]:
+            metadata = step.get("metadata", {})
+            assert metadata.get("dry_run") is True
+            if step["category"] in {"msi-uninstall", "service-cleanup"}:
+                assert metadata["dry_run"] is True
+

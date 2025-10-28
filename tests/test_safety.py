@@ -484,6 +484,22 @@ class TestSafetyRuntimeEnvironment:
             restore_point_available=True,
         )
 
+    def test_runtime_guard_rejects_non_windows_system(self) -> None:
+        """!
+        @brief Non-Windows operating systems should be rejected unless forced.
+        """
+
+        with pytest.raises(RuntimeError):
+            safety.evaluate_runtime_environment(
+                is_admin=True,
+                os_system="Linux",
+                os_release="5.15",
+                blocking_processes=[],
+                dry_run=False,
+                require_restore_point=False,
+                restore_point_available=True,
+            )
+
     def test_runtime_guard_requires_restore_point(self) -> None:
         """!
         @brief Restore point requirement is enforced when enabled.

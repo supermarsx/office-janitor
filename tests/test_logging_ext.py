@@ -169,3 +169,12 @@ def test_get_loggers_adds_stdout_when_requested(tmp_path) -> None:
         isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is sys.stdout
         for handler in machine.handlers
     )
+
+
+def test_log_directory_tracks_setup(tmp_path) -> None:
+    """!
+    @brief ``get_log_directory`` should return the most recent setup path.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    assert logging_ext.get_log_directory() == tmp_path

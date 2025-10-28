@@ -171,6 +171,62 @@ def test_looks_like_office_entry_matches_keywords() -> None:
     assert not registry_tools.looks_like_office_entry(unrelated)
 
 
+def test_export_keys_invokes_reg_command(tmp_path, monkeypatch) -> None:
+    """!
+    @brief When ``reg.exe`` is present the utility should invoke it for exports.
+    """
+
+    monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "C:/Windows/system32/reg.exe")
+    calls: List[List[str]] = []
+
+    def fake_run(command, *, event, dry_run=False, check=False, extra=None, **kwargs):
+        calls.append([str(part) for part in command])
+        return _command_result(command, skipped=dry_run)
+
+    monkeypatch.setattr(registry_tools.exec_utils, "run_command", fake_run)
+
+    exported = registry_tools.export_keys(
+        ["HKLM\\Software\\Microsoft\\Office\\Diagnostics"],
+        tmp_path,
+        dry_run=False,
+        logger=_Recorder(),
+    )
+
+    expected_command = [
+        "C:/Windows/system32/reg.exe",
+        "export",
+        "HKLM\\SOFTWARE\\MICROSOFT\\OFFICE\\DIAGNOSTICS",
+        str(exported[0]),
+        "/y",
+    ]
+    assert calls == [expected_command]
+    assert exported[0].parent == tmp_path
+
+
+def test_export_keys_produces_unique_filenames(tmp_path, monkeypatch) -> None:
+    """!
+    @brief Duplicate key exports should yield unique placeholder filenames.
+    """
+
+    monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: None)
+
+    exported = registry_tools.export_keys(
+        [
+            "HKLM\\Software\\Microsoft\\Office\\Diagnostics",
+            "HKLM\\Software\\Microsoft\\Office\\Diagnostics",
+        ],
+        tmp_path,
+        dry_run=False,
+        logger=_Recorder(),
+    )
+
+    assert len(exported) == 2
+    names = [path.name for path in exported]
+    assert names[0] != names[1]
+    assert names[1].startswith(names[0][:-4])
+    assert exported[0].exists() and exported[1].exists()
+
+
 def test_iter_office_uninstall_entries_filters_non_office(monkeypatch) -> None:
     """!
     @brief Only Office-like entries should be returned from uninstall enumeration.
