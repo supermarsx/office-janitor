@@ -1,2 +1,77 @@
+[build-system]
+requires = ["setuptools>=67.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "office-janitor"
+description = "Utility for detecting, planning, and scrubbing Microsoft Office installations."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Office Janitor Contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = []
+dynamic = ["version"]
+
+[project.optional-dependencies]
+dev = [
+    "black>=23.9",
+    "mypy>=1.6",
+    "pyinstaller>=6.0",
+    "pytest>=7.4",
+    "ruff>=0.1.8",
+]
+
+[project.scripts]
+office-janitor = "office_janitor.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "office_janitor.version.__version__" }
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+include = "\\.(py|pyi)$"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+exclude = [
+    "src/office_janitor.egg-info",
+]
+select = ["E", "F", "B", "UP", "I"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.9"
+strict_optional = true
+warn_return_any = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+ignore_missing_imports = true
+mypy_path = ["src"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+
+[tool.pyinstaller.build]
+entry-point = "office_janitor.py"
+name = "OfficeJanitor"
+onefile = true
+uac-admin = true
+paths = ["src"]
