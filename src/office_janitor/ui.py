@@ -1,14 +1,27 @@
 """!
 @brief Plain console user interface helpers.
-@details Provides the interactive menu experience described in the specification
-for environments that do not support the richer TUI renderer.
+@details Implements the numbered text menu described in the specification and
+bridges menu actions to the detector/planner/executor callables exposed via the
+``app_state`` mapping assembled in :mod:`office_janitor.main`.
 """
 from __future__ import annotations
 
 import textwrap
 from typing import Callable, Mapping, MutableMapping
 
+from . import plan as plan_module
 from . import version
+
+
+_DEFAULT_MENU_LABELS = [
+    "Detect & show installed Office",
+    "Auto scrub everything detected (recommended)",
+    "Targeted scrub (choose versions/components)",
+    "Cleanup only (licenses, residue)",
+    "Diagnostics only (export plan & inventory)",
+    "Settings (restore point, logging, backups)",
+    "Exit",
+]
 
 
 MenuHandler = Callable[[MutableMapping[str, object]], None]
@@ -17,31 +30,45 @@ MenuHandler = Callable[[MutableMapping[str, object]], None]
 def run_cli(app_state: Mapping[str, object]) -> None:
     """!
     @brief Launch the basic interactive console menu.
+    @details The function mirrors the layout in the specification, wiring menu
+    selections to the reusable detection/planning/scrubbing pipelines while also
+    reflecting runtime settings that can be toggled inside the menu.
     """
 
     args = app_state.get("args")
     human_logger = app_state.get("human_logger")
+    machine_logger = app_state.get("machine_logger")
+    emit_event = app_state.get("emit_event")
+    event_queue = app_state.get("event_queue")
     input_func: Callable[[str], str] = app_state.get("input", input)  # type: ignore[assignment]
 
     if getattr(args, "quiet", False) or getattr(args, "json", False):
         if human_logger:
             human_logger.warning(
-                "Interactive menu suppressed because quiet/json output mode was requested."
+                "Interactive menu suppressed because quiet/json output mode was requested.",
+            )
+        if callable(emit_event):
+            emit_event(
+                "ui.suppressed",
+                message="Interactive menu suppressed by CLI flags.",
+                mode="cli",
             )
         return
 
     detector: Callable[[], Mapping[str, object]] = app_state["detector"]  # type: ignore[assignment]
-    planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = app_state["planner"]  # type: ignore[assignment]
+    planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = app_state[
+        "planner"
+    ]  # type: ignore[assignment]
     executor: Callable[[list[dict], Mapping[str, object] | None], None] = app_state["executor"]  # type: ignore[assignment]
 
     menu: list[tuple[str, MenuHandler]] = [
-        ("Detect & show installed Office", _menu_detect),
-        ("Auto scrub everything detected (recommended)", _menu_auto_all),
-        ("Targeted scrub (choose versions/components)", _menu_targeted),
-        ("Cleanup only (licenses, residue)", _menu_cleanup),
-        ("Diagnostics only (export plan & inventory)", _menu_diagnostics),
-        ("Settings (restore point, logging, backups)", _menu_settings),
-        ("Exit", _menu_exit),
+        (_DEFAULT_MENU_LABELS[0], _menu_detect),
+        (_DEFAULT_MENU_LABELS[1], _menu_auto_all),
+        (_DEFAULT_MENU_LABELS[2], _menu_targeted),
+        (_DEFAULT_MENU_LABELS[3], _menu_cleanup),
+        (_DEFAULT_MENU_LABELS[4], _menu_diagnostics),
+        (_DEFAULT_MENU_LABELS[5], _menu_settings),
+        (_DEFAULT_MENU_LABELS[6], _menu_exit),
     ]
 
     context: MutableMapping[str, object] = {
@@ -50,28 +77,37 @@ def run_cli(app_state: Mapping[str, object]) -> None:
         "executor": executor,
         "args": args,
         "human_logger": human_logger,
+        "machine_logger": machine_logger,
+        "emit_event": emit_event,
+        "event_queue": event_queue,
         "input": input_func,
         "inventory": None,
         "plan": None,
         "running": True,
     }
 
+    _notify(context, "ui.start", "Interactive CLI started.")
+
     while context.get("running", True):
         _print_menu(menu)
         selection = input_func("Select an option (1-7): ").strip()
         if not selection.isdigit():
+            _notify(context, "ui.invalid", f"Menu selection {selection!r} is not a number.", level="warning")
             print("Please enter a number between 1 and 7.")
             continue
         index = int(selection) - 1
         if index < 0 or index >= len(menu):
+            _notify(context, "ui.invalid", f"Menu selection {selection!r} outside valid range.", level="warning")
             print("Please choose a valid menu entry.")
             continue
-        handler = menu[index][1]
+        label, handler = menu[index]
+        _notify(context, "ui.select", f"Selected menu option: {label}", index=index + 1)
         try:
             handler(context)
         except Exception as exc:  # pragma: no cover - defensive user feedback
+            _notify(context, "ui.error", f"Menu action failed: {exc}", level="error")
             if human_logger:
-                human_logger.error("Menu action failed: %s", exc)
+                human_logger.exception("Menu action failure", exc_info=exc)
             else:
                 print(f"Error: {exc}")
 
@@ -82,18 +118,26 @@ def _print_menu(menu: list[tuple[str, MenuHandler]]) -> None:
     """
 
     metadata = version.build_info()
+    labels = [entry[0] for entry in menu]
+    if not labels:
+        labels = list(_DEFAULT_MENU_LABELS)
+    elif len(labels) < len(_DEFAULT_MENU_LABELS):
+        labels = labels + _DEFAULT_MENU_LABELS[len(labels) :]
+    else:
+        labels = labels[: len(_DEFAULT_MENU_LABELS)]
+
     header = textwrap.dedent(
         f"""
         ================= Office Janitor =================
         Version {metadata['version']} (build {metadata['build']})
         --------------------------------------------------
-        1. Detect & show installed Office
-        2. Auto scrub everything detected (recommended)
-        3. Targeted scrub (choose versions/components)
-        4. Cleanup only (licenses, residue)
-        5. Diagnostics only (export plan & inventory)
-        6. Settings (restore point, logging, backups)
-        7. Exit
+        1. {labels[0]}
+        2. {labels[1]}
+        3. {labels[2]}
+        4. {labels[3]}
+        5. {labels[4]}
+        6. {labels[5]}
+        7. {labels[6]}
         --------------------------------------------------
         """
     ).strip("\n")
@@ -102,19 +146,18 @@ def _print_menu(menu: list[tuple[str, MenuHandler]]) -> None:
 
 def _menu_detect(context: MutableMapping[str, object]) -> None:
     detector: Callable[[], Mapping[str, object]] = context["detector"]  # type: ignore[assignment]
+    _notify(context, "detect.start", "Starting detection run from CLI menu.")
     inventory = detector()
     context["inventory"] = inventory
+    summary = _summarize_inventory(inventory)
+    _notify(context, "detect.complete", "Detection run finished.", inventory=summary)
     print("Detected inventory:")
-    for key, items in inventory.items():
-        try:
-            count = len(items)  # type: ignore[arg-type]
-        except TypeError:
-            count = len(list(items))  # type: ignore[arg-type]
+    for key, count in summary.items():
         print(f"  - {key}: {count} entries")
 
 
 def _menu_auto_all(context: MutableMapping[str, object]) -> None:
-    _plan_and_execute(context, {"mode": "auto-all", "auto_all": True})
+    _plan_and_execute(context, {"mode": "auto-all", "auto_all": True}, label="auto scrub")
 
 
 def _menu_targeted(context: MutableMapping[str, object]) -> None:
@@ -129,56 +172,231 @@ def _menu_targeted(context: MutableMapping[str, object]) -> None:
         joined = ",".join(targets)
         overrides["target"] = joined
     else:
+        _notify(context, "targeted.cancel", "Targeted scrub aborted (no versions provided).", level="warning")
         print("No target versions entered; aborting targeted scrub.")
         return
     if includes_raw:
         overrides["include"] = includes_raw
-    _plan_and_execute(context, overrides)
+    _notify(
+        context,
+        "targeted.start",
+        "Initiating targeted scrub run.",
+        targets=overrides.get("target"),
+        include=overrides.get("include"),
+    )
+    _plan_and_execute(context, overrides, label="targeted scrub")
 
 
 def _menu_cleanup(context: MutableMapping[str, object]) -> None:
-    _plan_and_execute(context, {"mode": "cleanup-only", "cleanup_only": True})
+    _plan_and_execute(context, {"mode": "cleanup-only", "cleanup_only": True}, label="cleanup-only")
 
 
 def _menu_diagnostics(context: MutableMapping[str, object]) -> None:
+    _notify(context, "diagnostics.start", "Generating diagnostics plan from CLI menu.")
     plan_steps = _ensure_plan(context, {"mode": "diagnose", "diagnose": True})
-    executor: Callable[[list[dict], Mapping[str, object] | None], None] = context["executor"]  # type: ignore[assignment]
+    executor: Callable[[list[dict], Mapping[str, object] | None], None] = context[
+        "executor"
+    ]  # type: ignore[assignment]
     inventory = context.get("inventory")
-    executor(plan_steps, {"mode": "diagnose", "diagnose": True, "inventory": inventory})
+    executor(
+        plan_steps,
+        {"mode": "diagnose", "diagnose": True, "inventory": inventory},
+    )
+    _notify(context, "diagnostics.complete", "Diagnostics artifacts generated.")
     print("Diagnostics captured; no actions executed.")
 
 
 def _menu_settings(context: MutableMapping[str, object]) -> None:
     args = context.get("args")
-    print("Current settings:")
-    print(f"  Dry-run: {bool(getattr(args, 'dry_run', False))}")
-    print(f"  Create restore point: {not bool(getattr(args, 'no_restore_point', False))}")
-    print(f"  Log directory: {getattr(args, 'logdir', '(default)')}")
-    print(f"  Backup directory: {getattr(args, 'backup', '(disabled)')}")
+    input_func: Callable[[str], str] = context.get("input", input)  # type: ignore[assignment]
+    if args is None:
+        print("Settings unavailable (no argument namespace detected).")
+        return
+
+    while True:
+        print("Current settings:")
+        print(f"  1. Dry-run: {bool(getattr(args, 'dry_run', False))}")
+        print(f"  2. Create restore point: {not bool(getattr(args, 'no_restore_point', False))}")
+        print(f"  3. License cleanup enabled: {not bool(getattr(args, 'no_license', False))}")
+        print(f"  4. Keep user templates: {bool(getattr(args, 'keep_templates', False))}")
+        print(f"  5. Log directory: {getattr(args, 'logdir', '(default)')}")
+        print(f"  6. Backup directory: {getattr(args, 'backup', '(disabled)')}")
+        timeout_val = getattr(args, "timeout", None)
+        print(f"  7. Timeout (seconds): {timeout_val if timeout_val is not None else '(default)'}")
+        print("  8. Return to main menu")
+        selection = input_func("Choose a setting to modify (1-8): ").strip()
+        if selection == "1":
+            value = not bool(getattr(args, "dry_run", False))
+            setattr(args, "dry_run", value)
+            _notify(context, "settings.dry_run", f"Dry-run set to {value}.", value=value)
+        elif selection == "2":
+            current = not bool(getattr(args, "no_restore_point", False))
+            new_value = not current
+            setattr(args, "no_restore_point", not new_value)
+            _notify(
+                context,
+                "settings.restore_point",
+                f"Create restore point set to {new_value}.",
+                value=new_value,
+            )
+        elif selection == "3":
+            current = not bool(getattr(args, "no_license", False))
+            new_value = not current
+            setattr(args, "no_license", not new_value)
+            _notify(
+                context,
+                "settings.license",
+                f"License cleanup enabled: {new_value}.",
+                value=new_value,
+            )
+        elif selection == "4":
+            value = not bool(getattr(args, "keep_templates", False))
+            setattr(args, "keep_templates", value)
+            _notify(context, "settings.templates", f"Keep templates set to {value}.", value=value)
+        elif selection == "5":
+            path_value = input_func("Enter log directory (blank for default): ").strip()
+            setattr(args, "logdir", path_value or None)
+            _notify(
+                context,
+                "settings.logdir",
+                f"Log directory set to {path_value or '(default)'}.",
+                value=path_value or None,
+            )
+        elif selection == "6":
+            path_value = input_func("Enter backup directory (blank to disable): ").strip()
+            setattr(args, "backup", path_value or None)
+            _notify(
+                context,
+                "settings.backup",
+                f"Backup directory set to {path_value or '(disabled)'}.",
+                value=path_value or None,
+            )
+        elif selection == "7":
+            raw_timeout = input_func("Enter timeout seconds (blank for default): ").strip()
+            if raw_timeout:
+                try:
+                    timeout_val = int(raw_timeout)
+                except ValueError:
+                    _notify(
+                        context,
+                        "settings.timeout_invalid",
+                        f"Timeout value {raw_timeout!r} is not an integer.",
+                        level="warning",
+                    )
+                    print("Timeout must be an integer number of seconds.")
+                    continue
+                setattr(args, "timeout", timeout_val)
+                _notify(
+                    context,
+                    "settings.timeout",
+                    f"Timeout set to {timeout_val} seconds.",
+                    value=timeout_val,
+                )
+            else:
+                setattr(args, "timeout", None)
+                _notify(context, "settings.timeout", "Timeout reset to default.", value=None)
+        elif selection == "8":
+            _notify(context, "settings.exit", "Returning to main menu from settings.")
+            break
+        else:
+            _notify(
+                context,
+                "settings.invalid",
+                f"Invalid settings selection {selection!r}.",
+                level="warning",
+            )
+            print("Please choose a valid option (1-8).")
 
 
 def _menu_exit(context: MutableMapping[str, object]) -> None:
     context["running"] = False
+    _notify(context, "ui.exit", "Exiting Office Janitor interactive CLI.")
     print("Exiting Office Janitor.")
 
 
-def _plan_and_execute(context: MutableMapping[str, object], overrides: Mapping[str, object]) -> None:
+def _plan_and_execute(
+    context: MutableMapping[str, object], overrides: Mapping[str, object], *, label: str
+) -> None:
+    _notify(context, "plan.start", f"Planning run for {label} mode.", overrides=dict(overrides))
     plan_steps = _ensure_plan(context, overrides)
-    executor: Callable[[list[dict], Mapping[str, object] | None], None] = context["executor"]  # type: ignore[assignment]
+    executor: Callable[[list[dict], Mapping[str, object] | None], None] = context[
+        "executor"
+    ]  # type: ignore[assignment]
     payload = dict(overrides)
     if "inventory" not in payload and context.get("inventory") is not None:
         payload["inventory"] = context.get("inventory")
+    summary = plan_module.summarize_plan(plan_steps)
+    _notify(
+        context,
+        "plan.ready",
+        f"Plan ready for {label} mode with {summary.get('total_steps', 0)} steps.",
+        summary=summary,
+    )
     executor(plan_steps, payload)
+    _notify(context, "execution.complete", f"Execution finished for {label} mode.")
 
 
 def _ensure_plan(context: MutableMapping[str, object], overrides: Mapping[str, object]) -> list[dict]:
-    planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = context["planner"]  # type: ignore[assignment]
+    planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = context[
+        "planner"
+    ]  # type: ignore[assignment]
     inventory = context.get("inventory")
     if inventory is None:
         detector: Callable[[], Mapping[str, object]] = context["detector"]  # type: ignore[assignment]
+        _notify(context, "detect.lazy", "Collecting inventory prior to planning.")
         inventory = detector()
         context["inventory"] = inventory
     plan_steps = planner(inventory, overrides)
     context["plan"] = plan_steps
     print("Plan contains %d step(s)." % len(plan_steps))
     return plan_steps
+
+
+def _summarize_inventory(inventory: Mapping[str, object]) -> dict[str, int]:
+    summary: dict[str, int] = {}
+    for key, items in inventory.items():
+        try:
+            count = len(items)  # type: ignore[arg-type]
+        except TypeError:
+            count = len(list(items))  # type: ignore[arg-type]
+        summary[str(key)] = count
+    return summary
+
+
+def _notify(
+    context: Mapping[str, object],
+    event: str,
+    message: str,
+    *,
+    level: str = "info",
+    **payload: object,
+) -> None:
+    """!
+    @brief Emit user-facing and structured log updates for menu actions.
+    """
+
+    human_logger = context.get("human_logger")
+    if human_logger is not None:
+        log_func = getattr(human_logger, level, human_logger.info)
+        log_func(message)
+
+    machine_logger = context.get("machine_logger")
+    if machine_logger is not None:
+        extra: dict[str, object] = {"event": "ui_progress", "name": event}
+        if message:
+            extra["message"] = message
+        if payload:
+            extra["data"] = dict(payload)
+        machine_logger.info("ui_progress", extra=extra)
+
+    record = {"event": event, "message": message}
+    if payload:
+        record["data"] = dict(payload)
+
+    emitter = context.get("emit_event")
+    if callable(emitter):
+        emitter(event, message=message, **payload)
+    else:
+        queue = context.get("event_queue")
+        if hasattr(queue, "append"):
+            queue.append(record)  # type: ignore[arg-type]

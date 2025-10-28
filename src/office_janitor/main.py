@@ -17,6 +17,7 @@ import pathlib
 import platform
 import subprocess
 import sys
+from collections import deque
 from typing import Iterable, List, Mapping, Optional
 
 from . import (
@@ -281,6 +282,22 @@ def _build_app_state(
     the non-interactive CLI code path.
     """
 
+    ui_events: deque[dict[str, object]] = deque()
+
+    def emit_event(event: str, *, message: str | None = None, **payload: object) -> None:
+        """!
+        @brief Publish progress events for interactive front-ends.
+        @details Events are queued for consumption by the CLI/TUI layers so they
+        can surface background activity without polling implementation details.
+        """
+
+        record: dict[str, object] = {"event": event}
+        if message is not None:
+            record["message"] = message
+        if payload:
+            record["data"] = dict(payload)
+        ui_events.append(record)
+
     def detector() -> dict:
         logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
         return _run_detection(machine_log, logdir_path)
@@ -325,6 +342,8 @@ def _build_app_state(
         "detector": detector,
         "planner": planner,
         "executor": executor,
+        "event_queue": ui_events,
+        "emit_event": emit_event,
     }
 
 
