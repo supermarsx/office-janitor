@@ -7,13 +7,12 @@ and filesystem cleanup while respecting global safety constraints.
 """
 from __future__ import annotations
 
-import subprocess
 import tempfile
 from pathlib import Path
 from string import Template
 from typing import Iterable, Mapping, Sequence
 
-from . import constants, fs_tools, logging_ext, registry_tools
+from . import constants, exec_utils, fs_tools, logging_ext, registry_tools
 
 LICENSE_SCRIPT_TEMPLATE = Template(
     r"""
@@ -296,19 +295,16 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
                 "-File",
                 str(script_path),
             )
-            if dry_run:
-                human_logger.info("Dry-run: would execute SPP cleanup via %s", " ".join(command))
-            else:
-                human_logger.info("Removing SPP licenses via PowerShell script %s", script_path)
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                    check=False,
-                )
-                counts = _parse_license_results(result.stdout)
-                if result.returncode != 0:
+            result = exec_utils.run_command(
+                command,
+                event="licensing_spp_cleanup",
+                timeout=300,
+                dry_run=dry_run,
+                human_message=f"Removing SPP licenses via PowerShell script {script_path}",
+                extra={"script": str(script_path)},
+            )
+            if not result.skipped:
+                if result.returncode != 0 or result.error:
                     human_logger.error(
                         "SPP cleanup failed with exit code %s", result.returncode
                     )
@@ -319,9 +315,11 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
                             "return_code": result.returncode,
                             "stdout": result.stdout,
                             "stderr": result.stderr,
+                            "error": result.error,
                         },
                     )
                     raise RuntimeError("SPP license removal failed")
+                counts = _parse_license_results(result.stdout)
                 machine_logger.info(
                     "licensing_spp_success",
                     extra={
@@ -343,19 +341,19 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
         if isinstance(command, (str, Path)):
             command = (str(command),)
         command_list = [str(part) for part in command]
-        if dry_run:
-            human_logger.info("Dry-run: would execute OSPP cleanup via %s", " ".join(command_list))
-        else:
-            human_logger.info("Removing OSPP keys via %s", command_list[0])
-            result = subprocess.run(
-                command_list,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                check=False,
-            )
-            if result.returncode != 0:
-                human_logger.error("OSPP cleanup failed with exit code %s", result.returncode)
+        result = exec_utils.run_command(
+            command_list,
+            event="licensing_ospp_cleanup",
+            timeout=300,
+            dry_run=dry_run,
+            human_message=f"Removing OSPP keys via {command_list[0]}",
+            extra={"command": command_list},
+        )
+        if not result.skipped:
+            if result.returncode != 0 or result.error:
+                human_logger.error(
+                    "OSPP cleanup failed with exit code %s", result.returncode
+                )
                 machine_logger.error(
                     "licensing_ospp_failure",
                     extra={
@@ -363,6 +361,7 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
                         "return_code": result.returncode,
                         "stdout": result.stdout,
                         "stderr": result.stderr,
+                        "error": result.error,
                     },
                 )
                 raise RuntimeError("OSPP license removal failed")

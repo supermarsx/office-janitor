@@ -13,11 +13,10 @@ import os
 import re
 import shutil
 import stat
-import subprocess
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
-from . import constants, logging_ext
+from . import constants, exec_utils, logging_ext
 
 FILESYSTEM_WHITELIST: tuple[str, ...] = (
     r"C:\\PROGRAM FILES\\MICROSOFT OFFICE",
@@ -323,19 +322,18 @@ def reset_acl(path: Path) -> None:
         "/c",
     ]
 
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-    except FileNotFoundError:  # pragma: no cover - occurs on non-Windows hosts.
+    result = exec_utils.run_command(
+        command,
+        event="fs_reset_acl",
+        timeout=120,
+        extra={"path": str(path)},
+    )
+
+    if result.returncode == 127:
         human_logger.debug("icacls is not available; skipping ACL reset for %s", path)
         return
 
-    if result.returncode != 0:
+    if result.returncode != 0 or result.error:
         human_logger.warning(
             "icacls reported exit code %s for %s: %s",
             result.returncode,
@@ -356,10 +354,6 @@ def make_paths_writable(paths: Sequence[Path | str], *, dry_run: bool = False) -
 
     for raw in paths:
         target = Path(raw)
-        if dry_run:
-            human_logger.info("Dry-run: would clear attributes for %s", target)
-            continue
-
         for suffix in ("", "\\*"):
             command = [
                 "attrib.exe",
@@ -368,19 +362,23 @@ def make_paths_writable(paths: Sequence[Path | str], *, dry_run: bool = False) -
                 "/S",
                 "/D",
             ]
-            try:
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    check=False,
-                )
-            except FileNotFoundError:  # pragma: no cover - non-Windows host.
+            result = exec_utils.run_command(
+                command,
+                event="fs_clear_attributes",
+                timeout=60,
+                dry_run=dry_run,
+                human_message=f"Clearing attributes for {target}{suffix}",
+                extra={"path": str(target), "pattern": suffix or ""},
+            )
+
+            if result.skipped:
+                continue
+
+            if result.returncode == 127:
                 human_logger.debug("attrib.exe unavailable; skipping attribute reset for %s", target)
                 break
 
-            if result.returncode not in {0, 1}:  # attrib returns 1 when no files match
+            if result.returncode not in {0, 1} or result.error:
                 human_logger.debug(
                     "attrib exited with %s for %s: %s",
                     result.returncode,

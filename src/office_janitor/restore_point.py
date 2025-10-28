@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import textwrap
 from typing import Sequence
 
-from . import logging_ext
+from . import exec_utils, logging_ext
 
 
 _POWERSHELL_EXECUTABLE = "powershell.exe"
@@ -54,21 +53,6 @@ def create_restore_point(
         },
     )
 
-    if dry_run:
-        human_logger.info(
-            "Dry-run enabled; would create system restore point: %s",
-            description_text,
-        )
-        machine_logger.info(
-            "restore_point.skipped",
-            extra={
-                "event": "restore_point.skipped",
-                "reason": "dry_run",
-                "description": description_text,
-            },
-        )
-        return True
-
     if os.name != "nt":
         human_logger.info(
             "Restore points are only available on Windows hosts; skipping request.",
@@ -84,15 +68,43 @@ def create_restore_point(
 
     command = _build_powershell_command(description_text)
 
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=max(1, int(timeout)),
-            check=False,
+    result = exec_utils.run_command(
+        command,
+        event="restore_point.powershell",
+        timeout=max(1, int(timeout)),
+        dry_run=dry_run,
+        human_message=f"Requesting system restore point: {description_text}",
+        extra={"description": description_text},
+    )
+
+    if result.skipped:
+        machine_logger.info(
+            "restore_point.skipped",
+            extra={
+                "event": "restore_point.skipped",
+                "reason": "dry_run",
+                "description": description_text,
+            },
         )
-    except FileNotFoundError:
+        return True
+
+    stderr = (result.stderr or "").strip()
+    stdout = (result.stdout or "").strip()
+
+    if result.error == "timeout" or result.timed_out:
+        human_logger.warning(
+            "System restore point creation timed out after %s seconds.", timeout
+        )
+        machine_logger.warning(
+            "restore_point.timeout",
+            extra={
+                "event": "restore_point.timeout",
+                "timeout": int(timeout),
+            },
+        )
+        return False
+
+    if result.returncode == 127:
         human_logger.warning(
             "%s unavailable; skipping system restore point creation.",
             _POWERSHELL_EXECUTABLE,
@@ -106,31 +118,17 @@ def create_restore_point(
             },
         )
         return False
-    except subprocess.TimeoutExpired:
-        human_logger.warning(
-            "System restore point creation timed out after %s seconds.", timeout
-        )
-        machine_logger.warning(
-            "restore_point.timeout",
-            extra={
-                "event": "restore_point.timeout",
-                "timeout": int(timeout),
-            },
-        )
-        return False
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        human_logger.warning("Unexpected restore point failure: %s", exc)
+
+    if result.error:
+        human_logger.warning("Unexpected restore point failure: %s", result.error)
         machine_logger.warning(
             "restore_point.error",
             extra={
                 "event": "restore_point.error",
-                "error": repr(exc),
+                "error": result.error,
             },
         )
         return False
-
-    stderr = (result.stderr or "").strip()
-    stdout = (result.stdout or "").strip()
 
     if result.returncode == 0:
         human_logger.info("System restore point created: %s", description_text)

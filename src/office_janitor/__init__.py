@@ -19,6 +19,7 @@ __all__ = [
     "tasks_services",
     "logging_ext",
     "command_runner",
+    "exec_utils",
     "restore_point",
     "ui",
     "tui",

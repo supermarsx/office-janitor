@@ -18,16 +18,22 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import registry_tools  # noqa: E402
+from office_janitor import exec_utils, registry_tools  # noqa: E402
 
 
-class _Result:
+def _command_result(command: Iterable[str], returncode: int = 0, *, skipped: bool = False) -> exec_utils.CommandResult:
     """!
-    @brief Stub ``CompletedProcess`` for command tracking.
+    @brief Fabricate :class:`CommandResult` objects for command interception.
     """
 
-    def __init__(self, returncode: int = 0) -> None:
-        self.returncode = returncode
+    return exec_utils.CommandResult(
+        command=[str(part) for part in command],
+        returncode=returncode,
+        stdout="",
+        stderr="",
+        duration=0.0,
+        skipped=skipped,
+    )
 
 
 class _Recorder:
@@ -56,11 +62,11 @@ def test_delete_keys_invokes_reg_when_available(monkeypatch) -> None:
 
     monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "reg.exe")
 
-    def fake_run(cmd, **kwargs):
-        commands.append(cmd)
-        return _Result()
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        commands.append([str(part) for part in command])
+        return _command_result(command, skipped=dry_run)
 
-    monkeypatch.setattr(registry_tools.subprocess, "run", fake_run)
+    monkeypatch.setattr(registry_tools.exec_utils, "run_command", fake_run)
 
     registry_tools.delete_keys(
         ["HKLM\\Software\\Microsoft\\Office\\Contoso"],
@@ -78,16 +84,21 @@ def test_delete_keys_dry_run_skips_execution(monkeypatch) -> None:
 
     monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "reg.exe")
 
-    def fake_run(cmd, **kwargs):  # pragma: no cover - ensure not called
-        raise AssertionError("reg.exe should not be invoked during dry-run")
+    calls: List[bool] = []
 
-    monkeypatch.setattr(registry_tools.subprocess, "run", fake_run)
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        calls.append(dry_run)
+        return _command_result(command, skipped=dry_run)
+
+    monkeypatch.setattr(registry_tools.exec_utils, "run_command", fake_run)
 
     registry_tools.delete_keys(
         ["HKCU\\Software\\Microsoft\\Office\\Tailspin"],
         dry_run=True,
         logger=_Recorder(),
     )
+
+    assert calls and all(calls)
 
 
 def test_delete_keys_rejects_disallowed_paths(monkeypatch) -> None:
@@ -130,6 +141,12 @@ def test_export_keys_dry_run_records_intent(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "reg.exe")
 
     recorder = _Recorder()
+
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        return _command_result(command, skipped=dry_run)
+
+    monkeypatch.setattr(registry_tools.exec_utils, "run_command", fake_run)
+
     exported = registry_tools.export_keys(
         ["HKLM\\Software\\Microsoft\\Office\\Diagnostics"],
         tmp_path,

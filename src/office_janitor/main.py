@@ -23,6 +23,7 @@ from typing import Iterable, List, Mapping, Optional
 from . import (
     constants,
     detect,
+    exec_utils,
     fs_tools,
     logging_ext,
     plan as plan_module,
@@ -615,20 +616,13 @@ def _restore_points_available() -> bool:
         script,
     ]
 
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-    except FileNotFoundError:
-        return False
-    except Exception:
-        return False
+    result = exec_utils.run_command(
+        command,
+        event="restore_point_probe",
+        timeout=15,
+    )
 
-    return result.returncode == 0
+    return result.returncode == 0 and not result.error
 
 
 if __name__ == "__main__":  # pragma: no cover - for manual execution
