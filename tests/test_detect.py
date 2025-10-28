@@ -209,11 +209,17 @@ class TestRegistryDetectionScenarios:
 
         assert len(inventory["msi"]) == 1
         assert inventory["msi"][0]["product_code"] == "{90160000-0011-0000-1000-0000000FF1CE}"
+        assert inventory["msi"][0]["properties"]["display_name"] == "ProPlus"
+        assert inventory["msi"][0]["uninstall_handles"] == [
+            "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{90160000-0011-0000-1000-0000000FF1CE}"
+        ]
         assert len(inventory["c2r"]) == 1
         assert inventory["c2r"][0]["release_ids"] == ["O365ProPlusRetail"]
+        assert inventory["c2r"][0]["properties"]["supported_architectures"] == ["x64"]
         assert len(inventory["filesystem"]) == 2
         labels = {entry["label"] for entry in inventory["filesystem"]}
         assert labels == {"c2r_root_x86", "office16_x86"}
+        assert {entry["architecture"] for entry in inventory["filesystem"]} == {"x86"}
         assert inventory["processes"] == [{"name": "winword.exe", "pid": "1234"}]
         assert inventory["services"] == [{"name": "ClickToRunSvc", "state": "RUNNING"}]
         assert inventory["tasks"][0]["task"] == r"\Microsoft\Office\OfficeTelemetryAgentLogOn"
