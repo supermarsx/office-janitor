@@ -423,15 +423,20 @@ def execute_plan(
         },
     )
 
+    should_request_restore_point = bool(
+        options.get("create_restore_point") or options.get("restore_point")
+    )
+    if should_request_restore_point:
+        try:
+            restore_point.create_restore_point(
+                "Office Janitor pre-cleanup", dry_run=global_dry_run
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            human_logger.warning("Failed to create restore point: %s", exc)
+
     if global_dry_run:
         human_logger.info("Executing plan in dry-run mode; no destructive actions will occur.")
     else:
-        if options.get("create_restore_point") or options.get("restore_point"):
-            try:
-                restore_point.create_restore_point("Office Janitor pre-cleanup")
-            except Exception as exc:  # pragma: no cover - defensive logging
-                human_logger.warning("Failed to create restore point: %s", exc)
-
         processes.terminate_office_processes(constants.DEFAULT_OFFICE_PROCESSES)
         processes.terminate_process_patterns(constants.OFFICE_PROCESS_PATTERNS)
         tasks_services.stop_services(constants.KNOWN_SERVICES)
