@@ -1,4 +1,8 @@
-"""Integration tests for CLI and UI layers."""
+"""!
+@brief Integration tests for CLI and UI layers.
+@details Exercises the CLI and TUI entry points to confirm argument handling,
+event emission, and execution wiring across the high-level flows.
+"""
 from __future__ import annotations
 
 import json
