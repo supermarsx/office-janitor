@@ -8,6 +8,20 @@ from __future__ import annotations
 import os
 import sys
 
+__all__ = ["main"]
+
+_REPO_ROOT = os.path.dirname(__file__)
+_SRC_PATH = os.path.join(_REPO_ROOT, "src")
+_PACKAGE_PATH = os.path.join(_SRC_PATH, "office_janitor")
+
+if os.path.isdir(_SRC_PATH) and _SRC_PATH not in sys.path:
+    sys.path.insert(0, _SRC_PATH)
+
+if os.path.isdir(_PACKAGE_PATH):
+    __path__ = [_PACKAGE_PATH]
+    if __spec__ is not None:  # pragma: no cover - import system attribute
+        __spec__.submodule_search_locations = list(__path__)
+
 
 def _prepend_src_to_sys_path() -> None:
     """!
@@ -17,10 +31,8 @@ def _prepend_src_to_sys_path() -> None:
     ``src/``.
     """
 
-    repo_root = os.path.dirname(__file__)
-    src_path = os.path.join(repo_root, "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
+    if _SRC_PATH not in sys.path:
+        sys.path.insert(0, _SRC_PATH)
 
 
 def main() -> int:
