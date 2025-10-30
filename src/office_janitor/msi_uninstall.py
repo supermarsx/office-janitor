@@ -183,7 +183,18 @@ def build_command(product_code: str) -> List[str]:
     """
 
     normalized = _normalise_product_code(product_code)
-    return [*MSIEXEC_BASE_COMMAND, normalized, *MSIEXEC_ADDITIONAL_ARGS]
+    if not normalized:
+        raise ValueError("product_code must be a non-empty MSI product code")
+
+    metadata = constants.MSI_PRODUCT_MAP.get(normalized.upper(), {})
+    extra_args: Sequence[str] = ()
+    potential = metadata.get("msiexec_args") if isinstance(metadata, Mapping) else None
+    if isinstance(potential, Sequence) and not isinstance(potential, (str, bytes)):
+        extra_args = [str(part) for part in potential if str(part).strip()]
+    elif isinstance(potential, str) and potential.strip():
+        extra_args = [potential.strip()]
+
+    return [*MSIEXEC_BASE_COMMAND, normalized, *MSIEXEC_ADDITIONAL_ARGS, *extra_args]
 
 
 def _await_removal(entry: _MsiProduct) -> bool:
@@ -309,12 +320,31 @@ def uninstall_products(
         if result.skipped or dry_run:
             continue
         if result.returncode != 0:
+            machine_logger.error(
+                "msi_uninstall_failure",
+                extra={
+                    "event": "msi_uninstall_failure",
+                    "product_code": entry.product_code,
+                    "display_name": entry.display_name,
+                    "version": entry.version,
+                    "return_code": result.returncode,
+                },
+            )
             failures.append(entry.product_code)
             continue
 
         if not _await_removal(entry):
             human_logger.error(
                 "Registry still reports %s (%s) after msiexec", entry.display_name, entry.product_code
+            )
+            machine_logger.error(
+                "msi_uninstall_residue",
+                extra={
+                    "event": "msi_uninstall_residue",
+                    "product_code": entry.product_code,
+                    "display_name": entry.display_name,
+                    "version": entry.version,
+                },
             )
             failures.append(entry.product_code)
 

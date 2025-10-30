@@ -65,6 +65,14 @@ C2R_VERIFICATION_DELAY = 5.0
 """
 
 
+_C2R_RELEASE_LOOKUP = {
+    key.lower(): key for key in constants.C2R_PRODUCT_RELEASES.keys()
+}
+"""!
+@brief Case-insensitive mapping for Click-to-Run release identifiers.
+"""
+
+
 @dataclass
 class _C2RTarget:
     """!
@@ -87,15 +95,31 @@ def _collect_release_ids(raw: object) -> List[str]:
     if raw is None:
         return []
     if isinstance(raw, str):
-        return [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
+        return [
+            _canonical_release_id(part)
+            for part in raw.replace(";", ",").split(",")
+            if part.strip()
+        ]
     if isinstance(raw, Sequence):
         items: List[str] = []
         for value in raw:
             text = str(value).strip()
             if text:
-                items.append(text)
+                items.append(_canonical_release_id(text))
         return items
     return []
+
+
+def _canonical_release_id(identifier: str) -> str:
+    """!
+    @brief Return the canonical Click-to-Run release identifier.
+    """
+
+    normalised = identifier.strip()
+    if not normalised:
+        return ""
+    canonical = _C2R_RELEASE_LOOKUP.get(normalised.lower())
+    return canonical or normalised
 
 
 def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
@@ -119,11 +143,27 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
         if single:
             text = str(single).strip()
             if text:
-                release_ids = [text]
+                release_ids = [_canonical_release_id(text)]
+
+    release_metadata: MutableMapping[str, Mapping[str, object]] = {}
+    for release_id in release_ids:
+        metadata = constants.C2R_PRODUCT_RELEASES.get(
+            _canonical_release_id(release_id)
+        )
+        if metadata:
+            release_metadata[release_id] = metadata
 
     display_name = str(
         mapping.get("product")
         or property_map.get("product")
+        or next(
+            (
+                str(meta.get("product"))
+                for meta in release_metadata.values()
+                if meta.get("product")
+            ),
+            None,
+        )
         or (", ".join(release_ids) if release_ids else "Click-to-Run Suite")
     )
 
@@ -131,6 +171,24 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
     raw_handles = mapping.get("uninstall_handles")
     if isinstance(raw_handles, Sequence) and not isinstance(raw_handles, (str, bytes)):
         uninstall_handles = [str(handle).strip() for handle in raw_handles if str(handle).strip()]
+
+    derived_handles: List[str] = []
+    if release_metadata:
+        for release_id, metadata in release_metadata.items():
+            registry_paths = metadata.get("registry_paths")
+            if not isinstance(registry_paths, Mapping):
+                continue
+            for category, paths in registry_paths.items():
+                if not isinstance(paths, Sequence):
+                    continue
+                for hive, base in paths:
+                    suffix = release_id if category == "product_release_ids" else ""
+                    location = f"{base}\\{suffix}" if suffix else base
+                    derived_handles.append(
+                        f"{registry_tools.hive_name(hive)}\\{location.strip('\\')}"
+                    )
+    if derived_handles:
+        uninstall_handles = list(dict.fromkeys([*uninstall_handles, *derived_handles]))
 
     install_paths: List[Path] = []
     for candidate in (
@@ -320,6 +378,15 @@ def uninstall_products(
     total_attempts = max(1, int(retries) + 1)
 
     if client_path is not None:
+        machine_logger.info(
+            "c2r_uninstall_client",
+            extra={
+                "event": "c2r_uninstall_client",
+                "executable": str(client_path),
+                "release_ids": list(target.release_ids) or None,
+                "dry_run": bool(dry_run),
+            },
+        )
         command = [str(client_path), *C2R_CLIENT_ARGS]
         result: command_runner.CommandResult | None = None
         for attempt in range(1, total_attempts + 1):
@@ -350,11 +417,29 @@ def uninstall_products(
                 )
                 time.sleep(C2R_RETRY_DELAY)
         if result is not None and not (result.skipped or dry_run) and result.returncode != 0:
+            machine_logger.error(
+                "c2r_uninstall_failure",
+                extra={
+                    "event": "c2r_uninstall_failure",
+                    "release_ids": list(target.release_ids) or None,
+                    "executable": str(client_path),
+                    "return_code": result.returncode,
+                },
+            )
             raise RuntimeError("Click-to-Run uninstall failed via OfficeC2RClient.exe")
     else:
         setup_path = _find_existing_path(target.setup_candidates)
         if setup_path is None:
             raise FileNotFoundError("Neither OfficeC2RClient.exe nor setup.exe were found")
+        machine_logger.info(
+            "c2r_uninstall_fallback",
+            extra={
+                "event": "c2r_uninstall_fallback",
+                "release_ids": list(target.release_ids) or None,
+                "executable": str(setup_path),
+                "dry_run": bool(dry_run),
+            },
+        )
         release_ids = list(target.release_ids) or ["ALL"]
         for release_id in release_ids:
             message = f"Uninstalling Click-to-Run release {release_id} via setup.exe"
@@ -371,10 +456,26 @@ def uninstall_products(
                 },
             )
             if not dry_run and result.returncode != 0:
+                machine_logger.error(
+                    "c2r_uninstall_setup_failure",
+                    extra={
+                        "event": "c2r_uninstall_setup_failure",
+                        "release_id": release_id,
+                        "executable": str(setup_path),
+                        "return_code": result.returncode,
+                    },
+                )
                 raise RuntimeError(f"setup.exe uninstall failed for {release_id}")
 
     if dry_run:
         return
 
     if not _await_removal(target):
+        machine_logger.error(
+            "c2r_uninstall_residue",
+            extra={
+                "event": "c2r_uninstall_residue",
+                "release_ids": list(target.release_ids) or None,
+            },
+        )
         raise RuntimeError("Click-to-Run removal verification failed")
