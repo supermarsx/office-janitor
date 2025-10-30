@@ -73,6 +73,12 @@ _C2R_RELEASE_LOOKUP = {
 """
 
 
+C2R_RELEASE_HANDLE_CATEGORIES = {"product_release_ids"}
+"""!
+@brief Metadata categories that yield per-release uninstall handles.
+"""
+
+
 @dataclass
 class _C2RTarget:
     """!
@@ -179,6 +185,8 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
             if not isinstance(registry_paths, Mapping):
                 continue
             for category, paths in registry_paths.items():
+                if category not in C2R_RELEASE_HANDLE_CATEGORIES:
+                    continue
                 if not isinstance(paths, Sequence):
                     continue
                 for hive, base in paths:
