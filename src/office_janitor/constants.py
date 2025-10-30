@@ -88,6 +88,163 @@ MSI_UNINSTALL_ROOTS: Tuple[Tuple[int, str], ...] = (
     (HKLM, r"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
 )
 
+OFFSCRUB_UNINSTALL_SEQUENCE: Tuple[str, ...] = (
+    "c2r",
+    "2016",
+    "2013",
+    "2010",
+    "2007",
+    "2003",
+)
+"""!
+@brief Ordered uninstall sequence mirrored from OfficeScrubber.cmd.
+"""
+
+OFFSCRUB_UNINSTALL_PRIORITY = {
+    version: index for index, version in enumerate(OFFSCRUB_UNINSTALL_SEQUENCE)
+}
+"""!
+@brief Priority lookup so planners can sort uninstall steps deterministically.
+"""
+
+MSI_UNINSTALL_VERSION_GROUPS: Mapping[str, str] = {
+    "2024": "2016",
+    "2021": "2016",
+    "2019": "2016",
+    "2016": "2016",
+    "2013": "2013",
+    "2010": "2010",
+    "2007": "2007",
+    "2003": "2003",
+}
+"""!
+@brief Map MSI version identifiers to their OffScrub grouping.
+"""
+
+C2R_UNINSTALL_VERSION_GROUPS: Mapping[str, str] = {
+    "365": "c2r",
+    "2024": "c2r",
+    "2021": "c2r",
+    "2019": "c2r",
+    "2016": "c2r",
+}
+"""!
+@brief Map Click-to-Run version markers to the shared OffScrub stage.
+"""
+
+_VERSION_MAJOR_KEYS = ("11.0", "12.0", "14.0", "15.0", "16.0")
+
+
+def _normalize_registry_entries(entries: Iterable[Tuple[int, str]]) -> Tuple[Tuple[int, str], ...]:
+    normalized: list[Tuple[int, str]] = []
+    seen: set[Tuple[int, str]] = set()
+    for hive, path in entries:
+        canonical = path.replace("/", "\\").strip("\\")
+        while "\\\\" in canonical:
+            canonical = canonical.replace("\\\\", "\\")
+        entry = (hive, canonical)
+        if entry in seen:
+            continue
+        seen.add(entry)
+        normalized.append(entry)
+    return tuple(normalized)
+
+
+_REGISTRY_RESIDUE_BASE: list[Tuple[int, str]] = [
+    (HKLM, r"SOFTWARE\Microsoft\Office"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Office"),
+    (HKCU, r"SOFTWARE\Microsoft\Office"),
+    (HKCU, r"SOFTWARE\Policies\Microsoft\Office"),
+    (HKLM, r"SOFTWARE\Policies\Microsoft\Office"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Policies\Microsoft\Office"),
+    (HKCU, r"SOFTWARE\Policies\Microsoft\Cloud\Office"),
+    (HKLM, r"SOFTWARE\Policies\Microsoft\Cloud\Office"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Policies\Microsoft\Cloud\Office"),
+    (HKLM, r"SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\Configuration"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\ProductReleaseIDs"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\Updates"),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\0ff1ce15-a989-479d-af46-f275c6370663",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\Policies\0ff1ce15-a989-479d-af46-f275c6370663",
+    ),
+    (
+        HKU,
+        r"S-1-5-20\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\0ff1ce15-a989-479d-af46-f275c6370663",
+    ),
+    (
+        HKU,
+        r"S-1-5-20\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\Policies\0ff1ce15-a989-479d-af46-f275c6370663",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform\0ff1ce15-a989-479d-af46-f275c6370663",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform\59a52881-a989-479d-af46-f275c6370663",
+    ),
+    (HKU, r"S-1-5-20\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\16.0\Common\OEM"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\16.0\Common\Licensing"),
+    (HKLM, r"SOFTWARE\Policies\Microsoft\Office\16.0\Common\Licensing"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Office\16.0\Common\Licensing"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Policies\Microsoft\Office\16.0\Common\Licensing"),
+]
+
+for major in _VERSION_MAJOR_KEYS:
+    _REGISTRY_RESIDUE_BASE.append((HKCU, rf"SOFTWARE\Microsoft\Office\{major}"))
+    _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\Microsoft\Office\{major}"))
+    _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Microsoft\Office\{major}"))
+    _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Office\{major}"))
+    _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Cloud\Office\{major}"))
+
+REGISTRY_RESIDUE_PATHS = _normalize_registry_entries(_REGISTRY_RESIDUE_BASE)
+"""!
+@brief Registry residue handles derived from OfficeScrubber cleanup routines.
+"""
+
+RESIDUE_PATH_TEMPLATES = (
+    {
+        "label": "programdata_office_licenses",
+        "path": r"%PROGRAMDATA%\\Microsoft\\Office\\Licenses",
+        "category": "licenses",
+    },
+    {
+        "label": "programdata_microsoft_licenses",
+        "path": r"%PROGRAMDATA%\\Microsoft\\Licenses",
+        "category": "licenses",
+    },
+    {
+        "label": "localappdata_office_licenses",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\Office\\Licenses",
+        "category": "licenses",
+    },
+    {
+        "label": "localappdata_office_licensing16",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\Office\\16.0\\Licensing",
+        "category": "licenses",
+    },
+    {
+        "label": "localappdata_identity_cache",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\IdentityCache",
+        "category": "identity",
+    },
+    {
+        "label": "localappdata_oneauth",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\OneAuth",
+        "category": "identity",
+    },
+)
+"""!
+@brief Filesystem residue directories removed by the reference scripts.
+"""
+
 
 def _merge_roots(*roots: Tuple[int, str]) -> Tuple[Tuple[int, str], ...]:
     """!
@@ -664,6 +821,7 @@ __all__ = [
     "C2R_PRODUCT_RELEASES",
     "C2R_PRODUCT_RELEASE_ROOTS",
     "C2R_SUBSCRIPTION_ROOTS",
+    "C2R_UNINSTALL_VERSION_GROUPS",
     "DEFAULT_OFFICE_PROCESSES",
     "OFFICE_PROCESS_PATTERNS",
     "HKCR",
@@ -675,15 +833,20 @@ __all__ = [
     "KNOWN_SERVICES",
     "LICENSE_DLLS",
     "LICENSING_GUID_FILTERS",
+    "MSI_UNINSTALL_VERSION_GROUPS",
     "MSI_OFFSCRUB_ARGS",
     "MSI_OFFSCRUB_DEFAULT_SCRIPT",
     "MSI_OFFSCRUB_SCRIPT_MAP",
     "MSI_PRODUCT_MAP",
     "MSI_UNINSTALL_ROOTS",
+    "OFFSCRUB_UNINSTALL_PRIORITY",
+    "OFFSCRUB_UNINSTALL_SEQUENCE",
     "OSPP_REGISTRY_PATH",
     "OFFSCRUB_EXECUTABLE",
     "OFFSCRUB_HOST_ARGS",
+    "REGISTRY_RESIDUE_PATHS",
     "REGISTRY_ROOTS",
+    "RESIDUE_PATH_TEMPLATES",
     "SUPPORTED_COMPONENTS",
     "SUPPORTED_TARGETS",
     "SUPPORTED_VERSIONS",

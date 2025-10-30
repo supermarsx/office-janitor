@@ -70,8 +70,8 @@ class TestPlanBuilder:
         assert categories == [
             "context",
             "detect",
-            "msi-uninstall",
             "c2r-uninstall",
+            "msi-uninstall",
             "licensing-cleanup",
             "task-cleanup",
             "service-cleanup",
@@ -110,6 +110,44 @@ class TestPlanBuilder:
         c2r_step = next(step for step in plan_steps if step["category"] == "c2r-uninstall")
         assert msi_step["metadata"]["version"] == "2019"
         assert c2r_step["metadata"]["version"] == "365"
+
+    def test_uninstall_order_matches_offscrub_sequence(self) -> None:
+        """!
+        @brief Ensure uninstall ordering mirrors the reference script.
+        @details Click-to-Run removals must precede MSI generations ordered as
+        2016+, 2013, 2010, then 2007.
+        """
+
+        inventory: Dict[str, List[dict]] = {
+            "msi": [
+                {"product_code": "{A}", "display_name": "Office 2007", "version": "2007"},
+                {"product_code": "{B}", "display_name": "Office 2013", "version": "2013"},
+                {"product_code": "{C}", "display_name": "Office 2010", "version": "2010"},
+                {"product_code": "{D}", "display_name": "Office 2016", "version": "2016"},
+            ],
+            "c2r": [
+                {
+                    "release_ids": ["O365ProPlusRetail"],
+                    "channel": "Current Channel",
+                    "version": "365",
+                }
+            ],
+        }
+        plan_steps = plan.build_plan(inventory, {"auto_all": True})
+
+        uninstall_sequence = [
+            (step["category"], step["metadata"].get("version"))
+            for step in plan_steps
+            if step["category"] in {"msi-uninstall", "c2r-uninstall"}
+        ]
+
+        assert uninstall_sequence == [
+            ("c2r-uninstall", "365"),
+            ("msi-uninstall", "2016"),
+            ("msi-uninstall", "2013"),
+            ("msi-uninstall", "2010"),
+            ("msi-uninstall", "2007"),
+        ]
 
     def test_target_mode_filters_inventory(self) -> None:
         """!
