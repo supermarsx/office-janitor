@@ -79,3 +79,12 @@ class TestConstantsModule:
         c2r_template = constants.UNINSTALL_COMMAND_TEMPLATES["c2r"]
         assert c2r_template["script"] == constants.C2R_OFFSCRUB_SCRIPT
         assert tuple(c2r_template["arguments"]) == constants.C2R_OFFSCRUB_ARGS
+
+    def test_registry_residue_paths_prioritize_children(self) -> None:
+        """!
+        @brief Registry residue cleanup orders child keys before parents.
+        """
+
+        residues = constants.REGISTRY_RESIDUE_PATHS
+        depths = [path.count("\\") for _, path in residues]
+        assert depths == sorted(depths, reverse=True)

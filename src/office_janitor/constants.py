@@ -150,6 +150,22 @@ def _normalize_registry_entries(entries: Iterable[Tuple[int, str]]) -> Tuple[Tup
     return tuple(normalized)
 
 
+def _registry_entry_depth(entry: Tuple[int, str]) -> int:
+    _, path = entry
+    path = path.strip("\\")
+    if not path:
+        return 0
+    return path.count("\\")
+
+
+def _sort_registry_entries_deepest_first(
+    entries: Iterable[Tuple[int, str]]
+) -> Tuple[Tuple[int, str], ...]:
+    indexed = list(enumerate(entries))
+    indexed.sort(key=lambda item: (-_registry_entry_depth(item[1]), item[0]))
+    return tuple(entry for _, entry in indexed)
+
+
 _REGISTRY_RESIDUE_BASE: list[Tuple[int, str]] = [
     (HKLM, r"SOFTWARE\Microsoft\Office"),
     (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Office"),
@@ -204,7 +220,9 @@ for major in _VERSION_MAJOR_KEYS:
     _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Office\{major}"))
     _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Cloud\Office\{major}"))
 
-REGISTRY_RESIDUE_PATHS = _normalize_registry_entries(_REGISTRY_RESIDUE_BASE)
+REGISTRY_RESIDUE_PATHS = _sort_registry_entries_deepest_first(
+    _normalize_registry_entries(_REGISTRY_RESIDUE_BASE)
+)
 """!
 @brief Registry residue handles derived from OfficeScrubber cleanup routines.
 """
