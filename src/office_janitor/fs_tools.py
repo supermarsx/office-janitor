@@ -28,6 +28,8 @@ FILESYSTEM_WHITELIST: tuple[str, ...] = (
     r"%APPDATA%\\MICROSOFT\\TEMPLATES",
     r"%LOCALAPPDATA%\\MICROSOFT\\OFFICE\\TEMPLATES",
     r"%LOCALAPPDATA%\\MICROSOFT\\OFFICE\\LICENSES",
+    r"%LOCALAPPDATA%\\MICROSOFT\\IDENTITYCACHE",
+    r"%LOCALAPPDATA%\\MICROSOFT\\ONEAUTH",
 )
 """!
 @brief Default filesystem whitelist mirroring OffScrub guardrails.
