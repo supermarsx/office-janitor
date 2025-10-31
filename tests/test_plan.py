@@ -149,6 +149,50 @@ class TestPlanBuilder:
             ("msi-uninstall", "2007"),
         ]
 
+    def test_msi_display_versions_use_supported_priority(self) -> None:
+        """!
+        @brief Ensure MSI sorting uses supported version metadata for display builds.
+        @details DisplayVersion values such as ``16.0.10386`` should still map to the
+        OffScrub 2016+ stage based on ``supported_versions`` metadata.
+        """
+
+        inventory: Dict[str, List[dict]] = {
+            "msi": [
+                {
+                    "product_code": "{C}",
+                    "display_name": "Office 2010",
+                    "version": "14.0.7237.5000",
+                    "properties": {"supported_versions": ["2010"]},
+                },
+                {
+                    "product_code": "{A}",
+                    "display_name": "Office 2016",
+                    "version": "16.0.10386.20017",
+                    "properties": {"supported_versions": ["2016", "2019"]},
+                },
+                {
+                    "product_code": "{B}",
+                    "display_name": "Office 2013",
+                    "version": "15.0.5189.1000",
+                    "properties": {"supported_versions": ["2013"]},
+                },
+            ]
+        }
+
+        plan_steps = plan.build_plan(inventory, {"auto_all": True})
+
+        uninstall_versions = [
+            step["metadata"].get("version")
+            for step in plan_steps
+            if step["category"] == "msi-uninstall"
+        ]
+
+        assert uninstall_versions == [
+            "16.0.10386.20017",
+            "15.0.5189.1000",
+            "14.0.7237.5000",
+        ]
+
     def test_target_mode_filters_inventory(self) -> None:
         """!
         @brief Ensure targeted mode restricts uninstall scope.

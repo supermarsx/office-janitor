@@ -29,6 +29,14 @@ _MSI_VERSION_GROUPS = constants.MSI_UNINSTALL_VERSION_GROUPS
 _C2R_VERSION_GROUPS = constants.C2R_UNINSTALL_VERSION_GROUPS
 _DEFAULT_PRIORITY = len(_OFFSCRUB_PRIORITY) + 1
 
+_MSI_MAJOR_VERSION_HINTS = {
+    "16": "2016",
+    "15": "2013",
+    "14": "2010",
+    "12": "2007",
+    "11": "2003",
+}
+
 
 def build_plan(
     inventory: Dict[str, Sequence[dict]],
@@ -146,7 +154,7 @@ def build_plan(
         )
         msi_records.sort(
             key=lambda item: (
-                _msi_uninstall_priority(_infer_version(item[1])),
+                _msi_uninstall_priority(item[1]),
                 item[0],
             )
         )
@@ -477,9 +485,62 @@ def _summarize_inventory(
     }
 
 
-def _msi_uninstall_priority(version: str) -> int:
-    group = _MSI_VERSION_GROUPS.get(version, version)
+def _msi_uninstall_priority(record: Mapping[str, object]) -> int:
+    group = _resolve_msi_priority_group(record)
+    if not group:
+        version = _infer_version(record)
+        group = _MSI_VERSION_GROUPS.get(version, version)
     return _OFFSCRUB_PRIORITY.get(group, _DEFAULT_PRIORITY)
+
+
+def _resolve_msi_priority_group(record: Mapping[str, object]) -> str:
+    candidates = _collect_msi_version_candidates(record)
+    for candidate in candidates:
+        mapped = _MSI_VERSION_GROUPS.get(candidate)
+        if mapped:
+            return mapped
+    for candidate in candidates:
+        major = candidate.split(".", 1)[0]
+        alias = _MSI_MAJOR_VERSION_HINTS.get(major)
+        if not alias:
+            continue
+        mapped = _MSI_VERSION_GROUPS.get(alias, alias)
+        if mapped in _OFFSCRUB_PRIORITY:
+            return mapped
+    return ""
+
+
+def _collect_msi_version_candidates(record: Mapping[str, object]) -> List[str]:
+    candidates: List[str] = []
+
+    def _add(value: object) -> None:
+        if not value:
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        if text not in candidates:
+            candidates.append(text)
+
+    _add(_infer_version(record))
+    for field in ("target_version", "version", "major_version", "product_version"):
+        _add(record.get(field))
+
+    properties = record.get("properties")
+    if isinstance(properties, Mapping):
+        for field in ("version", "product_version", "display_version"):
+            _add(properties.get(field))
+        supported = properties.get("supported_versions")
+        if isinstance(supported, Iterable) and not isinstance(supported, (str, bytes)):
+            for item in supported:
+                _add(item)
+
+    direct_supported = record.get("supported_versions")
+    if isinstance(direct_supported, Iterable) and not isinstance(direct_supported, (str, bytes)):
+        for item in direct_supported:
+            _add(item)
+
+    return candidates
 
 
 def _c2r_uninstall_priority(version: str) -> int:
