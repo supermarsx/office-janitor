@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Dict, Tuple
@@ -18,7 +19,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import constants, detect, main
+from office_janitor import constants, detect, main, registry_tools
 
 
 @pytest.fixture
@@ -161,9 +162,14 @@ class TestRegistryDetectionScenarios:
         monkeypatch.setattr(detect, "detect_msi_installations", lambda: [sample_msi])
         monkeypatch.setattr(detect, "detect_c2r_installations", lambda: [sample_c2r])
 
+        monkeypatch.setenv("PROGRAMDATA", r"C:\\ProgramData")
+        monkeypatch.setenv("LOCALAPPDATA", r"C:\\Users\\Default\\AppData\\Local")
+        monkeypatch.setenv("APPDATA", r"C:\\Users\\Default\\AppData\\Roaming")
+
         valid_paths = {
             constants.INSTALL_ROOT_TEMPLATES[0]["path"],
             constants.INSTALL_ROOT_TEMPLATES[2]["path"],
+            *(os.path.expandvars(template["path"]) for template in constants.RESIDUE_PATH_TEMPLATES),
         }
 
         def fake_exists(self: Path) -> bool:  # type: ignore[override]
@@ -216,10 +222,15 @@ class TestRegistryDetectionScenarios:
         assert len(inventory["c2r"]) == 1
         assert inventory["c2r"][0]["release_ids"] == ["O365ProPlusRetail"]
         assert inventory["c2r"][0]["properties"]["supported_architectures"] == ["x64"]
-        assert len(inventory["filesystem"]) == 2
+        assert len(inventory["filesystem"]) == len(valid_paths)
         labels = {entry["label"] for entry in inventory["filesystem"]}
-        assert labels == {"c2r_root_x86", "office16_x86"}
-        assert {entry["architecture"] for entry in inventory["filesystem"]} == {"x86"}
+        expected_labels = {
+            "c2r_root_x86",
+            "office16_x86",
+            *[template["label"] for template in constants.RESIDUE_PATH_TEMPLATES],
+        }
+        assert labels == expected_labels
+        assert {entry.get("architecture", "x86") for entry in inventory["filesystem"]} >= {"x86"}
         assert inventory["processes"] == [{"name": "winword.exe", "pid": "1234"}]
         assert inventory["services"] == [{"name": "ClickToRunSvc", "state": "RUNNING"}]
         assert inventory["tasks"][0]["task"] == r"\Microsoft\Office\OfficeTelemetryAgentLogOn"
@@ -259,3 +270,36 @@ class TestRegistryDetectionScenarios:
         assert len(snapshots) == 1
         payload = json.loads(snapshots[0].read_text(encoding="utf-8"))
         assert payload == sample_inventory
+
+    def test_registry_residue_templates_cover_office_versions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """!
+        @brief Validate registry residue probing includes versioned Office hives.
+        """
+
+        present = {
+            (constants.HKLM, r"SOFTWARE\Microsoft\Office\16.0"),
+            (constants.HKLM, r"SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform"),
+            (
+                constants.HKLM,
+                r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\0ff1ce15-a989-479d-af46-f275c6370663",
+            ),
+            (
+                constants.HKLM,
+                r"SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform\0ff1ce15-a989-479d-af46-f275c6370663",
+            ),
+        }
+
+        monkeypatch.setattr(
+            detect,
+            "_key_exists_with_fallback",
+            lambda hive, path: (hive, path) in present,
+        )
+
+        entries = detect.gather_registry_residue()
+        handles = {entry["path"] for entry in entries}
+
+        expected_prefix = registry_tools.hive_name(constants.HKLM)
+        assert f"{expected_prefix}\\SOFTWARE\\Microsoft\\Office\\16.0" in handles
+        assert any("SoftwareProtectionPlatform" in handle for handle in handles)

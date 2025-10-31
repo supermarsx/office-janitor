@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
@@ -48,19 +49,6 @@ _KNOWN_TASK_NAMES = {
 """!
 @brief Explicit scheduled task identifiers from the specification.
 """
-
-_REGISTRY_RESIDUE_TEMPLATES: Tuple[Tuple[int, str], ...] = (
-    (constants.HKLM, r"SOFTWARE\\Microsoft\\Office"),
-    (constants.HKLM, r"SOFTWARE\\WOW6432Node\\Microsoft\\Office"),
-    (constants.HKCU, r"SOFTWARE\\Microsoft\\Office"),
-    (constants.HKLM, r"SOFTWARE\\Microsoft\\ClickToRun"),
-    (constants.HKLM, r"SOFTWARE\\Microsoft\\Office\\Common"),
-    (constants.HKLM, r"SOFTWARE\\Microsoft\\OfficeSoftwareProtectionPlatform"),
-)
-"""!
-@brief Registry hives monitored for residue cleanup opportunities.
-"""
-
 
 @dataclass(frozen=True)
 class DetectedInstallation:
@@ -718,6 +706,8 @@ def gather_office_inventory() -> Dict[str, object]:
         "registry": gather_registry_residue(),
     }
 
+    seen_paths: set[str] = set()
+
     for template in constants.INSTALL_ROOT_TEMPLATES:
         candidate = Path(template["path"])
         try:
@@ -725,6 +715,9 @@ def gather_office_inventory() -> Dict[str, object]:
         except OSError:
             exists = False
         if not exists:
+            continue
+        path_str = str(candidate)
+        if path_str in seen_paths:
             continue
         inventory["filesystem"].append(
             {
@@ -734,6 +727,32 @@ def gather_office_inventory() -> Dict[str, object]:
                 "label": template.get("label", ""),
             }
         )
+        seen_paths.add(path_str)
+
+    for template in constants.RESIDUE_PATH_TEMPLATES:
+        raw_path = str(template.get("path", "").strip())
+        if not raw_path:
+            continue
+        expanded = os.path.expandvars(raw_path)
+        candidate = Path(expanded)
+        try:
+            exists = candidate.exists()
+        except OSError:
+            exists = False
+        if not exists:
+            continue
+        path_str = str(candidate)
+        if path_str in seen_paths:
+            continue
+        entry: Dict[str, object] = {
+            "path": path_str,
+            "label": template.get("label", ""),
+            "category": template.get("category", "residue"),
+        }
+        if "architecture" in template:
+            entry["architecture"] = template["architecture"]
+        inventory["filesystem"].append(entry)
+        seen_paths.add(path_str)
 
     return inventory
 
@@ -928,7 +947,7 @@ def gather_registry_residue() -> List[Dict[str, str]]:
 
     entries: List[Dict[str, str]] = []
 
-    for hive, path in _REGISTRY_RESIDUE_TEMPLATES:
+    for hive, path in constants.REGISTRY_RESIDUE_PATHS:
         if not _key_exists_with_fallback(hive, path):
             continue
         entries.append({"path": _compose_handle(hive, path)})

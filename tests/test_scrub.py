@@ -513,3 +513,37 @@ def test_registry_cleanup_generates_backup_when_missing(monkeypatch, tmp_path) -
     assert recorded["export"]["keys"] == ["HKLM\\Software\\Test"]
     assert pathlib.Path(recorded["export"]["destination"]).parent == tmp_path
     assert recorded["delete"] == {"keys": ["HKLM\\Software\\Test"], "dry_run": False}
+
+
+def test_registry_cleanup_sorts_child_paths_first(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Registry cleanup deletes nested keys before parents to avoid errors.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+
+    recorded: dict[str, list[str]] = {}
+
+    def fake_delete(keys, dry_run=False):
+        recorded["keys"] = list(keys)
+
+    monkeypatch.setattr(scrub.registry_tools, "delete_keys", fake_delete)
+
+    metadata = {
+        "keys": [
+            "HKLM\\SOFTWARE\\Microsoft\\Office",
+            "HKLM\\SOFTWARE\\Microsoft\\Office\\16.0",
+        ]
+    }
+
+    scrub._perform_registry_cleanup(
+        metadata,
+        dry_run=True,
+        default_backup=None,
+        default_logdir=None,
+    )
+
+    assert recorded["keys"] == [
+        "HKLM\\SOFTWARE\\Microsoft\\Office\\16.0",
+        "HKLM\\SOFTWARE\\Microsoft\\Office",
+    ]

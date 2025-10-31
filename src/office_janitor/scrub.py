@@ -892,6 +892,7 @@ def _perform_registry_cleanup(
     human_logger = logging_ext.get_human_logger()
 
     keys = _normalize_string_sequence(metadata.get("keys", []))
+    keys = _sort_registry_paths_deepest_first(keys)
     if not keys:
         human_logger.info("No registry keys supplied; skipping step.")
         return {"backup_requested": False, "backup_performed": False, "keys_processed": 0}
@@ -958,6 +959,27 @@ def _normalize_string_sequence(values: object) -> list[str]:
         seen.add(normalized)
         normalised.append(text)
     return normalised
+
+
+def _sort_registry_paths_deepest_first(paths: Iterable[str]) -> list[str]:
+    """!
+    @brief Order registry handles so child keys are processed before parents.
+    @details Ensures cleanup routines delete deeply nested keys ahead of their
+    parents, mirroring OffScrub's approach and preventing ``reg delete``
+    failures when a parent subtree disappears before its descendants are
+    handled.
+    """
+
+    indexed = list(enumerate(paths))
+
+    def _depth(entry: str) -> int:
+        normalized = fs_tools.normalize_windows_path(entry).strip("\\")
+        if not normalized:
+            return 0
+        return normalized.count("\\")
+
+    indexed.sort(key=lambda item: (-_depth(item[1]), item[0]))
+    return [entry for _, entry in indexed]
 
 
 def _is_user_template_path(path: str) -> bool:

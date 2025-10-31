@@ -24,6 +24,19 @@ _C2R_RELEASE_HINTS = {
     "2016": "2016",
 }
 
+_OFFSCRUB_PRIORITY = constants.OFFSCRUB_UNINSTALL_PRIORITY
+_MSI_VERSION_GROUPS = constants.MSI_UNINSTALL_VERSION_GROUPS
+_C2R_VERSION_GROUPS = constants.C2R_UNINSTALL_VERSION_GROUPS
+_DEFAULT_PRIORITY = len(_OFFSCRUB_PRIORITY) + 1
+
+_MSI_MAJOR_VERSION_HINTS = {
+    "16": "2016",
+    "15": "2013",
+    "14": "2010",
+    "12": "2007",
+    "11": "2003",
+}
+
 
 def build_plan(
     inventory: Dict[str, Sequence[dict]],
@@ -107,30 +120,16 @@ def build_plan(
     prerequisites = [detect_step_id]
 
     if include_uninstalls:
-        for index, record in enumerate(
-            _filter_records_by_target(selected_inventory.get("msi", []), targets)
-        ):
-            version = _infer_version(record)
-            uninstall_id = f"msi-{pass_index}-{index}"
-            plan.append(
-                {
-                    "id": uninstall_id,
-                    "category": "msi-uninstall",
-                    "description": record.get(
-                        "display_name", f"Uninstall MSI product {record.get('product_code', 'unknown')}"
-                    ),
-                    "depends_on": prerequisites,
-                    "metadata": {
-                        "product": record,
-                        "version": version,
-                        "dry_run": dry_run,
-                    },
-                }
+        c2r_records = list(
+            enumerate(_filter_records_by_target(selected_inventory.get("c2r", []), targets))
+        )
+        c2r_records.sort(
+            key=lambda item: (
+                _c2r_uninstall_priority(_infer_version(item[1])),
+                item[0],
             )
-            uninstall_steps.append(uninstall_id)
-
-        c2r_records = _filter_records_by_target(selected_inventory.get("c2r", []), targets)
-        for index, record in enumerate(c2r_records):
+        )
+        for index, (_, record) in enumerate(c2r_records):
             version = _infer_version(record)
             uninstall_id = f"c2r-{pass_index}-{index}"
             plan.append(
@@ -143,6 +142,35 @@ def build_plan(
                     "depends_on": prerequisites,
                     "metadata": {
                         "installation": record,
+                        "version": version,
+                        "dry_run": dry_run,
+                    },
+                }
+            )
+            uninstall_steps.append(uninstall_id)
+
+        msi_records = list(
+            enumerate(_filter_records_by_target(selected_inventory.get("msi", []), targets))
+        )
+        msi_records.sort(
+            key=lambda item: (
+                _msi_uninstall_priority(item[1]),
+                item[0],
+            )
+        )
+        for index, (_, record) in enumerate(msi_records):
+            version = _infer_version(record)
+            uninstall_id = f"msi-{pass_index}-{index}"
+            plan.append(
+                {
+                    "id": uninstall_id,
+                    "category": "msi-uninstall",
+                    "description": record.get(
+                        "display_name", f"Uninstall MSI product {record.get('product_code', 'unknown')}"
+                    ),
+                    "depends_on": prerequisites,
+                    "metadata": {
+                        "product": record,
                         "version": version,
                         "dry_run": dry_run,
                     },
@@ -455,6 +483,69 @@ def _summarize_inventory(
         "total_entries": total_entries,
         "discovered_versions": list(discovered_versions),
     }
+
+
+def _msi_uninstall_priority(record: Mapping[str, object]) -> int:
+    group = _resolve_msi_priority_group(record)
+    if not group:
+        version = _infer_version(record)
+        group = _MSI_VERSION_GROUPS.get(version, version)
+    return _OFFSCRUB_PRIORITY.get(group, _DEFAULT_PRIORITY)
+
+
+def _resolve_msi_priority_group(record: Mapping[str, object]) -> str:
+    candidates = _collect_msi_version_candidates(record)
+    for candidate in candidates:
+        mapped = _MSI_VERSION_GROUPS.get(candidate)
+        if mapped:
+            return mapped
+    for candidate in candidates:
+        major = candidate.split(".", 1)[0]
+        alias = _MSI_MAJOR_VERSION_HINTS.get(major)
+        if not alias:
+            continue
+        mapped = _MSI_VERSION_GROUPS.get(alias, alias)
+        if mapped in _OFFSCRUB_PRIORITY:
+            return mapped
+    return ""
+
+
+def _collect_msi_version_candidates(record: Mapping[str, object]) -> List[str]:
+    candidates: List[str] = []
+
+    def _add(value: object) -> None:
+        if not value:
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        if text not in candidates:
+            candidates.append(text)
+
+    _add(_infer_version(record))
+    for field in ("target_version", "version", "major_version", "product_version"):
+        _add(record.get(field))
+
+    properties = record.get("properties")
+    if isinstance(properties, Mapping):
+        for field in ("version", "product_version", "display_version"):
+            _add(properties.get(field))
+        supported = properties.get("supported_versions")
+        if isinstance(supported, Iterable) and not isinstance(supported, (str, bytes)):
+            for item in supported:
+                _add(item)
+
+    direct_supported = record.get("supported_versions")
+    if isinstance(direct_supported, Iterable) and not isinstance(direct_supported, (str, bytes)):
+        for item in direct_supported:
+            _add(item)
+
+    return candidates
+
+
+def _c2r_uninstall_priority(version: str) -> int:
+    group = _C2R_VERSION_GROUPS.get(version, "c2r")
+    return _OFFSCRUB_PRIORITY.get(group, 0)
 
 
 def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> Dict[str, object]:
