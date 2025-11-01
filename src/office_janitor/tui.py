@@ -1,20 +1,47 @@
 """!
 @brief Text-based user interface (TUI) engine.
-@details Implements the ANSI/VT driven interface with panes, widgets, and event
-queue plumbing described in the project specification. The implementation keeps
-dependencies to the standard library only while providing a co-operative event
-loop that drains orchestrator progress events and handles keyboard commands.
+@details Implements the ANSI/VT driven interface described in the project
+specification.  The implementation keeps dependencies to the standard library
+only while providing a co-operative event loop that drains orchestrator
+progress events and handles keyboard commands.  The layout follows a header,
+navigation column, and tabbed content panes so that additional widgets can be
+rendered predictably across platforms.
 """
 from __future__ import annotations
 
 import os
+import platform
 import sys
 import time
 from collections import deque
-from typing import Callable, Deque, List, Mapping, MutableMapping, Optional
+from dataclasses import dataclass, field
+from typing import Callable, Deque, Dict, List, Mapping, MutableMapping, Optional
 
 from . import plan as plan_module
 from . import version
+
+
+@dataclass
+class NavigationItem:
+    """!
+    @brief Describes an entry in the navigation column.
+    """
+
+    name: str
+    label: str
+    action: Optional[Callable[[], None]] = None
+    quit_on_activate: bool = False
+
+
+@dataclass
+class PaneContext:
+    """!
+    @brief Tracks cursor position and data for a pane.
+    """
+
+    name: str
+    cursor: int = 0
+    lines: List[str] = field(default_factory=list)
 
 
 class OfficeJanitorTUI:
@@ -46,6 +73,10 @@ class OfficeJanitorTUI:
         self.last_plan: Optional[list[dict]] = None
         self.status_lines: List[str] = []
         self.progress_message = "Ready"
+        self.log_lines: List[str] = []
+        self.ansi_supported = _supports_ansi() and not bool(
+            getattr(self.app_state.get("args"), "no_color", False)
+        )
         self._key_reader: Optional[Callable[[], str]] = self.app_state.get(
             "key_reader"
         )  # type: ignore[assignment]
@@ -58,6 +89,32 @@ class OfficeJanitorTUI:
         self.refresh_interval = 0.05 if refresh_value <= 0 else refresh_value
         self.compact_layout = bool(getattr(args, "tui_compact", False)) if args is not None else False
         self._running = True
+        self.navigation: List[NavigationItem] = [
+            NavigationItem("detect", "Detect inventory", action=self._handle_detect),
+            NavigationItem("plan", "Build plan", action=None),
+            NavigationItem("run", "Run plan", action=self._handle_run),
+            NavigationItem("logs", "Live logs", action=self._handle_logs),
+            NavigationItem("settings", "Settings", action=None),
+            NavigationItem("quit", "Quit", quit_on_activate=True),
+        ]
+        self.focus_area = "nav"
+        self.nav_index = 0
+        self.active_tab = self.navigation[0].name
+        self.panes: Dict[str, PaneContext] = {
+            item.name: PaneContext(item.name) for item in self.navigation
+        }
+        self.plan_overrides: Dict[str, bool] = {
+            "include_visio": False,
+            "include_project": False,
+            "include_onenote": False,
+        }
+        args_defaults = {
+            "dry_run": bool(getattr(args, "dry_run", False)),
+            "create_restore_point": not bool(getattr(args, "no_restore_point", False)),
+            "license_cleanup": not bool(getattr(args, "no_license", False)),
+            "keep_templates": bool(getattr(args, "keep_templates", False)),
+        }
+        self.settings_overrides: Dict[str, bool] = dict(args_defaults)
 
     def run(self) -> None:
         """!
@@ -73,7 +130,7 @@ class OfficeJanitorTUI:
             self._notify("tui.suppressed", "TUI launch suppressed by CLI flags.")
             return
 
-        if getattr(args, "no_color", False) or not _supports_ansi():
+        if not self.ansi_supported and not _supports_ansi():
             from . import ui
 
             self._notify("tui.fallback", "Falling back to CLI menu (ANSI unavailable).")
@@ -92,101 +149,278 @@ class OfficeJanitorTUI:
                 time.sleep(self.refresh_interval)
                 continue
 
-            if command in {"q", "Q", "\u001b"}:
-                self.progress_message = "Exiting..."
-                self._notify("tui.exit", "User requested exit from TUI.")
-                self._render()
-                break
-            if command in {"d", "D"}:
-                self._handle_detect()
-            elif command in {"p", "P"}:
-                self._handle_plan()
-            elif command in {"r", "R", "\r"}:
-                self._handle_run()
-            elif command in {"l", "L"}:
-                self._handle_logs()
-            elif command in {"a", "A"}:
-                self._handle_mode(
-                    "auto-all",
-                    {"mode": "auto-all", "auto_all": True},
-                    friendly="auto scrub",
-                )
-            elif command in {"t", "T"}:
-                self._handle_targeted()
-            elif command in {"c", "C"}:
-                self._handle_mode(
-                    "cleanup-only",
-                    {"mode": "cleanup-only", "cleanup_only": True},
-                    friendly="cleanup",
-                )
-            elif command in {"g", "G"}:
-                self._handle_mode(
-                    "diagnose",
-                    {"mode": "diagnose", "diagnose": True},
-                    friendly="diagnostics",
-                )
-            elif command in {"s", "S"}:
-                self._handle_settings()
-            else:
-                self._notify("tui.unknown", f"Unknown command: {command!r}", level="warning")
+            self._handle_key(command)
             self._render()
 
-    def _render(self) -> None:
-        width = 80 if self.compact_layout else 96
-        left_width = 32 if self.compact_layout else 36
-        _clear_screen()
-        metadata = version.build_info()
-        header = f"Office Janitor {metadata['version']} — {self.progress_message}"
-        sys.stdout.write(header[:width] + "\n")
-        sys.stdout.write(_divider(width) + "\n")
+    def _handle_key(self, command: str) -> None:
+        """!
+        @brief Interpret a normalized key command and update state.
+        """
 
-        left_lines = [
-            "[D] Detect inventory",
-            "[P] Build plan",
-            "[R] Run current plan",
-            "[A] Auto scrub everything",
-            "[T] Targeted scrub",
-            "[C] Cleanup only",
-            "[G] Diagnostics only",
-            "[L] Log info",
-            "[S] Settings",
-            "[Q] Quit",
-            "",
-            "Status log:",
-        ] + self.status_lines[-(12 if self.compact_layout else 18) :]
+        if command in {"quit", "escape"}:
+            self.progress_message = "Exiting..."
+            self._notify("tui.exit", "User requested exit from TUI.")
+            self._running = False
+            return
 
-        inventory_lines = (
-            _format_inventory(self.last_inventory)
-            if self.last_inventory is not None
-            else ["No inventory collected"]
-        )
-        plan_lines = _format_plan(self.last_plan)
-        right_lines = ["Inventory summary:"] + inventory_lines + ["", "Plan summary:"] + plan_lines
+        if command == "tab":
+            self.focus_area = "content" if self.focus_area == "nav" else "nav"
+            return
 
-        max_lines = max(len(left_lines), len(right_lines))
-        for index in range(max_lines):
-            left_text = left_lines[index] if index < len(left_lines) else ""
-            right_text = right_lines[index] if index < len(right_lines) else ""
-            sys.stdout.write(f"{left_text.ljust(left_width)} {right_text[: width - left_width - 1]}\n")
+        if self.focus_area == "nav":
+            if command == "down":
+                self._move_nav(1)
+                return
+            if command == "up":
+                self._move_nav(-1)
+                return
+            if command in {"enter", "space"}:
+                self._activate_nav()
+                return
+            if command == "f10":
+                self._handle_run()
+                return
+            if command == "f1":
+                self._show_help()
+                return
 
-        sys.stdout.write(_divider(width) + "\n")
-        sys.stdout.write(
-            "Commands: d=Detect p=Plan r=Run a=Auto t=Target c=Cleanup g=Diagnose l=Logs s=Settings q=Quit\n"
-        )
-        sys.stdout.flush()
+        self._handle_content_key(command)
+
+    def _handle_content_key(self, command: str) -> None:
+        """!
+        @brief Handle key presses that interact with the active pane.
+        """
+
+        pane = self.panes.get(self.active_tab)
+        if pane is None:
+            return
+
+        self._ensure_pane_lines(pane)
+
+        if command == "up":
+            pane.cursor = max(0, pane.cursor - 1)
+            return
+        if command == "down":
+            pane.cursor = min(max(len(pane.lines) - 1, 0), pane.cursor + 1)
+            return
+        if command == "page_down":
+            pane.cursor = min(max(len(pane.lines) - 1, 0), pane.cursor + 5)
+            return
+        if command == "page_up":
+            pane.cursor = max(0, pane.cursor - 5)
+            return
+        if command == "f10":
+            self._handle_run()
+            return
+        if command == "f1":
+            self._show_help()
+            return
+        if command == "enter":
+            if self.active_tab == "plan":
+                self._handle_plan()
+            elif self.active_tab == "run":
+                self._handle_run()
+            elif self.active_tab == "logs":
+                self._append_status("Logs reviewed")
+            elif self.active_tab == "settings":
+                self._append_status("Settings confirmed")
+            return
+        if command == "space":
+            if self.active_tab == "plan":
+                self._toggle_plan_option(pane.cursor)
+            elif self.active_tab == "settings":
+                self._toggle_setting(pane.cursor)
+
+    def _ensure_pane_lines(self, pane: PaneContext) -> None:
+        if pane.name == "plan":
+            pane.lines = list(self.plan_overrides.keys())
+        elif pane.name == "settings":
+            pane.lines = list(self.settings_overrides.keys())
+        elif pane.name == "logs":
+            pane.lines = list(self.log_lines)
+        elif pane.name == "run":
+            pane.lines = self.status_lines[-10:]
+        elif pane.name == "detect" and self.last_inventory is not None:
+            pane.lines = _format_inventory(self.last_inventory)
+
+    def _move_nav(self, offset: int) -> None:
+        size = len(self.navigation)
+        self.nav_index = (self.nav_index + offset) % size
+        self.active_tab = self.navigation[self.nav_index].name
+        self.focus_area = "nav"
+
+    def _activate_nav(self) -> None:
+        item = self.navigation[self.nav_index]
+        if item.quit_on_activate:
+            self._running = False
+            self.progress_message = "Exiting..."
+            self._notify("tui.exit", "User requested exit from TUI.")
+            return
+        self.active_tab = item.name
+        if item.action is not None:
+            item.action()
+        self.focus_area = "content"
 
     def _read_command(self) -> str:
         reader = self._key_reader or _default_key_reader
         try:
-            command = reader()
+            raw = reader()
         except StopIteration:
             self._running = False
-            return "q"
+            return "quit"
         except Exception:
             return ""
-        if isinstance(command, str):
-            return command.strip()[:1]
-        return ""
+        return _decode_key(raw)
+
+    def _render(self) -> None:
+        width = 80 if self.compact_layout else 96
+        left_width = 24 if self.compact_layout else 28
+        _clear_screen()
+        sys.stdout.write(self._render_header(width) + "\n")
+        sys.stdout.write(_divider(width) + "\n")
+
+        nav_lines = self._render_navigation(left_width)
+        content_lines = self._render_content(width - left_width - 1)
+
+        max_lines = max(len(nav_lines), len(content_lines))
+        for index in range(max_lines):
+            left_text = nav_lines[index] if index < len(nav_lines) else ""
+            right_text = content_lines[index] if index < len(content_lines) else ""
+            sys.stdout.write(
+                f"{left_text.ljust(left_width)} {right_text[: width - left_width - 1]}\n"
+            )
+
+        sys.stdout.write(_divider(width) + "\n")
+        sys.stdout.write(self._render_footer() + "\n")
+        sys.stdout.flush()
+
+    def _render_header(self, width: int) -> str:
+        metadata = version.build_info()
+        node = platform.node() or os.environ.get("COMPUTERNAME", "Unknown")
+        header = f"Office Janitor {metadata['version']}"
+        header += f" — {self.progress_message}"
+        header += f" — {node}"
+        return header[:width]
+
+    def _render_navigation(self, width: int) -> List[str]:
+        lines: List[str] = ["Navigation:"]
+        for index, item in enumerate(self.navigation):
+            prefix = "➤" if index == self.nav_index else " "
+            if not self.ansi_supported or index != self.nav_index:
+                line = f"{prefix} {item.label}"
+            else:
+                line = f"\x1b[7m{prefix} {item.label}\x1b[0m"
+            lines.append(line[:width])
+        lines.append("")
+        lines.append("Status log:")
+        lines.extend(self.status_lines[-(12 if self.compact_layout else 18) :])
+        return lines
+
+    def _render_content(self, width: int) -> List[str]:
+        if self.active_tab == "detect":
+            return self._render_inventory_pane(width)
+        if self.active_tab == "plan":
+            return self._render_plan_pane(width)
+        if self.active_tab == "run":
+            return self._render_run_pane(width)
+        if self.active_tab == "logs":
+            return self._render_logs_pane(width)
+        if self.active_tab == "settings":
+            return self._render_settings_pane(width)
+        return ["Select an option with Enter"]
+
+    def _render_footer(self) -> str:
+        help_text = (
+            "Arrows navigate • Tab switches focus • Space toggles • Enter confirms • "
+            "F10 run • F1 help • Q quits"
+        )
+        return help_text
+
+    def _render_inventory_pane(self, width: int) -> List[str]:
+        lines = ["Inventory summary:"]
+        if self.last_inventory is None:
+            lines.append("No inventory collected yet.")
+        else:
+            formatted = _format_inventory(self.last_inventory)
+            lines.extend(formatted)
+        pane = self.panes["detect"]
+        pane.lines = lines[1:]
+        return [line[:width] for line in lines]
+
+    def _render_plan_pane(self, width: int) -> List[str]:
+        lines = ["Plan options:"]
+        options = list(self.plan_overrides.items())
+        pane = self.panes["plan"]
+        pane.lines = []
+        for index, (key, enabled) in enumerate(options):
+            marker = "[x]" if enabled else "[ ]"
+            cursor = "➤" if pane.cursor == index else " "
+            pane.lines.append(key)
+            lines.append(f"{cursor} {marker} {key.replace('_', ' ').title()}")
+        lines.append("")
+        summary = _format_plan(self.last_plan)
+        lines.extend(summary)
+        return [line[:width] for line in lines]
+
+    def _render_run_pane(self, width: int) -> List[str]:
+        lines = ["Execution progress:"]
+        lines.extend(self.status_lines[-10:])
+        pane = self.panes["run"]
+        pane.lines = self.status_lines[-10:]
+        return [line[:width] for line in lines]
+
+    def _render_logs_pane(self, width: int) -> List[str]:
+        lines = ["Log tail:"]
+        if not self.log_lines:
+            lines.append("No log entries yet.")
+        else:
+            pane = self.panes["logs"]
+            pane.lines = self.log_lines
+            start = max(0, len(self.log_lines) - 10)
+            lines.extend(self.log_lines[start:])
+        return [line[:width] for line in lines]
+
+    def _render_settings_pane(self, width: int) -> List[str]:
+        lines = ["Settings toggles:"]
+        pane = self.panes["settings"]
+        pane.lines = []
+        for index, (key, enabled) in enumerate(self.settings_overrides.items()):
+            marker = "[x]" if enabled else "[ ]"
+            cursor = "➤" if pane.cursor == index else " "
+            pane.lines.append(key)
+            lines.append(f"{cursor} {marker} {key.replace('_', ' ').title()}")
+        args = self.app_state.get("args")
+        lines.append("")
+        lines.append(f"Log directory: {getattr(args, 'logdir', '(default)')}")
+        lines.append(f"Backup directory: {getattr(args, 'backup', '(disabled)')}")
+        timeout = getattr(args, "timeout", None)
+        lines.append(f"Timeout: {timeout if timeout is not None else '(default)'}")
+        return [line[:width] for line in lines]
+
+    def _toggle_plan_option(self, index: int) -> None:
+        keys = list(self.plan_overrides.keys())
+        if not keys:
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        key = keys[safe_index]
+        self.plan_overrides[key] = not self.plan_overrides[key]
+        self._append_status(f"Plan option '{key}' set to {self.plan_overrides[key]}")
+
+    def _toggle_setting(self, index: int) -> None:
+        keys = list(self.settings_overrides.keys())
+        if not keys:
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        key = keys[safe_index]
+        self.settings_overrides[key] = not self.settings_overrides[key]
+        self._append_status(
+            f"Setting '{key}' toggled to {self.settings_overrides[key]}"
+        )
+
+    def _show_help(self) -> None:
+        self._append_status(
+            "F1 help: arrows navigate, tab moves focus, space toggles, F10 executes plan."
+        )
 
     def _handle_detect(self) -> None:
         self.progress_message = "Detecting inventory..."
@@ -213,11 +447,17 @@ class OfficeJanitorTUI:
             if self.last_inventory is None:
                 return
 
+        overrides: Dict[str, object] | None = {
+            key: value for key, value in self.plan_overrides.items() if value
+        }
+        if not overrides:
+            overrides = None
+
         self.progress_message = "Planning actions..."
         self._notify("plan.start", "Building plan from TUI.")
         self._render()
         try:
-            plan_data = self.planner(self.last_inventory, None)
+            plan_data = self.planner(self.last_inventory, overrides)
         except Exception as exc:  # pragma: no cover - defensive logging
             message = f"Plan failed: {exc}"
             self._notify("plan.error", message, level="error")
@@ -253,120 +493,9 @@ class OfficeJanitorTUI:
         self._append_status("Execution complete")
         self.progress_message = "Execution complete"
 
-    def _handle_mode(
-        self, mode: str, overrides: Mapping[str, object], friendly: Optional[str] = None
-    ) -> None:
-        label = friendly or mode
-        if not self._ensure_inventory():
-            return
-
-        payload: MutableMapping[str, object] = dict(overrides)
-        payload.setdefault("mode", mode)
-
-        self.progress_message = f"Planning {label}..."
-        self._notify("plan.mode_start", f"Planning {label} run.", overrides=dict(payload))
-        self._render()
-
-        try:
-            plan_data = self.planner(self.last_inventory or {}, payload)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            message = f"{label.title()} planning failed: {exc}"
-            self._notify("plan.mode_error", message, level="error")
-            self.progress_message = f"{label.title()} failed"
-            return
-
-        self.last_plan = plan_data
-        summary = plan_module.summarize_plan(plan_data)
-        self._notify("plan.mode_ready", f"Plan ready for {label}.", summary=summary)
-        for line in _format_plan(plan_data)[:6]:
-            self._append_status(f"  {line}")
-
-        if self.last_inventory is not None:
-            payload["inventory"] = self.last_inventory
-
-        self.progress_message = f"Executing {label}..."
-        self._notify("execution.mode_start", f"Executing {label} run.", overrides=dict(payload))
-        self._render()
-
-        try:
-            self.executor(plan_data, payload)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            message = f"{label.title()} execution failed: {exc}"
-            self._notify("execution.mode_error", message, level="error")
-            self.progress_message = f"{label.title()} failed"
-            return
-
-        if payload.get("mode") == "diagnose":
-            self._append_status("Diagnostics captured; no actions executed.")
-            self.progress_message = "Diagnostics complete"
-            self._notify("execution.diagnostics", "Diagnostics complete.")
-        else:
-            self._append_status("Execution complete")
-            self.progress_message = "Execution complete"
-            self._notify("execution.mode_complete", f"{label.title()} complete.")
-
-    def _handle_targeted(self) -> None:
-        if not self._ensure_inventory():
-            return
-
-        versions_raw = _read_input_line("Target versions (comma separated): ")
-        targets = [item.strip() for item in versions_raw.split(",") if item.strip()]
-        if not targets:
-            self._notify(
-                "targeted.cancel",
-                "Targeted scrub aborted (no versions provided).",
-                level="warning",
-            )
-            self.progress_message = "Targeted cancelled"
-            return
-
-        include_raw = _read_input_line(
-            "Optional components (visio,project,onenote): "
-        ).strip()
-
-        overrides: MutableMapping[str, object] = {
-            "mode": f"target:{','.join(targets)}",
-            "target": ",".join(targets),
-        }
-        if include_raw:
-            overrides["include"] = include_raw
-
-        self._notify(
-            "targeted.start",
-            "Starting targeted scrub run.",
-            targets=overrides.get("target"),
-            include=overrides.get("include"),
-        )
-        self._handle_mode("targeted", overrides)
-
-    def _handle_settings(self) -> None:
-        args = self.app_state.get("args")
-        details = [
-            f"Dry-run: {bool(getattr(args, 'dry_run', False))}",
-            f"Create restore point: {not bool(getattr(args, 'no_restore_point', False))}",
-            f"License cleanup enabled: {not bool(getattr(args, 'no_license', False))}",
-            f"Keep templates: {bool(getattr(args, 'keep_templates', False))}",
-            f"Log directory: {getattr(args, 'logdir', '(default)')}",
-            f"Backup directory: {getattr(args, 'backup', '(disabled)')}",
-            "Timeout: "
-            + (
-                f"{getattr(args, 'timeout')} seconds"
-                if getattr(args, "timeout", None) is not None
-                else "(default)"
-            ),
-        ]
-        for line in details:
-            self._append_status(line)
-        self._notify("settings.display", "Settings displayed in TUI.")
-        self.progress_message = "Settings displayed"
-
     def _handle_logs(self) -> None:
-        args = self.app_state.get("args")
-        logdir = getattr(args, "logdir", None)
-        message = f"Logs directory: {logdir or '(default)'}"
-        self._append_status(message)
-        self._notify("logs.info", message)
-        self.progress_message = "Log details displayed"
+        self._append_status("Logs tab selected")
+        self.progress_message = "Viewing logs"
 
     def _append_status(self, message: str) -> None:
         if self.status_lines and self.status_lines[-1] == message:
@@ -375,12 +504,6 @@ class OfficeJanitorTUI:
         limit = 24 if self.compact_layout else 32
         if len(self.status_lines) > limit:
             self.status_lines[:] = self.status_lines[-limit:]
-
-    def _ensure_inventory(self) -> bool:
-        if self.last_inventory is not None:
-            return True
-        self._handle_detect()
-        return self.last_inventory is not None
 
     def _notify(
         self, event: str, message: str, *, level: str = "info", **payload: object
@@ -426,10 +549,35 @@ class OfficeJanitorTUI:
             if message:
                 self._append_status(str(message))
                 updated = True
-            progress = event.get("data")
-            if isinstance(progress, Mapping) and progress.get("status"):
-                self.progress_message = str(progress["status"])
+            data = event.get("data")
+            if isinstance(data, Mapping):
+                status = data.get("status")
+                if status:
+                    self.progress_message = str(status)
+                inventory = data.get("inventory")
+                if isinstance(inventory, Mapping):
+                    self.last_inventory = inventory
+                plan_data = data.get("plan")
+                if isinstance(plan_data, list):
+                    self.last_plan = plan_data  # type: ignore[assignment]
+                log_line = data.get("log_line")
+                if log_line:
+                    self._append_log(str(log_line))
+                toggle_updates = data.get("settings")
+                if isinstance(toggle_updates, Mapping):
+                    for key, value in toggle_updates.items():
+                        if key in self.settings_overrides:
+                            self.settings_overrides[key] = bool(value)
+            event_name = event.get("event")
+            if event_name == "log.line" and "message" in event:
+                self._append_log(str(event["message"]))
         return updated
+
+    def _append_log(self, line: str) -> None:
+        self.log_lines.append(line)
+        limit = 200
+        if len(self.log_lines) > limit:
+            self.log_lines[:] = self.log_lines[-limit:]
 
 
 def run_tui(app_state: Mapping[str, object]) -> None:
@@ -462,6 +610,43 @@ def _supports_ansi(stream: Optional[object] = None) -> bool:
         or os.environ.get("TERM_PROGRAM")
         or os.environ.get("ConEmuANSI")
     )
+
+
+def _decode_key(raw: str) -> str:
+    """!
+    @brief Convert raw key input into a normalized command token.
+    """
+
+    if not raw:
+        return ""
+    mapping = {
+        "\t": "tab",
+        "\r": "enter",
+        "\n": "enter",
+        " ": "space",
+        "q": "quit",
+        "Q": "quit",
+        "\x1b": "escape",
+    }
+    if raw in mapping:
+        return mapping[raw]
+    if raw.startswith("\x1b"):
+        sequences = {
+            "\x1b[A": "up",
+            "\x1b[B": "down",
+            "\x1b[C": "right",
+            "\x1b[D": "left",
+            "\x1b[5~": "page_up",
+            "\x1b[6~": "page_down",
+            "\x1bOP": "f1",
+            "\x1b[21~": "f10",
+            "\x1b[1;9A": "up",
+            "\x1b[1;9B": "down",
+        }
+        return sequences.get(raw, "")
+    if raw in {"\x00;": "f1", "\x00h": "f10"}:  # pragma: no cover - defensive
+        return {"\x00;": "f1", "\x00h": "f10"}[raw]
+    return raw.strip()
 
 
 def _clear_screen() -> None:
@@ -566,11 +751,18 @@ def _default_key_reader() -> str:
         import msvcrt
 
         if msvcrt.kbhit():
-            char = msvcrt.getwch()
-        else:
-            char = msvcrt.getwch()
-        return char
+            first = msvcrt.getwch()
+            if first in {"\x00", "\xe0"}:
+                second = msvcrt.getwch()
+                return first + second
+            if first == "\x1b" and msvcrt.kbhit():
+                second = msvcrt.getwch()
+                if second == "[":
+                    third = msvcrt.getwch()
+                    return first + second + third
+            return first
+        return ""
     except Exception:
-        return _read_input_line("Command (d=detect, p=plan, r=run, l=logs, q=quit): ").strip()[:1]
-
-
+        return _read_input_line(
+            "Command (arrows navigate, enter selects, q to quit): "
+        ).strip()
