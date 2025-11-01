@@ -22,6 +22,7 @@ from typing import Iterable, List, Mapping, Optional
 
 from . import (
     constants,
+    confirm,
     detect,
     exec_utils,
     fs_tools,
@@ -238,6 +239,21 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return 0
 
     scrub_dry_run = bool(getattr(args, "dry_run", False))
+    proceed = confirm.request_scrub_confirmation(
+        dry_run=scrub_dry_run,
+        force=bool(getattr(args, "force", False)),
+    )
+    if not proceed:
+        human_log.info("Scrub cancelled by user confirmation prompt.")
+        machine_log.info(
+            "scrub.cancelled",
+            extra={
+                "event": "scrub.cancelled",
+                "data": {"reason": "user_declined", "dry_run": scrub_dry_run},
+            },
+        )
+        return 0
+
     _enforce_runtime_guards(options, dry_run=scrub_dry_run)
     scrub.execute_plan(generated_plan, dry_run=scrub_dry_run)
     return 0
@@ -333,6 +349,31 @@ def _build_app_state(
         if overrides:
             guard_options.update({key: overrides[key] for key in overrides})
 
+        force_override = bool(getattr(args, "force", False))
+        if overrides and "force" in overrides:
+            force_override = bool(overrides["force"])
+
+        confirmed = bool(overrides.get("confirmed")) if overrides else False
+        if not confirmed:
+            proceed = confirm.request_scrub_confirmation(
+                dry_run=dry_run,
+                force=force_override,
+                input_func=overrides.get("input_func") if overrides else None,
+                interactive=overrides.get("interactive") if overrides else None,
+            )
+            if not proceed:
+                if human_log:
+                    human_log.info("Scrub cancelled by user confirmation prompt.")
+                if machine_log:
+                    machine_log.info(
+                        "scrub.cancelled",
+                        extra={
+                            "event": "scrub.cancelled",
+                            "data": {"reason": "user_declined", "dry_run": dry_run},
+                        },
+                    )
+                return
+
         _enforce_runtime_guards(guard_options, dry_run=dry_run)
         scrub.execute_plan(plan_data, dry_run=dry_run)
 
@@ -345,6 +386,7 @@ def _build_app_state(
         "executor": executor,
         "event_queue": ui_events,
         "emit_event": emit_event,
+        "confirm": confirm.request_scrub_confirmation,
     }
 
 

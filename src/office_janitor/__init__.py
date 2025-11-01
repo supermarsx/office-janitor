@@ -25,5 +25,6 @@ __all__ = [
     "tui",
     "constants",
     "safety",
+    "confirm",
     "version",
 ]

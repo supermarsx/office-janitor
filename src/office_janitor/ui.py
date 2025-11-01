@@ -9,7 +9,7 @@ from __future__ import annotations
 import textwrap
 from typing import Callable, Mapping, MutableMapping
 
-from . import plan as plan_module
+from . import confirm, plan as plan_module
 from . import version
 
 
@@ -81,6 +81,7 @@ def run_cli(app_state: Mapping[str, object]) -> None:
         "emit_event": emit_event,
         "event_queue": event_queue,
         "input": input_func,
+        "confirm": app_state.get("confirm", confirm.request_scrub_confirmation),
         "inventory": None,
         "plan": None,
         "running": True,
@@ -332,6 +333,32 @@ def _plan_and_execute(
         f"Plan ready for {label} mode with {summary.get('total_steps', 0)} steps.",
         summary=summary,
     )
+    confirm_helper = context.get("confirm")
+    args = context.get("args")
+    dry_run = bool(getattr(args, "dry_run", False)) if args is not None else False
+    force = bool(getattr(args, "force", False)) if args is not None else False
+    input_func: Callable[[str], str] = context.get("input", input)  # type: ignore[assignment]
+    if callable(confirm_helper):
+        proceed = confirm_helper(
+            dry_run=dry_run,
+            force=force,
+            input_func=input_func,
+            interactive=True,
+        )
+        if not proceed:
+            _notify(
+                context,
+                "execution.cancelled",
+                "Scrub cancelled by user confirmation prompt.",
+                level="warning",
+            )
+            print("Scrub cancelled.")
+            return
+        payload["confirmed"] = True
+    if "force" not in payload:
+        payload["force"] = force
+    payload["input_func"] = input_func
+    payload["interactive"] = True
     executor(plan_steps, payload)
     _notify(context, "execution.complete", f"Execution finished for {label} mode.")
 
