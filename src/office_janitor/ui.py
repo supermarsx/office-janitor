@@ -59,7 +59,7 @@ def run_cli(app_state: Mapping[str, object]) -> None:
     planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = app_state[
         "planner"
     ]  # type: ignore[assignment]
-    executor: Callable[[list[dict], Mapping[str, object] | None], None] = app_state["executor"]  # type: ignore[assignment]
+    executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = app_state["executor"]  # type: ignore[assignment]
 
     menu: list[tuple[str, MenuHandler]] = [
         (_DEFAULT_MENU_LABELS[0], _menu_detect),
@@ -195,7 +195,7 @@ def _menu_cleanup(context: MutableMapping[str, object]) -> None:
 def _menu_diagnostics(context: MutableMapping[str, object]) -> None:
     _notify(context, "diagnostics.start", "Generating diagnostics plan from CLI menu.")
     plan_steps = _ensure_plan(context, {"mode": "diagnose", "diagnose": True})
-    executor: Callable[[list[dict], Mapping[str, object] | None], None] = context[
+    executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = context[
         "executor"
     ]  # type: ignore[assignment]
     inventory = context.get("inventory")
@@ -320,7 +320,7 @@ def _plan_and_execute(
 ) -> None:
     _notify(context, "plan.start", f"Planning run for {label} mode.", overrides=dict(overrides))
     plan_steps = _ensure_plan(context, overrides)
-    executor: Callable[[list[dict], Mapping[str, object] | None], None] = context[
+    executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = context[
         "executor"
     ]  # type: ignore[assignment]
     payload = dict(overrides)

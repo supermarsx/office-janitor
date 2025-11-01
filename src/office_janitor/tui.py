@@ -60,7 +60,7 @@ class OfficeJanitorTUI:
         self.planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = self.app_state[
             "planner"
         ]  # type: ignore[assignment]
-        self.executor: Callable[[list[dict], Mapping[str, object] | None], None] = self.app_state[
+        self.executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = self.app_state[
             "executor"
         ]  # type: ignore[assignment]
         queue_obj = self.app_state.get("event_queue")
@@ -617,11 +617,23 @@ class OfficeJanitorTUI:
 
         try:
             _spinner(0.2, "Preparing")
-            self.executor(plan_data, payload)
+            execution_result = self.executor(plan_data, payload)
         except Exception as exc:  # pragma: no cover - defensive logging
             message = f"Execution failed: {exc}"
             self._notify("execution.error", message, level="error")
             self.progress_message = f"{label.title()} execution failed"
+            return
+
+        if execution_result is False:
+            message = f"{label.title()} run cancelled."
+            self._notify(
+                "execution.cancelled",
+                message,
+                level="warning",
+                reason="executor_cancelled",
+            )
+            self._append_status(f"{label.title()} cancelled")
+            self.progress_message = f"{label.title()} cancelled"
             return
 
         self._notify("execution.complete", f"{label.title()} run finished.")
@@ -700,11 +712,22 @@ class OfficeJanitorTUI:
         self._render()
         try:
             _spinner(0.2, "Preparing")
-            self.executor(self.last_plan, overrides)
+            execution_result = self.executor(self.last_plan, overrides)
         except Exception as exc:  # pragma: no cover - defensive logging
             message = f"Execution failed: {exc}"
             self._notify("execution.error", message, level="error")
             self.progress_message = "Execution failed"
+            return
+
+        if execution_result is False:
+            self._notify(
+                "execution.cancelled",
+                "Execution cancelled before running.",
+                level="warning",
+                reason="executor_cancelled",
+            )
+            self._append_status("Execution cancelled")
+            self.progress_message = "Execution cancelled"
             return
 
         self._notify("execution.complete", "Execution finished from TUI.")

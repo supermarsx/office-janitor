@@ -155,3 +155,24 @@ def test_targeted_scrub_passes_selected_targets(monkeypatch):
     assert calls["executor_overrides"]["target"] == "2016"
     assert calls["executor_overrides"]["mode"] == "target:2016"
     assert calls["run"] == 1
+
+
+def test_executor_cancellation_updates_status(monkeypatch):
+    state, calls = _make_app_state()
+
+    def cancelling_executor(plan, overrides):
+        calls["run"] = int(calls["run"]) + 1
+        calls["executor_overrides"] = dict(overrides or {}) if overrides is not None else None
+        return False
+
+    state["executor"] = cancelling_executor
+
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    monkeypatch.setattr(tui, "_spinner", lambda duration, message: None)
+
+    interface = tui.OfficeJanitorTUI(state)
+    interface._handle_auto_all()
+
+    assert calls["run"] == 1
+    assert interface.progress_message == "Auto Scrub cancelled"
+    assert interface.status_lines[-1] == "Auto Scrub cancelled"

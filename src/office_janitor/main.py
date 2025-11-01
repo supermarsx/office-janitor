@@ -328,7 +328,9 @@ def _build_app_state(
         safety.perform_preflight_checks(generated_plan)
         return generated_plan
 
-    def executor(plan_data: list[dict], overrides: Optional[Mapping[str, object]] = None) -> None:
+    def executor(
+        plan_data: list[dict], overrides: Optional[Mapping[str, object]] = None
+    ) -> bool:
         dry_run = bool(getattr(args, "dry_run", False))
         if overrides and "dry_run" in overrides:
             dry_run = bool(overrides["dry_run"])
@@ -342,7 +344,7 @@ def _build_app_state(
 
         if mode_override == "diagnose":
             human_log.info("Diagnostics complete; plan written and no actions executed.")
-            return
+            return True
 
         guard_options = dict(_collect_plan_options(args, mode_override))
         guard_options["dry_run"] = dry_run
@@ -372,10 +374,11 @@ def _build_app_state(
                             "data": {"reason": "user_declined", "dry_run": dry_run},
                         },
                     )
-                return
+                return False
 
         _enforce_runtime_guards(guard_options, dry_run=dry_run)
         scrub.execute_plan(plan_data, dry_run=dry_run)
+        return True
 
     return {
         "args": args,
