@@ -9,7 +9,7 @@ from __future__ import annotations
 import textwrap
 from typing import Callable, Mapping, MutableMapping
 
-from . import plan as plan_module
+from . import confirm, plan as plan_module
 from . import version
 
 
@@ -59,7 +59,7 @@ def run_cli(app_state: Mapping[str, object]) -> None:
     planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = app_state[
         "planner"
     ]  # type: ignore[assignment]
-    executor: Callable[[list[dict], Mapping[str, object] | None], None] = app_state["executor"]  # type: ignore[assignment]
+    executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = app_state["executor"]  # type: ignore[assignment]
 
     menu: list[tuple[str, MenuHandler]] = [
         (_DEFAULT_MENU_LABELS[0], _menu_detect),
@@ -81,6 +81,7 @@ def run_cli(app_state: Mapping[str, object]) -> None:
         "emit_event": emit_event,
         "event_queue": event_queue,
         "input": input_func,
+        "confirm": app_state.get("confirm", confirm.request_scrub_confirmation),
         "inventory": None,
         "plan": None,
         "running": True,
@@ -194,7 +195,7 @@ def _menu_cleanup(context: MutableMapping[str, object]) -> None:
 def _menu_diagnostics(context: MutableMapping[str, object]) -> None:
     _notify(context, "diagnostics.start", "Generating diagnostics plan from CLI menu.")
     plan_steps = _ensure_plan(context, {"mode": "diagnose", "diagnose": True})
-    executor: Callable[[list[dict], Mapping[str, object] | None], None] = context[
+    executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = context[
         "executor"
     ]  # type: ignore[assignment]
     inventory = context.get("inventory")
@@ -319,7 +320,7 @@ def _plan_and_execute(
 ) -> None:
     _notify(context, "plan.start", f"Planning run for {label} mode.", overrides=dict(overrides))
     plan_steps = _ensure_plan(context, overrides)
-    executor: Callable[[list[dict], Mapping[str, object] | None], None] = context[
+    executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = context[
         "executor"
     ]  # type: ignore[assignment]
     payload = dict(overrides)
@@ -332,6 +333,32 @@ def _plan_and_execute(
         f"Plan ready for {label} mode with {summary.get('total_steps', 0)} steps.",
         summary=summary,
     )
+    confirm_helper = context.get("confirm")
+    args = context.get("args")
+    dry_run = bool(getattr(args, "dry_run", False)) if args is not None else False
+    force = bool(getattr(args, "force", False)) if args is not None else False
+    input_func: Callable[[str], str] = context.get("input", input)  # type: ignore[assignment]
+    if callable(confirm_helper):
+        proceed = confirm_helper(
+            dry_run=dry_run,
+            force=force,
+            input_func=input_func,
+            interactive=True,
+        )
+        if not proceed:
+            _notify(
+                context,
+                "execution.cancelled",
+                "Scrub cancelled by user confirmation prompt.",
+                level="warning",
+            )
+            print("Scrub cancelled.")
+            return
+        payload["confirmed"] = True
+    if "force" not in payload:
+        payload["force"] = force
+    payload["input_func"] = input_func
+    payload["interactive"] = True
     executor(plan_steps, payload)
     _notify(context, "execution.complete", f"Execution finished for {label} mode.")
 

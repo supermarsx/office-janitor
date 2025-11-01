@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import pathlib
 import sys
+import argparse
 from typing import List
 
 import pytest
@@ -77,6 +78,48 @@ def test_main_auto_all_executes_scrub_pipeline(monkeypatch, tmp_path) -> None:
     assert recorded[0][1]["mode"] == "auto-all"
     assert any(item[0] == "safety" for item in recorded)
     assert guard_calls and guard_calls[0][1] is True
+
+
+def test_main_requires_confirmation_before_execution(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Scrub execution should stop when the confirmation prompt is declined.
+    """
+
+    monkeypatch.setattr(main, "ensure_admin_and_relaunch_if_needed", _no_op)
+    monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
+    monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
+
+    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: {"msi": []})
+
+    def fake_plan(inv, options):  # type: ignore[no-untyped-def]
+        return [
+            {"id": "context", "category": "context", "metadata": {"mode": options.get("mode")}},
+            {"id": "step", "category": "noop", "metadata": {}},
+        ]
+
+    monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
+    monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
+
+    guard_calls: List[tuple[dict, bool]] = []
+    monkeypatch.setattr(main, "_enforce_runtime_guards", lambda options, *, dry_run=False: guard_calls.append((dict(options), bool(dry_run))))
+
+    scrub_calls: List[bool] = []
+    monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(True))
+
+    confirm_calls: List[dict] = []
+
+    def deny_confirmation(**kwargs):  # type: ignore[no-untyped-def]
+        confirm_calls.append(dict(kwargs))
+        return False
+
+    monkeypatch.setattr(main.confirm, "request_scrub_confirmation", deny_confirmation)
+
+    exit_code = main.main(["--auto-all", "--logdir", str(tmp_path / "logs")])
+
+    assert exit_code == 0
+    assert confirm_calls
+    assert guard_calls == []
+    assert scrub_calls == []
 
 
 def test_main_diagnose_skips_execution(monkeypatch, tmp_path) -> None:
@@ -153,6 +196,76 @@ def test_main_interactive_uses_cli(monkeypatch, tmp_path) -> None:
 
     assert exit_code == 0
     assert "detector" in captured["app_state"]
+
+
+def test_ui_plan_and_execute_skips_without_confirmation(monkeypatch) -> None:
+    """!
+    @brief Interactive runs should abort when confirmation is denied.
+    """
+
+    monkeypatch.setattr(ui.plan_module, "summarize_plan", lambda plan: {"total_steps": len(plan)})
+
+    executed: List[tuple[list, dict]] = []
+
+    context = {
+        "detector": lambda: {},
+        "planner": lambda inventory, overrides: [{"id": "step", "category": "noop", "metadata": {}}],
+        "executor": lambda plan, overrides: executed.append((plan, dict(overrides or {}))),
+        "args": argparse.Namespace(dry_run=False, force=False),
+        "human_logger": None,
+        "machine_logger": None,
+        "emit_event": None,
+        "event_queue": None,
+        "input": lambda prompt: "n",
+        "confirm": lambda **kwargs: False,
+        "inventory": {},
+        "plan": None,
+        "running": True,
+    }
+
+    ui._plan_and_execute(context, {"mode": "auto-all", "auto_all": True}, label="auto scrub")
+
+    assert executed == []
+
+
+def test_ui_plan_and_execute_runs_after_confirmation(monkeypatch) -> None:
+    """!
+    @brief Interactive runs should proceed when confirmation is accepted.
+    """
+
+    monkeypatch.setattr(ui.plan_module, "summarize_plan", lambda plan: {"total_steps": len(plan)})
+
+    executed: List[tuple[list, dict]] = []
+
+    def record_executor(plan, overrides):  # type: ignore[no-untyped-def]
+        executed.append((plan, dict(overrides or {})))
+
+    def fake_input(prompt: str) -> str:
+        return "Y"
+
+    context = {
+        "detector": lambda: {},
+        "planner": lambda inventory, overrides: [{"id": "step", "category": "noop", "metadata": {}}],
+        "executor": record_executor,
+        "args": argparse.Namespace(dry_run=False, force=False),
+        "human_logger": None,
+        "machine_logger": None,
+        "emit_event": None,
+        "event_queue": None,
+        "input": fake_input,
+        "confirm": lambda **kwargs: True,
+        "inventory": {},
+        "plan": None,
+        "running": True,
+    }
+
+    ui._plan_and_execute(context, {"mode": "auto-all", "auto_all": True}, label="auto scrub")
+
+    assert executed
+    plan_override = executed[0][1]
+    assert plan_override.get("confirmed") is True
+    assert plan_override.get("interactive") is True
+    assert callable(plan_override.get("input_func"))
 
 
 def test_arg_parser_and_plan_options_cover_modes() -> None:
@@ -322,6 +435,7 @@ def test_ui_run_cli_detect_option(monkeypatch) -> None:
         "planner": lambda inventory, overrides=None: (_ for _ in ()).throw(AssertionError("planner not expected")),
         "executor": lambda plan, overrides=None: (_ for _ in ()).throw(AssertionError("executor not expected")),
         "input": fake_input,
+        "confirm": lambda **kwargs: True,
     }
 
     ui.run_cli(app_state)
@@ -360,6 +474,7 @@ def test_ui_run_cli_auto_all_executes(monkeypatch) -> None:
         "planner": fake_planner,
         "executor": fake_executor,
         "input": fake_input,
+        "confirm": lambda **kwargs: True,
     }
 
     ui.run_cli(app_state)
@@ -414,6 +529,7 @@ def test_ui_run_cli_targeted_prompts(monkeypatch) -> None:
         "planner": fake_planner,
         "executor": fake_executor,
         "input": fake_input,
+        "confirm": lambda **kwargs: True,
     }
 
     ui.run_cli(app_state)
@@ -437,6 +553,7 @@ def test_ui_run_cli_respects_json_flag() -> None:
         "detector": lambda: events.append("detect"),
         "planner": lambda inventory, overrides=None: events.append("plan"),
         "executor": lambda plan, overrides=None: events.append("execute"),
+        "confirm": lambda **kwargs: True,
     }
 
     ui.run_cli(app_state)
@@ -463,6 +580,7 @@ def test_tui_falls_back_without_ansi(monkeypatch) -> None:
         "detector": lambda: {},
         "planner": lambda inventory, overrides=None: [],
         "executor": lambda plan, overrides=None: None,
+        "confirm": lambda **kwargs: True,
     })
 
     assert invoked == ["cli"]
@@ -475,8 +593,23 @@ def test_tui_commands_drive_backends(monkeypatch) -> None:
 
     monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None: True)
     monkeypatch.setattr(tui_module, "_spinner", lambda duration, message: None)
+    monkeypatch.setattr(tui_module.OfficeJanitorTUI, "_drain_events", lambda self: False)
 
-    keys = iter(["d", "p", "r", "q"])
+    keys = iter([
+        "enter",  # detect
+        "tab",
+        "down",
+        "down",
+        "down",
+        "down",
+        "down",
+        "enter",  # focus plan tab
+        "enter",  # execute plan
+        "tab",
+        "down",
+        "enter",  # run execution
+        "quit",
+    ])
 
     def reader() -> str:
         return next(keys)
@@ -503,6 +636,7 @@ def test_tui_commands_drive_backends(monkeypatch) -> None:
         "planner": fake_planner,
         "executor": fake_executor,
         "key_reader": reader,
+        "confirm": lambda **kwargs: True,
     })
 
     assert events == ["detect", "plan", "execute"]
@@ -528,6 +662,7 @@ def test_tui_respects_quiet_flag(monkeypatch) -> None:
             "planner": lambda inventory, overrides=None: invoked.append("plan") or [],
             "executor": lambda plan, overrides=None: invoked.append("execute"),
             "key_reader": reader,
+            "confirm": lambda **kwargs: True,
         }
     )
 
@@ -541,8 +676,9 @@ def test_tui_auto_mode_invokes_overrides(monkeypatch) -> None:
 
     monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None: True)
     monkeypatch.setattr(tui_module, "_spinner", lambda duration, message: None)
+    monkeypatch.setattr(tui_module.OfficeJanitorTUI, "_drain_events", lambda self: False)
 
-    keys = iter(["a", "q"])
+    keys = iter(["down", "enter", "quit"])
 
     def reader() -> str:
         return next(keys)
@@ -569,6 +705,7 @@ def test_tui_auto_mode_invokes_overrides(monkeypatch) -> None:
             "planner": fake_planner,
             "executor": fake_executor,
             "key_reader": reader,
+            "confirm": lambda **kwargs: True,
         }
     )
 
@@ -585,8 +722,15 @@ def test_tui_targeted_collects_input(monkeypatch) -> None:
 
     monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None, **_: True)
     monkeypatch.setattr(tui_module, "_spinner", lambda duration, message: None)
+    monkeypatch.setattr(tui_module.OfficeJanitorTUI, "_drain_events", lambda self: False)
+    monkeypatch.setattr(
+        tui_module.OfficeJanitorTUI, "_selected_targets", lambda self: ["2016", "365"]
+    )
+    monkeypatch.setattr(
+        tui_module.OfficeJanitorTUI, "_collect_plan_overrides", lambda self: {"include": "visio"}
+    )
 
-    keys = iter(["t", "q"])
+    keys = iter(["down", "down", "enter", "f10", "quit"])
 
     def reader() -> str:
         return next(keys)
@@ -617,6 +761,7 @@ def test_tui_targeted_collects_input(monkeypatch) -> None:
             "planner": fake_planner,
             "executor": fake_executor,
             "key_reader": reader,
+            "confirm": lambda **kwargs: True,
         }
     )
 
