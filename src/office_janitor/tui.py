@@ -644,8 +644,24 @@ def _decode_key(raw: str) -> str:
             "\x1b[1;9B": "down",
         }
         return sequences.get(raw, "")
-    if raw in {"\x00;": "f1", "\x00h": "f10"}:  # pragma: no cover - defensive
-        return {"\x00;": "f1", "\x00h": "f10"}[raw]
+    windows_sequences = {
+        "\x00H": "up",
+        "\x00P": "down",
+        "\x00K": "left",
+        "\x00M": "right",
+        "\xe0H": "up",
+        "\xe0P": "down",
+        "\xe0K": "left",
+        "\xe0M": "right",
+        "\x00I": "page_up",
+        "\x00Q": "page_down",
+        "\xe0I": "page_up",
+        "\xe0Q": "page_down",
+        "\x00;": "f1",
+        "\x00h": "f10",
+    }
+    if raw in windows_sequences:
+        return windows_sequences[raw]
     return raw.strip()
 
 

@@ -43,6 +43,17 @@ def _make_app_state():
     return state, calls
 
 
+def test_decode_key_windows_arrow_sequences():
+    assert tui._decode_key("\x00H") == "up"
+    assert tui._decode_key("\x00P") == "down"
+    assert tui._decode_key("\x00K") == "left"
+    assert tui._decode_key("\x00M") == "right"
+    assert tui._decode_key("\xe0H") == "up"
+    assert tui._decode_key("\xe0P") == "down"
+    assert tui._decode_key("\xe0K") == "left"
+    assert tui._decode_key("\xe0M") == "right"
+
+
 def test_navigation_state_changes(monkeypatch):
     state, calls = _make_app_state()
 
