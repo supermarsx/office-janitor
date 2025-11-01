@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Deque, Dict, List, Mapping, MutableMapping, Optional
 
 from . import plan as plan_module
+from . import constants
 from . import version
 
 
@@ -91,6 +92,10 @@ class OfficeJanitorTUI:
         self._running = True
         self.navigation: List[NavigationItem] = [
             NavigationItem("detect", "Detect inventory", action=self._handle_detect),
+            NavigationItem("auto", "Auto scrub everything", action=self._handle_auto_all),
+            NavigationItem("targeted", "Targeted scrub", action=self._prepare_targeted),
+            NavigationItem("cleanup", "Cleanup only", action=self._handle_cleanup_only),
+            NavigationItem("diagnostics", "Diagnostics only", action=self._handle_diagnostics),
             NavigationItem("plan", "Build plan", action=None),
             NavigationItem("run", "Run plan", action=self._handle_run),
             NavigationItem("logs", "Live logs", action=self._handle_logs),
@@ -108,6 +113,9 @@ class OfficeJanitorTUI:
             "include_project": False,
             "include_onenote": False,
         }
+        self.target_overrides: Dict[str, bool] = {
+            str(version): False for version in constants.SUPPORTED_TARGETS
+        }
         args_defaults = {
             "dry_run": bool(getattr(args, "dry_run", False)),
             "create_restore_point": not bool(getattr(args, "no_restore_point", False)),
@@ -115,6 +123,7 @@ class OfficeJanitorTUI:
             "keep_templates": bool(getattr(args, "keep_templates", False)),
         }
         self.settings_overrides: Dict[str, bool] = dict(args_defaults)
+        self.last_overrides: Dict[str, object] | None = None
 
     def run(self) -> None:
         """!
@@ -210,7 +219,16 @@ class OfficeJanitorTUI:
             pane.cursor = max(0, pane.cursor - 5)
             return
         if command == "f10":
-            self._handle_run()
+            if self.active_tab == "targeted":
+                self._handle_targeted(execute=True)
+            elif self.active_tab == "auto":
+                self._handle_auto_all()
+            elif self.active_tab == "cleanup":
+                self._handle_cleanup_only()
+            elif self.active_tab == "diagnostics":
+                self._handle_diagnostics()
+            else:
+                self._handle_run()
             return
         if command == "f1":
             self._show_help()
@@ -224,16 +242,28 @@ class OfficeJanitorTUI:
                 self._append_status("Logs reviewed")
             elif self.active_tab == "settings":
                 self._append_status("Settings confirmed")
+            elif self.active_tab == "targeted":
+                self._handle_targeted(execute=True)
+            elif self.active_tab == "auto":
+                self._handle_auto_all()
+            elif self.active_tab == "cleanup":
+                self._handle_cleanup_only()
+            elif self.active_tab == "diagnostics":
+                self._handle_diagnostics()
             return
         if command == "space":
             if self.active_tab == "plan":
                 self._toggle_plan_option(pane.cursor)
             elif self.active_tab == "settings":
                 self._toggle_setting(pane.cursor)
+            elif self.active_tab == "targeted":
+                self._toggle_target(pane.cursor)
 
     def _ensure_pane_lines(self, pane: PaneContext) -> None:
         if pane.name == "plan":
             pane.lines = list(self.plan_overrides.keys())
+        elif pane.name == "targeted":
+            pane.lines = list(self.target_overrides.keys())
         elif pane.name == "settings":
             pane.lines = list(self.settings_overrides.keys())
         elif pane.name == "logs":
@@ -242,6 +272,8 @@ class OfficeJanitorTUI:
             pane.lines = self.status_lines[-10:]
         elif pane.name == "detect" and self.last_inventory is not None:
             pane.lines = _format_inventory(self.last_inventory)
+        elif pane.name in {"auto", "cleanup", "diagnostics"}:
+            pane.lines = []
 
     def _move_nav(self, offset: int) -> None:
         size = len(self.navigation)
@@ -321,6 +353,14 @@ class OfficeJanitorTUI:
             return self._render_inventory_pane(width)
         if self.active_tab == "plan":
             return self._render_plan_pane(width)
+        if self.active_tab == "targeted":
+            return self._render_targeted_pane(width)
+        if self.active_tab == "auto":
+            return self._render_auto_pane(width)
+        if self.active_tab == "cleanup":
+            return self._render_cleanup_pane(width)
+        if self.active_tab == "diagnostics":
+            return self._render_diagnostics_pane(width)
         if self.active_tab == "run":
             return self._render_run_pane(width)
         if self.active_tab == "logs":
@@ -360,6 +400,45 @@ class OfficeJanitorTUI:
         lines.append("")
         summary = _format_plan(self.last_plan)
         lines.extend(summary)
+        return [line[:width] for line in lines]
+
+    def _render_targeted_pane(self, width: int) -> List[str]:
+        lines = ["Targeted scrub targets:"]
+        pane = self.panes["targeted"]
+        pane.lines = []
+        for index, (version, enabled) in enumerate(self.target_overrides.items()):
+            marker = "[x]" if enabled else "[ ]"
+            cursor = "➤" if pane.cursor == index else " "
+            pane.lines.append(version)
+            lines.append(f"{cursor} {marker} Office {version}")
+        lines.append("")
+        lines.append("Select versions with Space, Enter/F10 to run targeted scrub.")
+        if self.last_inventory is None:
+            lines.append("Inventory not captured yet; selecting targets will prompt detection.")
+        return [line[:width] for line in lines]
+
+    def _render_auto_pane(self, width: int) -> List[str]:
+        lines = [
+            "Auto scrub:",
+            "Run a full detection and removal pass for all detected Office versions.",
+            "Press Enter or F10 to start the auto scrub run.",
+        ]
+        return [line[:width] for line in lines]
+
+    def _render_cleanup_pane(self, width: int) -> List[str]:
+        lines = [
+            "Cleanup only:",
+            "Removes residue such as licenses and scheduled tasks without uninstalling suites.",
+            "Press Enter or F10 to execute cleanup steps.",
+        ]
+        return [line[:width] for line in lines]
+
+    def _render_diagnostics_pane(self, width: int) -> List[str]:
+        lines = [
+            "Diagnostics only:",
+            "Exports inventory and action plans without running uninstall steps.",
+            "Press Enter or F10 to generate diagnostics artifacts.",
+        ]
         return [line[:width] for line in lines]
 
     def _render_run_pane(self, width: int) -> List[str]:
@@ -406,6 +485,16 @@ class OfficeJanitorTUI:
         self.plan_overrides[key] = not self.plan_overrides[key]
         self._append_status(f"Plan option '{key}' set to {self.plan_overrides[key]}")
 
+    def _toggle_target(self, index: int) -> None:
+        keys = list(self.target_overrides.keys())
+        if not keys:
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        key = keys[safe_index]
+        self.target_overrides[key] = not self.target_overrides[key]
+        state = "selected" if self.target_overrides[key] else "cleared"
+        self._append_status(f"Target version {key} {state}.")
+
     def _toggle_setting(self, index: int) -> None:
         keys = list(self.settings_overrides.keys())
         if not keys:
@@ -416,6 +505,128 @@ class OfficeJanitorTUI:
         self._append_status(
             f"Setting '{key}' toggled to {self.settings_overrides[key]}"
         )
+
+    def _collect_settings_overrides(self) -> Dict[str, object]:
+        overrides: Dict[str, object] = {}
+        toggles = self.settings_overrides
+        overrides["dry_run"] = bool(toggles.get("dry_run", False))
+        overrides["create_restore_point"] = bool(
+            toggles.get("create_restore_point", False)
+        )
+        overrides["keep_templates"] = bool(toggles.get("keep_templates", False))
+        license_cleanup = bool(toggles.get("license_cleanup", True))
+        overrides["license_cleanup"] = license_cleanup
+        overrides["no_license"] = not license_cleanup
+        return overrides
+
+    def _collect_plan_overrides(self) -> Dict[str, object]:
+        overrides: Dict[str, object] = {}
+        include_components: List[str] = []
+        for key, enabled in self.plan_overrides.items():
+            if not enabled:
+                continue
+            overrides[key] = True
+            if key.startswith("include_"):
+                include_components.append(key.split("_", 1)[1])
+        if include_components:
+            overrides["include"] = ",".join(include_components)
+        return overrides
+
+    def _combine_overrides(
+        self, extra: Mapping[str, object] | None = None
+    ) -> Dict[str, object]:
+        combined: Dict[str, object] = {}
+        combined.update(self._collect_settings_overrides())
+        combined.update(self._collect_plan_overrides())
+        if extra:
+            combined.update({key: extra[key] for key in extra})
+        return combined
+
+    def _selected_targets(self) -> List[str]:
+        return [
+            version
+            for version, enabled in self.target_overrides.items()
+            if enabled
+        ]
+
+    def _ensure_inventory(self) -> bool:
+        if self.last_inventory is not None:
+            return True
+        self._handle_detect()
+        return self.last_inventory is not None
+
+    def _prepare_targeted(self) -> None:
+        self._ensure_inventory()
+        self.progress_message = "Configure targeted scrub"
+        self._append_status(
+            "Targeted scrub ready: toggle versions with Space, F10 to run."
+        )
+
+    def _plan_and_optionally_execute(
+        self,
+        extra_overrides: Mapping[str, object] | None,
+        *,
+        label: str,
+        execute: bool,
+    ) -> None:
+        if not self._ensure_inventory():
+            return
+
+        combined = self._combine_overrides(extra_overrides)
+        if "mode" not in combined:
+            combined["mode"] = "interactive"
+
+        self.progress_message = f"Planning {label}..."
+        self._notify(
+            "plan.start",
+            f"Building plan for {label}.",
+            overrides=dict(combined),
+        )
+        self._render()
+
+        try:
+            plan_data = self.planner(self.last_inventory, combined)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            message = f"Plan failed: {exc}"
+            self._notify("plan.error", message, level="error")
+            self.progress_message = f"{label.title()} plan failed"
+            return
+
+        self.last_plan = plan_data
+        self.last_overrides = dict(combined)
+        summary = plan_module.summarize_plan(plan_data)
+        self._notify(
+            "plan.complete",
+            f"{label.title()} plan ready.",
+            summary=summary,
+        )
+        for line in _format_plan(plan_data)[:6]:
+            self._append_status(f"  {line}")
+
+        if not execute:
+            self.progress_message = f"{label.title()} plan ready"
+            return
+
+        self.progress_message = f"Executing {label}..."
+        self._notify("execution.start", f"Executing {label} run.")
+        self._render()
+
+        payload = dict(combined)
+        if self.last_inventory is not None:
+            payload.setdefault("inventory", self.last_inventory)
+
+        try:
+            _spinner(0.2, "Preparing")
+            self.executor(plan_data, payload)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            message = f"Execution failed: {exc}"
+            self._notify("execution.error", message, level="error")
+            self.progress_message = f"{label.title()} execution failed"
+            return
+
+        self._notify("execution.complete", f"{label.title()} run finished.")
+        self._append_status(f"{label.title()} complete")
+        self.progress_message = f"{label.title()} complete"
 
     def _show_help(self) -> None:
         self._append_status(
@@ -442,19 +653,18 @@ class OfficeJanitorTUI:
         self.progress_message = "Inventory ready"
 
     def _handle_plan(self) -> None:
-        if self.last_inventory is None:
-            self._handle_detect()
-            if self.last_inventory is None:
-                return
+        if not self._ensure_inventory():
+            return
 
-        overrides: Dict[str, object] | None = {
-            key: value for key, value in self.plan_overrides.items() if value
-        }
-        if not overrides:
-            overrides = None
+        overrides = self._combine_overrides(None)
+        overrides.setdefault("mode", "interactive")
 
         self.progress_message = "Planning actions..."
-        self._notify("plan.start", "Building plan from TUI.")
+        self._notify(
+            "plan.start",
+            "Building plan from TUI.",
+            overrides=dict(overrides),
+        )
         self._render()
         try:
             plan_data = self.planner(self.last_inventory, overrides)
@@ -465,6 +675,7 @@ class OfficeJanitorTUI:
             return
 
         self.last_plan = plan_data
+        self.last_overrides = dict(overrides)
         summary = plan_module.summarize_plan(plan_data)
         self._notify("plan.complete", "Plan ready for review.", summary=summary)
         for line in _format_plan(plan_data)[:6]:
@@ -478,11 +689,18 @@ class OfficeJanitorTUI:
                 return
 
         self.progress_message = "Executing plan..."
-        self._notify("execution.start", "Executing plan from TUI.")
+        overrides = dict(self.last_overrides or self._combine_overrides(None))
+        if self.last_inventory is not None:
+            overrides.setdefault("inventory", self.last_inventory)
+        self._notify(
+            "execution.start",
+            "Executing plan from TUI.",
+            overrides=dict(overrides),
+        )
         self._render()
         try:
             _spinner(0.2, "Preparing")
-            self.executor(self.last_plan, None)
+            self.executor(self.last_plan, overrides)
         except Exception as exc:  # pragma: no cover - defensive logging
             message = f"Execution failed: {exc}"
             self._notify("execution.error", message, level="error")
@@ -496,6 +714,47 @@ class OfficeJanitorTUI:
     def _handle_logs(self) -> None:
         self._append_status("Logs tab selected")
         self.progress_message = "Viewing logs"
+
+    def _handle_auto_all(self) -> None:
+        self._plan_and_optionally_execute(
+            {"mode": "auto-all", "auto_all": True},
+            label="auto scrub",
+            execute=True,
+        )
+
+    def _handle_cleanup_only(self) -> None:
+        self._plan_and_optionally_execute(
+            {"mode": "cleanup-only", "cleanup_only": True},
+            label="cleanup only",
+            execute=True,
+        )
+
+    def _handle_diagnostics(self) -> None:
+        self._plan_and_optionally_execute(
+            {"mode": "diagnose", "diagnose": True},
+            label="diagnostics",
+            execute=True,
+        )
+
+    def _handle_targeted(self, *, execute: bool) -> None:
+        if not self._ensure_inventory():
+            return
+
+        selected = self._selected_targets()
+        if not selected:
+            self._append_status(
+                "Select at least one Office version before running targeted scrub."
+            )
+            self.progress_message = "Target selection required"
+            return
+
+        joined = ",".join(selected)
+        overrides = {"mode": f"target:{joined}", "target": joined}
+        self._plan_and_optionally_execute(
+            overrides,
+            label="targeted scrub",
+            execute=execute,
+        )
 
     def _append_status(self, message: str) -> None:
         if self.status_lines and self.status_lines[-1] == message:
