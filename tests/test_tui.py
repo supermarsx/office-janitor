@@ -29,6 +29,7 @@ def _make_app_state():
         "planner": planner,
         "executor": executor,
         "event_queue": deque(),
+        "confirm": lambda **kwargs: True,
         "args": SimpleNamespace(
             tui=True,
             quiet=False,
@@ -140,6 +141,7 @@ def test_settings_and_plan_overrides_propagate(monkeypatch):
     assert calls["executor_overrides"]["dry_run"] is True
     assert calls["executor_overrides"]["no_license"] is True
     assert calls["executor_overrides"]["include"] == "visio"
+    assert calls["executor_overrides"]["confirmed"] is True
 
 
 def test_targeted_scrub_passes_selected_targets(monkeypatch):
@@ -154,6 +156,7 @@ def test_targeted_scrub_passes_selected_targets(monkeypatch):
     assert calls["planner_overrides"]["mode"] == "target:2016"
     assert calls["executor_overrides"]["target"] == "2016"
     assert calls["executor_overrides"]["mode"] == "target:2016"
+    assert calls["executor_overrides"]["confirmed"] is True
     assert calls["run"] == 1
 
 
@@ -174,5 +177,24 @@ def test_executor_cancellation_updates_status(monkeypatch):
     interface._handle_auto_all()
 
     assert calls["run"] == 1
+    assert interface.progress_message == "Auto Scrub cancelled"
+    assert interface.status_lines[-1] == "Auto Scrub cancelled"
+
+
+def test_confirmation_decline_skips_executor(monkeypatch):
+    state, calls = _make_app_state()
+
+    def declining_confirm(**kwargs):
+        return False
+
+    state["confirm"] = declining_confirm
+
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    monkeypatch.setattr(tui, "_spinner", lambda duration, message: None)
+
+    interface = tui.OfficeJanitorTUI(state)
+    interface._handle_auto_all()
+
+    assert calls["run"] == 0
     assert interface.progress_message == "Auto Scrub cancelled"
     assert interface.status_lines[-1] == "Auto Scrub cancelled"

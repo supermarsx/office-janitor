@@ -63,6 +63,10 @@ class OfficeJanitorTUI:
         self.executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = self.app_state[
             "executor"
         ]  # type: ignore[assignment]
+        confirm_callable = self.app_state.get("confirm")
+        self._confirm_requestor: Optional[Callable[..., bool]] = (
+            confirm_callable if callable(confirm_callable) else None
+        )
         queue_obj = self.app_state.get("event_queue")
         if isinstance(queue_obj, deque):
             self.event_queue: Deque[dict[str, object]] = queue_obj
@@ -124,6 +128,101 @@ class OfficeJanitorTUI:
         }
         self.settings_overrides: Dict[str, bool] = dict(args_defaults)
         self.last_overrides: Dict[str, object] | None = None
+
+    def _prompt_confirmation_input(self, label: str, prompt: str) -> str:
+        """!
+        @brief Display a confirmation prompt and collect a response inside the TUI.
+        """
+
+        prompt_text = prompt.strip()
+        if prompt_text:
+            self._append_status(prompt_text)
+
+        previous_message = self.progress_message
+        display_prompt = prompt_text or f"Confirm {label}"
+        self.progress_message = display_prompt
+        self._render()
+
+        while self._running:
+            if self._drain_events():
+                self._render()
+                continue
+
+            command = self._read_command()
+            if not command:
+                time.sleep(self.refresh_interval)
+                continue
+
+            normalized = command.lower()
+            if command == "enter":
+                self.progress_message = previous_message
+                self._render()
+                return ""
+
+            if len(command) == 1 and normalized in {"y", "n"}:
+                self.progress_message = previous_message
+                self._render()
+                return normalized
+
+            if normalized in {"quit", "escape"}:
+                self.progress_message = previous_message
+                self._render()
+                return "n"
+
+            self._append_status("Press Y to confirm or N to cancel.")
+            self._render()
+
+        self.progress_message = previous_message
+        self._render()
+        return "n"
+
+    def _confirm_execution(
+        self, label: str, overrides: MutableMapping[str, object]
+    ) -> bool:
+        """!
+        @brief Coordinate scrub confirmation for interactive executions.
+        """
+
+        request_confirmation = self._confirm_requestor
+        if request_confirmation is None:
+            overrides["confirmed"] = True
+            return True
+
+        args = self.app_state.get("args")
+        dry_run = bool(getattr(args, "dry_run", False))
+        if "dry_run" in overrides:
+            dry_run = bool(overrides["dry_run"])
+
+        force_override = bool(getattr(args, "force", False))
+        if "force" in overrides:
+            force_override = bool(overrides["force"])
+
+        interactive_override = overrides.get("interactive")
+
+        proceed = request_confirmation(
+            dry_run=dry_run,
+            force=force_override,
+            input_func=lambda prompt: self._prompt_confirmation_input(label, prompt),
+            interactive=(
+                True
+                if interactive_override is None
+                else bool(interactive_override)
+            ),
+        )
+
+        if not proceed:
+            message = f"{label.title()} cancelled"
+            self._notify(
+                "execution.cancelled",
+                message,
+                level="warning",
+                reason="user_declined",
+            )
+            self.progress_message = message
+            return False
+
+        overrides["confirmed"] = True
+        return True
 
     def run(self) -> None:
         """!
@@ -607,13 +706,16 @@ class OfficeJanitorTUI:
             self.progress_message = f"{label.title()} plan ready"
             return
 
-        self.progress_message = f"Executing {label}..."
-        self._notify("execution.start", f"Executing {label} run.")
-        self._render()
-
         payload = dict(combined)
         if self.last_inventory is not None:
             payload.setdefault("inventory", self.last_inventory)
+
+        if not self._confirm_execution(label, payload):
+            return
+
+        self.progress_message = f"Executing {label}..."
+        self._notify("execution.start", f"Executing {label} run.")
+        self._render()
 
         try:
             _spinner(0.2, "Preparing")
@@ -700,10 +802,14 @@ class OfficeJanitorTUI:
             if self.last_plan is None:
                 return
 
-        self.progress_message = "Executing plan..."
         overrides = dict(self.last_overrides or self._combine_overrides(None))
         if self.last_inventory is not None:
             overrides.setdefault("inventory", self.last_inventory)
+
+        if not self._confirm_execution("execution", overrides):
+            return
+
+        self.progress_message = "Executing plan..."
         self._notify(
             "execution.start",
             "Executing plan from TUI.",
