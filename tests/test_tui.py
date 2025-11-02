@@ -198,3 +198,42 @@ def test_confirmation_decline_skips_executor(monkeypatch):
     assert calls["run"] == 0
     assert interface.progress_message == "Auto Scrub cancelled"
     assert interface.status_lines[-1] == "Auto Scrub cancelled"
+
+
+def test_logs_pane_scrolls_and_tracks_offset(monkeypatch):
+    state, _ = _make_app_state()
+
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+    interface.active_tab = "logs"
+    interface.focus_area = "content"
+
+    for index in range(15):
+        interface._append_log(f"entry {index}")
+
+    pane = interface.panes["logs"]
+    page_size = interface._log_window_size()
+    max_offset = max(len(interface.log_lines) - page_size, 0)
+    assert pane.offset == max_offset
+
+    interface._handle_content_key("page_up")
+    assert pane.offset == max(0, max_offset - page_size)
+
+    prior_offset = pane.offset
+    interface._handle_content_key("down")
+    assert pane.offset == min(max_offset, prior_offset + 1)
+
+    interface._handle_content_key("page_down")
+    assert pane.offset == max_offset
+
+    pane.offset = 0
+    rendered = interface._render_logs_pane(80)
+    assert rendered[0] == "Log tail:"
+    assert pane.lines == interface.log_lines[:page_size]
+
+    interface._append_log("entry follow")
+    assert pane.offset == 0
+
+    pane.offset = max(len(interface.log_lines) - page_size, 0)
+    interface._append_log("entry tail")
+    assert pane.offset == max(len(interface.log_lines) - page_size, 0)

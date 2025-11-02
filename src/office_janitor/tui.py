@@ -43,6 +43,7 @@ class PaneContext:
     name: str
     cursor: int = 0
     lines: List[str] = field(default_factory=list)
+    offset: int = 0
 
 
 class OfficeJanitorTUI:
@@ -303,6 +304,9 @@ class OfficeJanitorTUI:
         if pane is None:
             return
 
+        if pane.name == "logs" and self._handle_log_scroll(pane, command):
+            return
+
         self._ensure_pane_lines(pane)
 
         if command == "up":
@@ -366,13 +370,78 @@ class OfficeJanitorTUI:
         elif pane.name == "settings":
             pane.lines = list(self.settings_overrides.keys())
         elif pane.name == "logs":
-            pane.lines = list(self.log_lines)
+            self._update_log_pane_lines(pane)
         elif pane.name == "run":
             pane.lines = self.status_lines[-10:]
         elif pane.name == "detect" and self.last_inventory is not None:
             pane.lines = _format_inventory(self.last_inventory)
         elif pane.name in {"auto", "cleanup", "diagnostics"}:
             pane.lines = []
+
+    def _handle_log_scroll(self, pane: PaneContext, command: str) -> bool:
+        if pane.name != "logs":
+            return False
+
+        page_size = self._log_window_size()
+        if command == "page_up":
+            if pane.offset > 0:
+                pane.offset = max(0, pane.offset - page_size)
+            else:
+                pane.offset = 0
+            self._update_log_pane_lines(pane)
+            return True
+        if command == "page_down":
+            max_offset = max(len(self.log_lines) - page_size, 0)
+            if pane.offset < max_offset:
+                pane.offset = min(max_offset, pane.offset + page_size)
+            else:
+                pane.offset = max_offset
+            self._update_log_pane_lines(pane)
+            return True
+        if command == "up":
+            if pane.offset > 0:
+                pane.offset -= 1
+            else:
+                pane.offset = 0
+            self._update_log_pane_lines(pane)
+            return True
+        if command == "down":
+            max_offset = max(len(self.log_lines) - page_size, 0)
+            if pane.offset < max_offset:
+                pane.offset += 1
+            else:
+                pane.offset = max_offset
+            self._update_log_pane_lines(pane)
+            return True
+        return False
+
+    def _log_window_size(self) -> int:
+        return 10
+
+    def _clamp_log_offset(self, pane: PaneContext) -> None:
+        if pane.name != "logs":
+            return
+        page_size = self._log_window_size()
+        max_offset = max(len(self.log_lines) - page_size, 0)
+        if pane.offset < 0:
+            pane.offset = 0
+        elif pane.offset > max_offset:
+            pane.offset = max_offset
+
+    def _update_log_pane_lines(self, pane: PaneContext) -> List[str]:
+        if pane.name != "logs":
+            return pane.lines
+
+        if not self.log_lines:
+            pane.offset = 0
+            pane.lines = []
+            return pane.lines
+
+        self._clamp_log_offset(pane)
+        page_size = self._log_window_size()
+        window = self.log_lines[pane.offset : pane.offset + page_size]
+        pane.lines = list(window)
+        return pane.lines
 
     def _move_nav(self, offset: int) -> None:
         size = len(self.navigation)
@@ -431,6 +500,15 @@ class OfficeJanitorTUI:
         header = f"Office Janitor {metadata['version']}"
         header += f" — {self.progress_message}"
         header += f" — {node}"
+        args = self.app_state.get("args")
+        logdir = getattr(args, "logdir", None) if args is not None else None
+        if logdir:
+            base = os.fspath(logdir)
+            human_path = os.path.join(base, "human.log")
+            jsonl_path = os.path.join(base, "events.jsonl")
+            header += f" — Logs: {human_path} | {jsonl_path}"
+        else:
+            header += " — Logs: human.log | events.jsonl"
         return header[:width]
 
     def _render_navigation(self, width: int) -> List[str]:
@@ -549,13 +627,16 @@ class OfficeJanitorTUI:
 
     def _render_logs_pane(self, width: int) -> List[str]:
         lines = ["Log tail:"]
-        if not self.log_lines:
+        pane = self.panes["logs"]
+        window = self._update_log_pane_lines(pane)
+        if not window:
             lines.append("No log entries yet.")
         else:
-            pane = self.panes["logs"]
-            pane.lines = self.log_lines
-            start = max(0, len(self.log_lines) - 10)
-            lines.extend(self.log_lines[start:])
+            total = len(self.log_lines)
+            start_index = pane.offset + 1
+            end_index = pane.offset + len(window)
+            lines.append(f"Showing {start_index}-{end_index} of {total}")
+            lines.extend(window)
         return [line[:width] for line in lines]
 
     def _render_settings_pane(self, width: int) -> List[str]:
@@ -962,10 +1043,27 @@ class OfficeJanitorTUI:
         return updated
 
     def _append_log(self, line: str) -> None:
+        pane = self.panes.get("logs")
+        previous_length = len(self.log_lines)
+        page_size = self._log_window_size()
+        at_tail = False
+        if pane is not None and pane.name == "logs":
+            max_offset = max(previous_length - page_size, 0)
+            at_tail = pane.offset >= max_offset
+
         self.log_lines.append(line)
         limit = 200
+        trimmed = 0
         if len(self.log_lines) > limit:
-            self.log_lines[:] = self.log_lines[-limit:]
+            trimmed = len(self.log_lines) - limit
+            self.log_lines[:] = self.log_lines[trimmed:]
+            if pane is not None and pane.name == "logs":
+                pane.offset = max(0, pane.offset - trimmed)
+
+        if pane is not None and pane.name == "logs":
+            if at_tail:
+                pane.offset = max(len(self.log_lines) - page_size, 0)
+            self._update_log_pane_lines(pane)
 
 
 def run_tui(app_state: Mapping[str, object]) -> None:
