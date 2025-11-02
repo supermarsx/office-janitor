@@ -120,6 +120,7 @@ class OfficeJanitorTUI:
         self.target_overrides: Dict[str, bool] = {
             str(version): False for version in constants.SUPPORTED_TARGETS
         }
+        self.list_filters: Dict[str, str] = {}
         args_defaults = {
             "dry_run": bool(getattr(args, "dry_run", False)),
             "create_restore_point": not bool(getattr(args, "no_restore_point", False)),
@@ -357,22 +358,107 @@ class OfficeJanitorTUI:
                 self._toggle_setting(pane.cursor)
             elif self.active_tab == "targeted":
                 self._toggle_target(pane.cursor)
+            return
+        if command == "/":
+            self._prompt_filter(pane)
+            self._ensure_pane_lines(pane)
+            return
 
-    def _ensure_pane_lines(self, pane: PaneContext) -> None:
+    def _ensure_pane_lines(self, pane: PaneContext) -> List[tuple[str, str]]:
+        entries: List[tuple[str, str]] = []
         if pane.name == "plan":
-            pane.lines = list(self.plan_overrides.keys())
+            entries = [
+                (
+                    key,
+                    f"{'[x]' if enabled else '[ ]'} {key.replace('_', ' ').title()}",
+                )
+                for key, enabled in self.plan_overrides.items()
+            ]
         elif pane.name == "targeted":
-            pane.lines = list(self.target_overrides.keys())
+            entries = [
+                (
+                    version,
+                    f"{'[x]' if enabled else '[ ]'} Office {version}",
+                )
+                for version, enabled in self.target_overrides.items()
+            ]
         elif pane.name == "settings":
-            pane.lines = list(self.settings_overrides.keys())
+            entries = [
+                (
+                    key,
+                    f"{'[x]' if enabled else '[ ]'} {key.replace('_', ' ').title()}",
+                )
+                for key, enabled in self.settings_overrides.items()
+            ]
         elif pane.name == "logs":
-            pane.lines = list(self.log_lines)
+            entries = [(line, line) for line in self.log_lines]
         elif pane.name == "run":
-            pane.lines = self.status_lines[-10:]
+            recent = self.status_lines[-10:]
+            entries = [(line, line) for line in recent]
         elif pane.name == "detect" and self.last_inventory is not None:
-            pane.lines = _format_inventory(self.last_inventory)
+            entries = [(line, line) for line in _format_inventory(self.last_inventory)]
         elif pane.name in {"auto", "cleanup", "diagnostics"}:
-            pane.lines = []
+            entries = []
+        else:
+            entries = [(line, line) for line in pane.lines]
+
+        return self._filter_entries(pane, entries)
+
+    def _get_pane_filter(self, pane_name: str) -> str:
+        return self.list_filters.get(pane_name, "")
+
+    def _set_pane_filter(self, pane_name: str, value: str) -> None:
+        normalized = value.strip()
+        if normalized:
+            self.list_filters[pane_name] = normalized
+        else:
+            self.list_filters.pop(pane_name, None)
+
+    def _filter_entries(
+        self, pane: PaneContext, entries: List[tuple[str, str]]
+    ) -> List[tuple[str, str]]:
+        filter_text = self._get_pane_filter(pane.name)
+        if filter_text:
+            lowered = filter_text.lower()
+            filtered = [
+                entry for entry in entries if lowered in entry[1].lower()
+            ]
+        else:
+            filtered = list(entries)
+
+        pane.lines = [entry[0] for entry in filtered]
+        if pane.lines:
+            pane.cursor = max(0, min(pane.cursor, len(pane.lines) - 1))
+        else:
+            pane.cursor = 0
+        return filtered
+
+    def _prompt_filter(self, pane: PaneContext) -> None:
+        label = pane.name.replace("_", " ").title()
+        previous_filter = self._get_pane_filter(pane.name)
+        previous_message = self.progress_message
+        response = ""
+        try:
+            self.progress_message = f"Filter {label}"
+            self._render()
+            try:
+                response = _read_input_line(
+                    f"Filter {label} (empty to clear): "
+                )
+            except (EOFError, KeyboardInterrupt):
+                response = ""
+            except Exception:
+                response = ""
+        finally:
+            self.progress_message = previous_message
+
+        new_value = response.strip()
+        self._set_pane_filter(pane.name, new_value)
+        applied_filter = self._get_pane_filter(pane.name)
+        if applied_filter and applied_filter != previous_filter:
+            self._append_status(f"{label} filter set to '{applied_filter}'")
+        elif not applied_filter and previous_filter:
+            self._append_status(f"{label} filter cleared")
 
     def _move_nav(self, offset: int) -> None:
         size = len(self.navigation)
@@ -471,7 +557,7 @@ class OfficeJanitorTUI:
     def _render_footer(self) -> str:
         help_text = (
             "Arrows navigate • Tab switches focus • Space toggles • Enter confirms • "
-            "F10 run • F1 help • Q quits"
+            "F10 run • / filter • F1 help • Q quits"
         )
         return help_text
 
@@ -480,22 +566,33 @@ class OfficeJanitorTUI:
         if self.last_inventory is None:
             lines.append("No inventory collected yet.")
         else:
-            formatted = _format_inventory(self.last_inventory)
-            lines.extend(formatted)
+            pane = self.panes["detect"]
+            entries = self._ensure_pane_lines(pane)
+            active_filter = self._get_pane_filter(pane.name)
+            if active_filter:
+                lines.append(f"Filter: {active_filter}")
+            if entries:
+                lines.extend(text for _, text in entries)
+            else:
+                lines.append("No matching entries.")
         pane = self.panes["detect"]
-        pane.lines = lines[1:]
+        if self.last_inventory is None:
+            pane.lines = []
         return [line[:width] for line in lines]
 
     def _render_plan_pane(self, width: int) -> List[str]:
         lines = ["Plan options:"]
-        options = list(self.plan_overrides.items())
         pane = self.panes["plan"]
-        pane.lines = []
-        for index, (key, enabled) in enumerate(options):
-            marker = "[x]" if enabled else "[ ]"
-            cursor = "➤" if pane.cursor == index else " "
-            pane.lines.append(key)
-            lines.append(f"{cursor} {marker} {key.replace('_', ' ').title()}")
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "➤" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        else:
+            lines.append("No matching options.")
         lines.append("")
         summary = _format_plan(self.last_plan)
         lines.extend(summary)
@@ -504,12 +601,16 @@ class OfficeJanitorTUI:
     def _render_targeted_pane(self, width: int) -> List[str]:
         lines = ["Targeted scrub targets:"]
         pane = self.panes["targeted"]
-        pane.lines = []
-        for index, (version, enabled) in enumerate(self.target_overrides.items()):
-            marker = "[x]" if enabled else "[ ]"
-            cursor = "➤" if pane.cursor == index else " "
-            pane.lines.append(version)
-            lines.append(f"{cursor} {marker} Office {version}")
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "➤" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        else:
+            lines.append("No matching targets.")
         lines.append("")
         lines.append("Select versions with Space, Enter/F10 to run targeted scrub.")
         if self.last_inventory is None:
@@ -542,9 +643,17 @@ class OfficeJanitorTUI:
 
     def _render_run_pane(self, width: int) -> List[str]:
         lines = ["Execution progress:"]
-        lines.extend(self.status_lines[-10:])
         pane = self.panes["run"]
-        pane.lines = self.status_lines[-10:]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            lines.extend(text for _, text in entries)
+        else:
+            lines.append(
+                "No matching progress messages." if active_filter else "No progress yet."
+            )
         return [line[:width] for line in lines]
 
     def _render_logs_pane(self, width: int) -> List[str]:
@@ -553,20 +662,30 @@ class OfficeJanitorTUI:
             lines.append("No log entries yet.")
         else:
             pane = self.panes["logs"]
-            pane.lines = self.log_lines
-            start = max(0, len(self.log_lines) - 10)
-            lines.extend(self.log_lines[start:])
+            entries = self._ensure_pane_lines(pane)
+            active_filter = self._get_pane_filter(pane.name)
+            if active_filter:
+                lines.append(f"Filter: {active_filter}")
+            if entries:
+                start = max(0, len(entries) - 10)
+                lines.extend(text for _, text in entries[start:])
+            else:
+                lines.append("No matching log entries.")
         return [line[:width] for line in lines]
 
     def _render_settings_pane(self, width: int) -> List[str]:
         lines = ["Settings toggles:"]
         pane = self.panes["settings"]
-        pane.lines = []
-        for index, (key, enabled) in enumerate(self.settings_overrides.items()):
-            marker = "[x]" if enabled else "[ ]"
-            cursor = "➤" if pane.cursor == index else " "
-            pane.lines.append(key)
-            lines.append(f"{cursor} {marker} {key.replace('_', ' ').title()}")
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "➤" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        else:
+            lines.append("No matching settings.")
         args = self.app_state.get("args")
         lines.append("")
         lines.append(f"Log directory: {getattr(args, 'logdir', '(default)')}")
@@ -576,7 +695,8 @@ class OfficeJanitorTUI:
         return [line[:width] for line in lines]
 
     def _toggle_plan_option(self, index: int) -> None:
-        keys = list(self.plan_overrides.keys())
+        pane = self.panes.get("plan")
+        keys = list(pane.lines) if pane is not None and pane.lines else list(self.plan_overrides.keys())
         if not keys:
             return
         safe_index = max(0, min(index, len(keys) - 1))
@@ -585,7 +705,12 @@ class OfficeJanitorTUI:
         self._append_status(f"Plan option '{key}' set to {self.plan_overrides[key]}")
 
     def _toggle_target(self, index: int) -> None:
-        keys = list(self.target_overrides.keys())
+        pane = self.panes.get("targeted")
+        keys = (
+            list(pane.lines)
+            if pane is not None and pane.lines
+            else list(self.target_overrides.keys())
+        )
         if not keys:
             return
         safe_index = max(0, min(index, len(keys) - 1))
@@ -595,7 +720,12 @@ class OfficeJanitorTUI:
         self._append_status(f"Target version {key} {state}.")
 
     def _toggle_setting(self, index: int) -> None:
-        keys = list(self.settings_overrides.keys())
+        pane = self.panes.get("settings")
+        keys = (
+            list(pane.lines)
+            if pane is not None and pane.lines
+            else list(self.settings_overrides.keys())
+        )
         if not keys:
             return
         safe_index = max(0, min(index, len(keys) - 1))
@@ -1050,7 +1180,10 @@ def _decode_key(raw: str) -> str:
     }
     if raw in windows_sequences:
         return windows_sequences[raw]
-    return raw.strip()
+    trimmed = raw.strip()
+    if trimmed == "/":
+        return "/"
+    return trimmed
 
 
 def _clear_screen() -> None:
@@ -1064,15 +1197,43 @@ def _divider(width: int) -> str:
 
 def _format_inventory(inventory: Mapping[str, object]) -> List[str]:
     lines: List[str] = []
-    for key, items in inventory.items():
-        try:
-            count = len(items)  # type: ignore[arg-type]
-        except TypeError:
-            count = len(list(items))  # type: ignore[arg-type]
-        lines.append(f"{key:<16} {count:>4}")
+    for key, value in inventory.items():
+        lines.extend(_flatten_inventory_entry(str(key), value))
     if not lines:
         lines.append("No data")
     return lines
+
+
+def _flatten_inventory_entry(prefix: str, value: object) -> List[str]:
+    if isinstance(value, Mapping):
+        if not value:
+            return [f"{prefix}: (empty)"]
+        lines: List[str] = []
+        for subkey, subvalue in value.items():
+            nested_prefix = f"{prefix}.{subkey}"
+            lines.extend(_flatten_inventory_entry(nested_prefix, subvalue))
+        return lines
+    if isinstance(value, (list, tuple, set)):
+        items = list(value)
+        if not items:
+            return [f"{prefix}: (empty)"]
+        return [f"{prefix}: {_stringify_inventory_value(item)}" for item in items]
+    return [f"{prefix}: {_stringify_inventory_value(value)}"]
+
+
+def _stringify_inventory_value(value: object) -> str:
+    if isinstance(value, Mapping):
+        if not value:
+            return "{}"
+        parts = [
+            f"{key}={_stringify_inventory_value(subvalue)}" for key, subvalue in value.items()
+        ]
+        return ", ".join(parts)
+    if isinstance(value, (list, tuple, set)):
+        if not value:
+            return "[]"
+        return ", ".join(_stringify_inventory_value(item) for item in value)
+    return str(value)
 
 
 def _summarize_inventory(inventory: Mapping[str, object]) -> dict[str, int]:

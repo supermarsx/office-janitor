@@ -84,6 +84,22 @@ def test_navigation_state_changes(monkeypatch):
     assert calls["detect"] == 1
 
 
+def test_plan_filter_limits_visible_options(monkeypatch):
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    pane = interface.panes["plan"]
+    interface._set_pane_filter("plan", "visio")
+    interface._ensure_pane_lines(pane)
+
+    assert pane.lines == ["include_visio"]
+    interface._toggle_plan_option(pane.cursor)
+    assert interface.plan_overrides["include_visio"] is True
+
+    interface._set_pane_filter("plan", "")
+
+
 def test_event_queue_updates_state(monkeypatch):
     state, _ = _make_app_state()
     monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
@@ -121,6 +137,21 @@ def test_fallback_to_cli(monkeypatch):
     interface.run()
 
     assert called.get("cli") is True
+
+
+def test_format_inventory_flattens_entries():
+    inventory = {
+        "msi": [
+            {"product": "Office 2019", "arch": "x64"},
+            {"product": "Visio", "arch": "x86"},
+        ],
+        "summary": {"msi": 2},
+    }
+
+    lines = tui._format_inventory(inventory)
+
+    assert "msi: product=Office 2019, arch=x64" in lines
+    assert "summary.msi: 2" in lines
 
 
 def test_settings_and_plan_overrides_propagate(monkeypatch):
