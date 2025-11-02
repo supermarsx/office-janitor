@@ -315,6 +315,8 @@ def _build_app_state(
             record["data"] = dict(payload)
         ui_events.append(record)
 
+    logging_ext.register_ui_event_sink(emitter=emit_event, queue=ui_events)
+
     def detector() -> dict:
         logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
         return _run_detection(machine_log, logdir_path)

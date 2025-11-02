@@ -15,7 +15,16 @@ import sys
 import uuid
 from logging import handlers
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, MutableMapping, Tuple
+from typing import (
+    Callable,
+    Deque,
+    Dict,
+    Iterable,
+    Mapping,
+    MutableMapping,
+    MutableSequence,
+    Tuple,
+)
 
 from . import version
 
@@ -58,6 +67,10 @@ _STANDARD_RECORD_KEYS: Dict[str, None] = {
 _CURRENT_LOG_DIRECTORY: Path | None = None
 _RUN_METADATA: Dict[str, object] | None = None
 _SESSION_ID: str | None = None
+_UI_EVENT_EMITTER: Callable[..., object] | None = None
+_UI_EVENT_QUEUE: (
+    MutableSequence[dict[str, object]] | Deque[dict[str, object]] | None
+) = None
 
 
 class _ChannelFilter(logging.Filter):
@@ -288,6 +301,66 @@ def get_machine_logger() -> logging.Logger:
     """
 
     return logging.getLogger(MACHINE_LOGGER_NAME)
+
+
+def register_ui_event_sink(
+    *,
+    emitter: Callable[..., object] | None = None,
+    queue: MutableSequence[dict[str, object]] | Deque[dict[str, object]] | None = None,
+) -> None:
+    """!
+    @brief Register callables used to relay UI events to interactive surfaces.
+    @details Modules may emit human-centric notifications via
+    :func:`emit_ui_event`. When an ``emitter`` is provided, it is invoked first
+    so higher level interfaces can react immediately. The optional ``queue``
+    parameter captures events for later consumption by the CLI/TUI when no
+    direct emitter exists. Passing no arguments resets previously registered
+    sinks.
+    @param emitter Callable mirroring ``emit_event`` in :mod:`office_janitor.main`.
+    @param queue Mutable sequence that accepts dictionaries with ``event`` and
+    ``message`` keys.
+    """
+
+    global _UI_EVENT_EMITTER, _UI_EVENT_QUEUE
+
+    _UI_EVENT_EMITTER = emitter
+    _UI_EVENT_QUEUE = queue
+
+
+def emit_ui_event(event: str, message: str, **payload: object) -> bool:
+    """!
+    @brief Emit an event for consumption by CLI/TUI layers when available.
+    @details The helper prefers an explicit emitter registered via
+    :func:`register_ui_event_sink` and falls back to appending into the
+    configured queue. A boolean return value indicates whether any sink accepted
+    the event, allowing callers to decide if additional fallbacks are required.
+    @param event Event identifier (for example ``"processes.outlook_reassurance"``).
+    @param message Human-readable message describing the event.
+    @returns ``True`` when the event was delivered to an emitter or queue.
+    """
+
+    delivered = False
+
+    emitter = _UI_EVENT_EMITTER
+    if callable(emitter):
+        try:
+            emitter(event, message=message, **payload)
+            delivered = True
+        except Exception:
+            delivered = False
+
+    queue = _UI_EVENT_QUEUE
+    if queue is not None and hasattr(queue, "append"):
+        record: dict[str, object] = {"event": event, "message": message}
+        if payload:
+            record["data"] = dict(payload)
+        try:
+            queue.append(record)  # type: ignore[arg-type]
+            delivered = True
+        except Exception:
+            pass
+
+    return delivered
 
 
 def get_log_directory() -> Path | None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+from collections import deque
 from typing import List, Sequence
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -334,6 +335,42 @@ def test_prompt_user_to_close_declines(monkeypatch, tmp_path) -> None:
     )
 
     assert result is False
+
+
+def test_prompt_user_to_close_emits_outlook_warning(
+    monkeypatch, tmp_path
+) -> None:
+    """!
+    @brief Outlook processes should trigger a reassurance warning and UI event.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    event_queue = deque()
+    logging_ext.register_ui_event_sink(queue=event_queue)
+
+    answers = iter(["n"])
+    processes.prompt_user_to_close(
+        ["OUTLOOK.EXE"], input_func=lambda _: next(answers)
+    )
+
+    logging_ext.register_ui_event_sink()
+
+    human_logger = logging_ext.get_human_logger()
+    for handler in list(human_logger.handlers):
+        flush = getattr(handler, "flush", None)
+        if callable(flush):
+            flush()
+
+    log_dir = logging_ext.get_log_directory()
+    assert log_dir is not None
+    human_log = log_dir / "human.log"
+    assert human_log.exists()
+    contents = human_log.read_text(encoding="utf-8")
+    assert "OST/PST" in contents
+    assert event_queue
+    recorded = event_queue[0]
+    assert recorded.get("event") == "processes.outlook_reassurance"
+    assert "OST/PST" in str(recorded.get("message"))
 
 
 def test_terminate_process_patterns_uses_enumerator(monkeypatch, tmp_path) -> None:
