@@ -6,6 +6,8 @@ against the new OffScrub-based uninstall helpers.
 
 from __future__ import annotations
 
+import json
+import logging
 import pathlib
 import sys
 from typing import List
@@ -28,6 +30,36 @@ def _context(dry_run: bool = False, options: dict | None = None, pass_index: int
             "pass_index": pass_index,
         },
     }
+
+
+def test_log_summary_mentions_reboot(tmp_path) -> None:
+    """!
+    @brief Scrub summary should surface reboot recommendations.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+
+    result = scrub.StepResult(
+        step_id="context",
+        category="context",
+        status="success",
+        attempts=1,
+        dry_run=False,
+    )
+    result.details["reboot_recommended"] = True
+    result.details["reboot_services"] = ["ClickToRunSvc"]
+    result.started_at = 0.0
+    result.completed_at = 1.0
+
+    scrub._log_summary([result], passes=1, dry_run=False)
+    human_log = (tmp_path / "human.log").read_text(encoding="utf-8")
+    assert "reboot recommended" in human_log.lower()
+
+    machine_log = (tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    events = [json.loads(line) for line in machine_log if line.strip()]
+    summary = next(event for event in events if event.get("event") == "scrub_summary")
+    assert summary["reboot_recommended"] is True
+    assert summary["reboot_services"] == ["ClickToRunSvc"]
 
 
 def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:

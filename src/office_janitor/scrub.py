@@ -162,6 +162,9 @@ class StepExecutor:
                 result.error = repr(exc)
                 result.exception = exc
                 result.completed_at = time.perf_counter()
+                pending_reboots = tasks_services.consume_reboot_recommendations()
+                if pending_reboots:
+                    _merge_reboot_details(result.details, pending_reboots)
                 self._machine_logger.error(
                     "scrub_step_failure",
                     extra={
@@ -198,6 +201,9 @@ class StepExecutor:
                 result.completed_at = time.perf_counter()
                 if detail_payload:
                     result.details.update(detail_payload)
+                pending_reboots = tasks_services.consume_reboot_recommendations()
+                if pending_reboots:
+                    _merge_reboot_details(result.details, pending_reboots)
                 self._machine_logger.info(
                     "scrub_step_complete",
                     extra={
@@ -252,7 +258,6 @@ class StepExecutor:
         if duration < 0:
             return None
         return round(duration, 6)
-
     def _dispatch(
         self,
         *,
@@ -364,6 +369,34 @@ class StepExecutor:
                 continue
             return max(0, parsed)
         return 0
+
+
+def _merge_reboot_details(details: MutableMapping[str, object], services: Iterable[str]) -> None:
+    """!
+    @brief Merge ``services`` into ``details`` reboot recommendation payload.
+    """
+
+    normalized = [
+        text
+        for text in (str(service).strip() for service in services)
+        if text
+    ]
+    if not normalized:
+        return
+
+    current = details.get("reboot_services")
+    existing: list[str] = []
+    if isinstance(current, Iterable) and not isinstance(current, (str, bytes)):
+        existing = [
+            str(item).strip()
+            for item in current
+            if str(item).strip()
+        ]
+
+    combined = list(dict.fromkeys([*existing, *normalized]))
+    details["reboot_services"] = combined
+    details["reboot_recommended"] = True
+
 
 UNINSTALL_CATEGORIES = {"context", "detect", "msi-uninstall", "c2r-uninstall"}
 CLEANUP_CATEGORIES = {
@@ -770,6 +803,21 @@ def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> N
         if bool(item.details.get("backup_performed"))
     )
 
+    reboot_recommended = False
+    reboot_services: list[str] = []
+    for item in result_list:
+        if not bool(item.details.get("reboot_recommended")):
+            continue
+        reboot_recommended = True
+        services = item.details.get("reboot_services")
+        if isinstance(services, Iterable) and not isinstance(services, (str, bytes)):
+            for service in services:
+                text = str(service).strip()
+                if text and text not in reboot_services:
+                    reboot_services.append(text)
+
+    reboot_services_sorted = reboot_services
+
     durations = [
         item.completed_at - item.started_at
         for item in result_list
@@ -794,6 +842,8 @@ def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> N
             "backups_performed": backups_performed,
             "total_duration": round(total_duration, 6),
             "average_duration": round(average_duration, 6),
+            "reboot_recommended": reboot_recommended,
+            "reboot_services": reboot_services_sorted or None,
         },
     )
 
@@ -804,10 +854,15 @@ def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> N
             dry_run,
         )
     else:
+        reboot_text = ""
+        if reboot_recommended:
+            display = ", ".join(reboot_services_sorted) or "system reboot required"
+            reboot_text = f"; reboot recommended to finish stopping services: {display}"
+
         human_logger.info(
             (
                 "Scrub summary: %d step(s) processed (%d succeeded, %d failed, %d skipped); "
-                "passes=%d; dry_run=%s; registry backups=%d/%d; duration=%.3fs"
+                "passes=%d; dry_run=%s; registry backups=%d/%d; duration=%.3fs%s"
             ),
             total,
             successes,
@@ -818,6 +873,7 @@ def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> N
             backups_performed,
             backups_requested,
             total_duration,
+            reboot_text,
         )
 
 
