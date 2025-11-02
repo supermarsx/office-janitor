@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Iterable, List, Mapping, MutableMapping, Sequence
+import sys
+from typing import Callable, Iterable, List, Mapping, MutableMapping, Sequence, Tuple
 
 from . import command_runner, constants, logging_ext, registry_tools
 
@@ -37,6 +38,16 @@ MSI_RETRY_ATTEMPTS = 2
 MSI_RETRY_DELAY = 5.0
 """!
 @brief Seconds to wait between retry attempts.
+"""
+
+MSI_BUSY_RETURN_CODE = 1618
+"""!
+@brief ``msiexec`` exit code indicating another installation is already running.
+"""
+
+MSI_BUSY_BACKOFF_CAP = 60.0
+"""!
+@brief Maximum seconds to wait before retrying when Windows Installer is busy.
 """
 
 MSI_VERIFICATION_ATTEMPTS = 3
@@ -177,6 +188,130 @@ def _is_product_present(entry: _MsiProduct) -> bool:
     return False
 
 
+def _compute_busy_backoff(attempt: int) -> float:
+    """!
+    @brief Calculate a retry delay for busy Windows Installer states.
+    @details Implements exponential backoff capped at :data:`MSI_BUSY_BACKOFF_CAP`
+    so repeated ``ERROR_INSTALL_ALREADY_RUNNING`` responses do not hammer the
+    service while still progressing promptly once the conflicting installer
+    exits.
+    @param attempt Current attempt number (1-indexed).
+    @returns Delay in seconds before the next retry.
+    """
+
+    exponent = max(0, int(attempt) - 1)
+    delay = MSI_RETRY_DELAY * (2**exponent)
+    return float(min(MSI_BUSY_BACKOFF_CAP, delay))
+
+
+def _handle_busy_installer(
+    entry: _MsiProduct,
+    *,
+    attempt: int,
+    attempts: int,
+    input_func: Callable[[str], str] | None = None,
+) -> Tuple[bool, float]:
+    """!
+    @brief Emit guidance and optionally prompt when Windows Installer is busy.
+    @details ``msiexec`` returns ``1618`` when another installation is already
+    running. This helper surfaces actionable guidance through both human and
+    structured logs, then decides whether to retry the uninstall based on
+    operator confirmation or automation context. When retrying it returns the
+    computed backoff delay so callers can pause before the next attempt.
+    @param entry Normalised product metadata for the pending uninstall.
+    @param attempt Current attempt number (1-indexed).
+    @param attempts Total attempts allowed for the uninstall.
+    @param input_func Optional override for collecting operator responses in
+    interactive sessions.
+    @returns Tuple of ``(should_retry, delay_seconds)``.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    delay = _compute_busy_backoff(attempt)
+    interactive = False
+
+    if input_func is not None:
+        interactive = True
+    else:
+        stdin = getattr(sys, "stdin", None)
+        isatty = getattr(stdin, "isatty", None)
+        interactive = bool(isatty and isatty())
+        if interactive:
+            input_func = input
+
+    human_logger.warning(
+        (
+            "Windows Installer reported another setup already running while "
+            "removing %s (%s). Close any other installers or finish updates "
+            "before retrying."
+        ),
+        entry.display_name,
+        entry.product_code,
+    )
+
+    decision = "retry"
+
+    if not interactive:
+        human_logger.info(
+            "Non-interactive session detected; automatically retrying after %.1fs.",
+            delay,
+        )
+    else:
+        prompt = (
+            "Retry uninstall of {name} after waiting {delay:.0f}s once other installers are closed? "
+            "[Y/n]: "
+        ).format(name=entry.display_name, delay=delay)
+        try:
+            response = input_func(prompt)
+        except EOFError:
+            response = "n"
+        normalized = response.strip().lower()
+        if normalized in {"n", "no"}:
+            decision = "cancel"
+            human_logger.info(
+                "Operator cancelled uninstall retries for %s (%s) due to busy installer.",
+                entry.display_name,
+                entry.product_code,
+            )
+            machine_logger.info(
+                "msi_uninstall_busy",
+                extra={
+                    "event": "msi_uninstall_busy",
+                    "product_code": entry.product_code,
+                    "display_name": entry.display_name,
+                    "version": entry.version,
+                    "attempt": attempt,
+                    "attempts": attempts,
+                    "decision": decision,
+                    "delay": delay,
+                    "interactive": interactive,
+                },
+            )
+            return False, 0.0
+        human_logger.info(
+            "Operator approved retry once other installers exit (delay %.1fs).",
+            delay,
+        )
+
+    machine_logger.info(
+        "msi_uninstall_busy",
+        extra={
+            "event": "msi_uninstall_busy",
+            "product_code": entry.product_code,
+            "display_name": entry.display_name,
+            "version": entry.version,
+            "attempt": attempt,
+            "attempts": attempts,
+            "decision": decision,
+            "delay": delay,
+            "interactive": interactive,
+        },
+    )
+    return True, delay
+
+
 def build_command(product_code: str) -> List[str]:
     """!
     @brief Compose the ``msiexec`` command used to uninstall ``product_code``.
@@ -231,6 +366,7 @@ def uninstall_products(
     *,
     dry_run: bool = False,
     retries: int = MSI_RETRY_ATTEMPTS,
+    busy_input_func: Callable[[str], str] | None = None,
 ) -> None:
     """!
     @brief Uninstall the supplied MSI products via ``msiexec``.
@@ -241,6 +377,8 @@ def uninstall_products(
     @param products Iterable of product codes or inventory mappings.
     @param dry_run When ``True`` log intent without executing ``msiexec``.
     @param retries Additional attempts after the first failure.
+    @param busy_input_func Optional callback used when prompting about busy
+    Windows Installer sessions (exit code ``1618``).
     """
 
     human_logger = logging_ext.get_human_logger()
@@ -305,6 +443,22 @@ def uninstall_products(
             if result.skipped:
                 break
             if result.returncode == 0:
+                break
+            if (
+                result.returncode == MSI_BUSY_RETURN_CODE
+                and attempt < total_attempts
+                and not dry_run
+            ):
+                should_retry, delay = _handle_busy_installer(
+                    entry,
+                    attempt=attempt,
+                    attempts=total_attempts,
+                    input_func=busy_input_func,
+                )
+                if should_retry:
+                    if delay > 0:
+                        time.sleep(delay)
+                    continue
                 break
             if attempt < total_attempts:
                 human_logger.warning(

@@ -145,6 +145,95 @@ def test_msi_uninstall_reports_failure(monkeypatch, tmp_path) -> None:
     assert "BAD-CODE" in str(excinfo.value)
 
 
+def test_msi_uninstall_prompts_and_retries_when_installer_busy(monkeypatch, tmp_path) -> None:
+    """!
+    @brief ``ERROR_INSTALL_ALREADY_RUNNING`` should trigger guidance and retries.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    executed: List[List[str]] = []
+    prompts: List[str] = []
+    sleeps: List[float] = []
+    state = {"present": True, "attempt": 0}
+
+    def fake_run_command(
+        command: List[str],
+        *,
+        event: str,
+        timeout: float | None = None,
+        dry_run: bool = False,
+        human_message: str | None = None,
+        extra: dict | None = None,
+    ) -> command_runner.CommandResult:
+        executed.append(command)
+        state["attempt"] += 1
+        if state["attempt"] == 1:
+            return _command_result(command, returncode=msi_uninstall.MSI_BUSY_RETURN_CODE)
+        state["present"] = False
+        return _command_result(command)
+
+    def fake_input(prompt: str) -> str:
+        prompts.append(prompt)
+        return "y"
+
+    monkeypatch.setattr(msi_uninstall.command_runner, "run_command", fake_run_command)
+    monkeypatch.setattr(msi_uninstall.registry_tools, "key_exists", lambda *_, **__: state["present"])
+    monkeypatch.setattr(msi_uninstall.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    record = {
+        "product": "Office",
+        "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
+        "uninstall_handles": [
+            "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{91160000-0011-0000-0000-0000000FF1CE}"
+        ],
+    }
+
+    msi_uninstall.uninstall_products([record], retries=2, busy_input_func=fake_input)
+
+    assert len(executed) == 2, "Expected retry after busy installer"
+    assert prompts, "Operator prompt should be displayed for busy installer"
+    assert sleeps and sleeps[0] == pytest.approx(msi_uninstall.MSI_RETRY_DELAY)
+
+
+
+def test_msi_uninstall_cancels_when_busy_operator_declines(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Operator refusal should surface busy failures without additional retries.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    executed: List[List[str]] = []
+
+    def fake_run_command(
+        command: List[str],
+        *,
+        event: str,
+        timeout: float | None = None,
+        dry_run: bool = False,
+        human_message: str | None = None,
+        extra: dict | None = None,
+    ) -> command_runner.CommandResult:
+        executed.append(command)
+        return _command_result(command, returncode=msi_uninstall.MSI_BUSY_RETURN_CODE)
+
+    monkeypatch.setattr(msi_uninstall.command_runner, "run_command", fake_run_command)
+    monkeypatch.setattr(msi_uninstall.registry_tools, "key_exists", lambda *_, **__: True)
+    def fail_sleep(*_, **__):
+        raise AssertionError("sleep not expected")
+
+    monkeypatch.setattr(msi_uninstall.time, "sleep", fail_sleep)
+
+    record = {
+        "product": "Office",
+        "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
+    }
+
+    with pytest.raises(RuntimeError) as excinfo:
+        msi_uninstall.uninstall_products([record], retries=2, busy_input_func=lambda *_: "n")
+
+    assert "91160000-0011-0000-0000-0000000FF1CE" in str(excinfo.value)
+    assert len(executed) == 1, "Should not retry when operator declines"
+
 def test_c2r_uninstall_prefers_client(monkeypatch, tmp_path) -> None:
     """!
     @brief OfficeC2RClient.exe should be preferred when available.
