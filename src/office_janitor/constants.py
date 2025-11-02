@@ -635,6 +635,94 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
 }
 
 
+DEFAULT_AUTO_ALL_C2R_RELEASES: Mapping[str, Dict[str, object]] = {
+    "O365ProPlusRetail": {
+        "product": "Microsoft 365 Apps for enterprise",
+        "description": "Uninstall Microsoft 365 Apps for enterprise (Click-to-Run)",
+        "default_version": "365",
+        "channel": "Current Channel",
+        "family": "office",
+    },
+    "O365ProPlusVolume": {
+        "product": "Microsoft 365 Apps for enterprise (Volume)",
+        "description": "Uninstall Microsoft 365 Apps for enterprise (Volume)",
+        "default_version": "365",
+        "channel": "Current Channel",
+        "family": "office",
+    },
+    "O365BusinessRetail": {
+        "product": "Microsoft 365 Apps for business",
+        "description": "Uninstall Microsoft 365 Apps for business",
+        "default_version": "365",
+        "channel": "Current Channel",
+        "family": "office",
+    },
+    "ProPlus2024Retail": {
+        "product": "Office Professional Plus 2024 (C2R)",
+        "description": "Uninstall Office Professional Plus 2024 (Click-to-Run)",
+        "default_version": "2024",
+        "channel": "Perpetual Enterprise",
+        "family": "office",
+    },
+    "Standard2024Retail": {
+        "product": "Office Standard 2024 (C2R)",
+        "description": "Uninstall Office Standard 2024 (Click-to-Run)",
+        "default_version": "2024",
+        "channel": "Perpetual Enterprise",
+        "family": "office",
+    },
+    "ProPlus2021Retail": {
+        "product": "Office Professional Plus 2021 (C2R)",
+        "description": "Uninstall Office Professional Plus 2021 (Click-to-Run)",
+        "default_version": "2021",
+        "channel": "Perpetual Enterprise",
+        "family": "office",
+    },
+    "Standard2021Retail": {
+        "product": "Office Standard 2021 (C2R)",
+        "description": "Uninstall Office Standard 2021 (Click-to-Run)",
+        "default_version": "2021",
+        "channel": "Perpetual Enterprise",
+        "family": "office",
+    },
+    "ProPlus2019Retail": {
+        "product": "Office Professional Plus 2019 (C2R)",
+        "description": "Uninstall Office Professional Plus 2019 (Click-to-Run)",
+        "default_version": "2019",
+        "channel": "Perpetual Enterprise",
+        "family": "office",
+    },
+    "Standard2019Retail": {
+        "product": "Office Standard 2019 (C2R)",
+        "description": "Uninstall Office Standard 2019 (Click-to-Run)",
+        "default_version": "2019",
+        "channel": "Perpetual Enterprise",
+        "family": "office",
+    },
+    "ProjectProRetail": {
+        "product": "Microsoft Project Professional (C2R)",
+        "description": "Uninstall Microsoft Project Professional (Click-to-Run)",
+        "default_version": "2024",
+        "channel": "Perpetual Enterprise",
+        "family": "project",
+    },
+    "VisioProRetail": {
+        "product": "Microsoft Visio Professional (C2R)",
+        "description": "Uninstall Microsoft Visio Professional (Click-to-Run)",
+        "default_version": "2024",
+        "channel": "Perpetual Enterprise",
+        "family": "visio",
+    },
+}
+"""!
+@brief Default Click-to-Run releases seeded for auto-all planning.
+@details Provides curated metadata for modern suites that should be targeted
+when auto-all mode executes without relying on detection results. Optional
+components such as Project and Visio are included so planners can respect
+``--include`` selections.
+"""
+
+
 _MSI_FAMILY_LOOKUP: Dict[str, str] = {}
 for _code, _metadata in MSI_PRODUCT_MAP.items():
     _family = str(_metadata.get("family", ""))
@@ -837,6 +925,7 @@ __all__ = [
     "C2R_OFFSCRUB_SCRIPT",
     "C2R_PLATFORM_ALIASES",
     "C2R_PRODUCT_RELEASES",
+    "DEFAULT_AUTO_ALL_C2R_RELEASES",
     "C2R_PRODUCT_RELEASE_ROOTS",
     "C2R_SUBSCRIPTION_ROOTS",
     "C2R_UNINSTALL_VERSION_GROUPS",

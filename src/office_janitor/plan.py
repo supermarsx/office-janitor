@@ -59,15 +59,23 @@ def build_plan(
     components, unsupported_components = _resolve_components(normalized_options.get("include"))
     normalized_options["include_components"] = components
 
-    selected_inventory = {
-        key: list(value) if not isinstance(value, list) else value
+    detected_inventory = {
+        key: list(value) if not isinstance(value, list) else list(value)
         for key, value in inventory.items()
     }
-    discovered_versions = _discover_versions(selected_inventory)
-    if not targets:
-        targets = discovered_versions
+    planning_inventory = {
+        key: list(value) if not isinstance(value, list) else list(value)
+        for key, value in detected_inventory.items()
+    }
+    if mode == "auto-all":
+        _augment_auto_all_c2r_inventory(planning_inventory, components)
 
-    inventory_summary = _summarize_inventory(selected_inventory, discovered_versions)
+    detected_versions = _discover_versions(detected_inventory)
+    planning_versions = _discover_versions(planning_inventory)
+    if not targets:
+        targets = planning_versions
+
+    inventory_summary = _summarize_inventory(detected_inventory, detected_versions)
 
     plan: List[dict] = []
     context_metadata = {
@@ -76,11 +84,11 @@ def build_plan(
         "force": bool(normalized_options.get("force", False)),
         "target_versions": targets,
         "unsupported_targets": unsupported_targets,
-        "discovered_versions": discovered_versions,
+        "discovered_versions": detected_versions,
         "options": dict(normalized_options),
         "inventory_counts": {
             key: len(value) if hasattr(value, "__len__") else len(list(value))
-            for key, value in selected_inventory.items()
+            for key, value in detected_inventory.items()
         },
         "requested_components": components,
         "unsupported_components": unsupported_components,
@@ -121,7 +129,7 @@ def build_plan(
 
     if include_uninstalls:
         c2r_records = list(
-            enumerate(_filter_records_by_target(selected_inventory.get("c2r", []), targets))
+            enumerate(_filter_records_by_target(planning_inventory.get("c2r", []), targets))
         )
         c2r_records.sort(
             key=lambda item: (
@@ -150,7 +158,7 @@ def build_plan(
             uninstall_steps.append(uninstall_id)
 
         msi_records = list(
-            enumerate(_filter_records_by_target(selected_inventory.get("msi", []), targets))
+            enumerate(_filter_records_by_target(planning_inventory.get("msi", []), targets))
         )
         msi_records.sort(
             key=lambda item: (
@@ -197,7 +205,7 @@ def build_plan(
         )
         cleanup_dependencies = [licensing_step_id]
 
-    task_names = [] if diagnose_mode else _collect_task_names(selected_inventory.get("tasks", []))
+    task_names = [] if diagnose_mode else _collect_task_names(planning_inventory.get("tasks", []))
     if task_names:
         task_step_id = f"tasks-{pass_index}-0"
         plan.append(
@@ -214,7 +222,7 @@ def build_plan(
         )
         cleanup_dependencies = [task_step_id]
 
-    service_names = [] if diagnose_mode else _collect_service_names(selected_inventory.get("services", []))
+    service_names = [] if diagnose_mode else _collect_service_names(planning_inventory.get("services", []))
     if service_names:
         service_step_id = f"services-{pass_index}-0"
         plan.append(
@@ -231,7 +239,7 @@ def build_plan(
         )
         cleanup_dependencies = [service_step_id]
 
-    filesystem_entries = [] if diagnose_mode else _collect_paths(selected_inventory.get("filesystem", []))
+    filesystem_entries = [] if diagnose_mode else _collect_paths(planning_inventory.get("filesystem", []))
     if filesystem_entries:
         plan.append(
             {
@@ -249,7 +257,7 @@ def build_plan(
             }
         )
 
-    registry_entries = [] if diagnose_mode else _collect_registry_paths(selected_inventory.get("registry", []))
+    registry_entries = [] if diagnose_mode else _collect_registry_paths(planning_inventory.get("registry", []))
     if registry_entries:
         plan.append(
             {
@@ -362,6 +370,142 @@ def _resolve_components(include_option: object) -> tuple[List[str], List[str]]:
         else:
             unsupported.append(candidate)
     return resolved, unsupported
+
+
+def _augment_auto_all_c2r_inventory(
+    inventory: MutableMapping[str, Sequence[dict]], include_components: Sequence[str]
+) -> None:
+    bucket = inventory.get("c2r")
+    if bucket is None:
+        records: List[dict] = []
+    elif isinstance(bucket, list):
+        records = bucket
+    else:
+        records = list(bucket)
+    inventory["c2r"] = records
+
+    include_set = {component.lower() for component in include_components}
+    optional_families = {"project", "visio", "onenote"}
+
+    existing_ids: set[str] = set()
+    for record in records:
+        release_ids = record.get("release_ids")
+        if isinstance(release_ids, Iterable) and not isinstance(release_ids, (str, bytes)):
+            for release_id in release_ids:
+                release_text = str(release_id).strip().lower()
+                if release_text:
+                    existing_ids.add(release_text)
+
+    for release_id, metadata in constants.DEFAULT_AUTO_ALL_C2R_RELEASES.items():
+        base_metadata = constants.C2R_PRODUCT_RELEASES.get(release_id, {})
+        family = str(metadata.get("family") or base_metadata.get("family") or "office").lower()
+        if family in optional_families and family not in include_set:
+            continue
+        canonical = release_id.lower()
+        if canonical in existing_ids:
+            continue
+        seeded_entry = _build_seeded_c2r_entry(release_id, metadata, base_metadata)
+        records.append(seeded_entry)
+        existing_ids.add(canonical)
+
+
+def _build_seeded_c2r_entry(
+    release_id: str,
+    metadata: Mapping[str, object],
+    base_metadata: Mapping[str, object],
+) -> Dict[str, object]:
+    product_name = str(metadata.get("product") or base_metadata.get("product") or release_id)
+    description = str(
+        metadata.get("description") or f"Uninstall {product_name}"
+    )
+
+    supported_versions_source = metadata.get("supported_versions") or base_metadata.get(
+        "supported_versions", ()
+    )
+    if isinstance(supported_versions_source, (str, bytes)):
+        supported_versions_iter: Iterable[object] = [supported_versions_source]
+    elif isinstance(supported_versions_source, Iterable):
+        supported_versions_iter = supported_versions_source
+    else:
+        supported_versions_iter = []
+
+    supported_versions: List[str] = []
+    for item in supported_versions_iter:
+        text = str(item).strip()
+        if text:
+            supported_versions.append(text)
+
+    default_version = str(metadata.get("default_version") or "").strip()
+    if not default_version:
+        fallback_version = metadata.get("version")
+        if fallback_version:
+            default_version = str(fallback_version).strip()
+    if not default_version and supported_versions:
+        default_version = str(supported_versions[-1]).strip()
+    if not default_version:
+        default_version = "365" if release_id.lower().startswith("o365") else "c2r"
+
+    if default_version and default_version not in supported_versions:
+        supported_versions.append(default_version)
+
+    architectures_source = metadata.get("architectures") or base_metadata.get("architectures", ())
+    if isinstance(architectures_source, (str, bytes)):
+        architectures_iter: Iterable[object] = [architectures_source]
+    elif isinstance(architectures_source, Iterable):
+        architectures_iter = architectures_source
+    else:
+        architectures_iter = []
+
+    supported_architectures: List[str] = []
+    for item in architectures_iter:
+        text = str(item).strip()
+        if text:
+            supported_architectures.append(text)
+    architecture = str(
+        metadata.get("architecture")
+        or (supported_architectures[0] if supported_architectures else "x64")
+    )
+
+    family = str(metadata.get("family") or base_metadata.get("family") or "").strip()
+    channel = str(metadata.get("channel") or base_metadata.get("channel") or "unknown")
+
+    properties: Dict[str, object] = {
+        "release_id": release_id,
+        "version": default_version,
+        "supported_versions": supported_versions,
+    }
+    if supported_architectures:
+        properties["supported_architectures"] = supported_architectures
+    if family:
+        properties["family"] = family
+    if channel and channel != "unknown":
+        properties["channel"] = channel
+
+    tags: List[str] = []
+    raw_tags = metadata.get("tags")
+    if isinstance(raw_tags, Iterable) and not isinstance(raw_tags, (str, bytes)):
+        for tag in raw_tags:
+            tag_text = str(tag).strip()
+            if tag_text and tag_text not in tags:
+                tags.append(tag_text)
+    if default_version and default_version not in tags:
+        tags.append(default_version)
+
+    seeded: Dict[str, object] = {
+        "source": "C2R",
+        "product": product_name,
+        "description": description,
+        "version": default_version,
+        "architecture": architecture,
+        "release_ids": [release_id],
+        "channel": channel,
+        "uninstall_handles": [],
+        "properties": properties,
+    }
+    if tags:
+        seeded["tags"] = tags
+
+    return seeded
 
 
 def _discover_versions(inventory: Mapping[str, Sequence[dict]]) -> List[str]:

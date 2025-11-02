@@ -15,7 +15,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import plan
+from office_janitor import constants, plan
 
 
 class TestPlanBuilder:
@@ -67,17 +67,22 @@ class TestPlanBuilder:
         plan_steps = plan.build_plan(inventory, options)
 
         categories = [step["category"] for step in plan_steps]
-        assert categories == [
-            "context",
-            "detect",
-            "c2r-uninstall",
-            "msi-uninstall",
+        assert categories[:2] == ["context", "detect"]
+
+        c2r_indices = [index for index, category in enumerate(categories) if category == "c2r-uninstall"]
+        assert c2r_indices and min(c2r_indices) == 2
+        first_msi_index = categories.index("msi-uninstall")
+        assert max(c2r_indices) < first_msi_index
+
+        trailing_categories = categories[first_msi_index + 1 :]
+        for expected in (
             "licensing-cleanup",
             "task-cleanup",
             "service-cleanup",
             "filesystem-cleanup",
             "registry-cleanup",
-        ]
+        ):
+            assert expected in trailing_categories
 
         context = plan_steps[0]
         assert context["metadata"]["mode"] == "auto-all"
@@ -92,7 +97,8 @@ class TestPlanBuilder:
         assert detect_step["depends_on"] == ["context"]
 
         licensing = next(step for step in plan_steps if step["category"] == "licensing-cleanup")
-        assert set(licensing["depends_on"]) == {"msi-1-0", "c2r-1-0"}
+        c2r_step_ids = [step["id"] for step in plan_steps if step["category"] == "c2r-uninstall"]
+        assert set(licensing["depends_on"]) == {"msi-1-0", *c2r_step_ids}
         assert licensing["metadata"]["dry_run"] is False
 
         task_step = next(step for step in plan_steps if step["category"] == "task-cleanup")
@@ -107,9 +113,113 @@ class TestPlanBuilder:
         assert filesystem["depends_on"] == [service_step["id"]]
 
         msi_step = next(step for step in plan_steps if step["category"] == "msi-uninstall")
-        c2r_step = next(step for step in plan_steps if step["category"] == "c2r-uninstall")
+        detection_c2r_step = next(
+            step
+            for step in plan_steps
+            if step["category"] == "c2r-uninstall"
+            and "O365ProPlusRetail"
+            in step["metadata"]["installation"].get("release_ids", [])
+        )
         assert msi_step["metadata"]["version"] == "2019"
-        assert c2r_step["metadata"]["version"] == "365"
+        assert detection_c2r_step["metadata"]["version"] == "365"
+
+    def test_auto_all_seeds_default_c2r_inventory(self) -> None:
+        """!
+        @brief Auto-all mode should seed Click-to-Run uninstall steps by default.
+        @details When detection yields no C2R entries the planner should still
+        schedule curated release identifiers for modern Office suites so the
+        uninstall sequence mirrors OffScrub automation.
+        """
+
+        inventory: Dict[str, List[dict]] = {}
+        options = {"auto_all": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+
+        c2r_steps = [step for step in plan_steps if step["category"] == "c2r-uninstall"]
+        assert c2r_steps, "seeded plan should include Click-to-Run uninstall steps"
+
+        optional_families = {"project", "visio", "onenote"}
+        expected_release_ids = [
+            release_id
+            for release_id, metadata in constants.DEFAULT_AUTO_ALL_C2R_RELEASES.items()
+            if str(
+                metadata.get("family")
+                or constants.C2R_PRODUCT_RELEASES.get(release_id, {}).get("family")
+                or "office"
+            ).lower()
+            not in optional_families
+        ]
+        seeded_release_ids = [
+            release_id
+            for step in c2r_steps
+            for release_id in step["metadata"]["installation"].get("release_ids", [])
+        ]
+        assert seeded_release_ids == expected_release_ids
+
+        def _expected_version(release_id: str) -> str:
+            details = constants.DEFAULT_AUTO_ALL_C2R_RELEASES[release_id]
+            candidate = str(details.get("default_version") or "").strip()
+            if candidate:
+                return candidate
+            base = constants.C2R_PRODUCT_RELEASES.get(release_id, {})
+            versions = base.get("supported_versions") or ()
+            if versions:
+                return str(list(versions)[-1])
+            return "c2r"
+
+        expected_versions = {_expected_version(release_id) for release_id in expected_release_ids}
+
+        context = plan_steps[0]
+        assert context["metadata"]["mode"] == "auto-all"
+        assert context["metadata"]["discovered_versions"] == []
+        assert context["metadata"]["target_versions"] == sorted(expected_versions)
+
+    def test_auto_all_seeding_skips_detected_release_ids(self) -> None:
+        """!
+        @brief Detected Click-to-Run suites should not be duplicated when seeded.
+        """
+
+        inventory: Dict[str, List[dict]] = {
+            "c2r": [
+                {
+                    "product": "Microsoft 365 Apps for enterprise",
+                    "version": "365",
+                    "release_ids": ["O365ProPlusRetail"],
+                    "channel": "Current Channel",
+                }
+            ]
+        }
+        options = {"auto_all": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+
+        c2r_release_ids = [
+            release_id
+            for step in plan_steps
+            if step["category"] == "c2r-uninstall"
+            for release_id in step["metadata"]["installation"].get("release_ids", [])
+        ]
+        assert c2r_release_ids.count("O365ProPlusRetail") == 1
+
+    def test_auto_all_include_components_adds_optional_c2r(self) -> None:
+        """!
+        @brief Optional components should be seeded when explicitly included.
+        """
+
+        inventory: Dict[str, List[dict]] = {}
+        options = {"auto_all": True, "include": "Visio"}
+
+        plan_steps = plan.build_plan(inventory, options)
+
+        c2r_release_ids = [
+            release_id
+            for step in plan_steps
+            if step["category"] == "c2r-uninstall"
+            for release_id in step["metadata"]["installation"].get("release_ids", [])
+        ]
+
+        assert "VisioProRetail" in c2r_release_ids
 
     def test_uninstall_order_matches_offscrub_sequence(self) -> None:
         """!
@@ -135,19 +245,20 @@ class TestPlanBuilder:
         }
         plan_steps = plan.build_plan(inventory, {"auto_all": True})
 
-        uninstall_sequence = [
-            (step["category"], step["metadata"].get("version"))
+        categories = [step["category"] for step in plan_steps]
+        c2r_indices = [index for index, category in enumerate(categories) if category == "c2r-uninstall"]
+        msi_indices = [index for index, category in enumerate(categories) if category == "msi-uninstall"]
+
+        assert c2r_indices and msi_indices
+        assert max(c2r_indices) < min(msi_indices)
+
+        msi_versions = [
+            step["metadata"].get("version")
             for step in plan_steps
-            if step["category"] in {"msi-uninstall", "c2r-uninstall"}
+            if step["category"] == "msi-uninstall"
         ]
 
-        assert uninstall_sequence == [
-            ("c2r-uninstall", "365"),
-            ("msi-uninstall", "2016"),
-            ("msi-uninstall", "2013"),
-            ("msi-uninstall", "2010"),
-            ("msi-uninstall", "2007"),
-        ]
+        assert msi_versions == ["2016", "2013", "2010", "2007"]
 
     def test_msi_display_versions_use_supported_priority(self) -> None:
         """!
@@ -434,7 +545,21 @@ class TestPlanBuilder:
         msi_ids = [step["id"] for step in plan_steps if step["category"] == "msi-uninstall"]
         c2r_ids = [step["id"] for step in plan_steps if step["category"] == "c2r-uninstall"]
         assert msi_ids == ["msi-2-0"]
-        assert c2r_ids == ["c2r-2-0"]
+
+        optional_families = {"project", "visio", "onenote"}
+        expected_release_ids = [
+            release_id
+            for release_id, metadata in constants.DEFAULT_AUTO_ALL_C2R_RELEASES.items()
+            if str(
+                metadata.get("family")
+                or constants.C2R_PRODUCT_RELEASES.get(release_id, {}).get("family")
+                or "office"
+            ).lower()
+            not in optional_families
+        ]
+        assert len(c2r_ids) == len(expected_release_ids)
+        assert c2r_ids[0] == "c2r-2-0"
+        assert all(identifier.startswith("c2r-2-") for identifier in c2r_ids)
         context = plan_steps[0]
         assert context["metadata"]["pass_index"] == 2
         detect_ids = [step["id"] for step in plan_steps if step["category"] == "detect"]
@@ -480,7 +605,7 @@ class TestPlanBuilder:
 
         assert summary["total_steps"] == len(plan_steps)
         assert summary["categories"]["detect"] == 1
-        assert summary["uninstall_versions"] == ["2016"]
+        assert summary["uninstall_versions"] == ["2016", "2019", "2021", "2024", "365"]
         assert "filesystem-cleanup" in summary["cleanup_categories"]
         assert summary["actionable_steps"] == len(plan_steps) - 2  # minus context + detect
 
