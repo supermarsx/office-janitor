@@ -59,17 +59,23 @@ def build_plan(
     components, unsupported_components = _resolve_components(normalized_options.get("include"))
     normalized_options["include_components"] = components
 
-    selected_inventory = {
-        key: list(value) if not isinstance(value, list) else value
+    detected_inventory = {
+        key: list(value) if not isinstance(value, list) else list(value)
         for key, value in inventory.items()
     }
+    planning_inventory = {
+        key: list(value) if not isinstance(value, list) else list(value)
+        for key, value in detected_inventory.items()
+    }
     if mode == "auto-all":
-        _augment_auto_all_c2r_inventory(selected_inventory, components)
-    discovered_versions = _discover_versions(selected_inventory)
-    if not targets:
-        targets = discovered_versions
+        _augment_auto_all_c2r_inventory(planning_inventory, components)
 
-    inventory_summary = _summarize_inventory(selected_inventory, discovered_versions)
+    detected_versions = _discover_versions(detected_inventory)
+    planning_versions = _discover_versions(planning_inventory)
+    if not targets:
+        targets = planning_versions
+
+    inventory_summary = _summarize_inventory(detected_inventory, detected_versions)
 
     plan: List[dict] = []
     context_metadata = {
@@ -78,11 +84,11 @@ def build_plan(
         "force": bool(normalized_options.get("force", False)),
         "target_versions": targets,
         "unsupported_targets": unsupported_targets,
-        "discovered_versions": discovered_versions,
+        "discovered_versions": detected_versions,
         "options": dict(normalized_options),
         "inventory_counts": {
             key: len(value) if hasattr(value, "__len__") else len(list(value))
-            for key, value in selected_inventory.items()
+            for key, value in detected_inventory.items()
         },
         "requested_components": components,
         "unsupported_components": unsupported_components,
@@ -123,7 +129,7 @@ def build_plan(
 
     if include_uninstalls:
         c2r_records = list(
-            enumerate(_filter_records_by_target(selected_inventory.get("c2r", []), targets))
+            enumerate(_filter_records_by_target(planning_inventory.get("c2r", []), targets))
         )
         c2r_records.sort(
             key=lambda item: (
@@ -152,7 +158,7 @@ def build_plan(
             uninstall_steps.append(uninstall_id)
 
         msi_records = list(
-            enumerate(_filter_records_by_target(selected_inventory.get("msi", []), targets))
+            enumerate(_filter_records_by_target(planning_inventory.get("msi", []), targets))
         )
         msi_records.sort(
             key=lambda item: (
@@ -199,7 +205,7 @@ def build_plan(
         )
         cleanup_dependencies = [licensing_step_id]
 
-    task_names = [] if diagnose_mode else _collect_task_names(selected_inventory.get("tasks", []))
+    task_names = [] if diagnose_mode else _collect_task_names(planning_inventory.get("tasks", []))
     if task_names:
         task_step_id = f"tasks-{pass_index}-0"
         plan.append(
@@ -216,7 +222,7 @@ def build_plan(
         )
         cleanup_dependencies = [task_step_id]
 
-    service_names = [] if diagnose_mode else _collect_service_names(selected_inventory.get("services", []))
+    service_names = [] if diagnose_mode else _collect_service_names(planning_inventory.get("services", []))
     if service_names:
         service_step_id = f"services-{pass_index}-0"
         plan.append(
@@ -233,7 +239,7 @@ def build_plan(
         )
         cleanup_dependencies = [service_step_id]
 
-    filesystem_entries = [] if diagnose_mode else _collect_paths(selected_inventory.get("filesystem", []))
+    filesystem_entries = [] if diagnose_mode else _collect_paths(planning_inventory.get("filesystem", []))
     if filesystem_entries:
         plan.append(
             {
@@ -251,7 +257,7 @@ def build_plan(
             }
         )
 
-    registry_entries = [] if diagnose_mode else _collect_registry_paths(selected_inventory.get("registry", []))
+    registry_entries = [] if diagnose_mode else _collect_registry_paths(planning_inventory.get("registry", []))
     if registry_entries:
         plan.append(
             {

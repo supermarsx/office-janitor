@@ -86,7 +86,7 @@ class TestPlanBuilder:
 
         context = plan_steps[0]
         assert context["metadata"]["mode"] == "auto-all"
-        assert context["metadata"]["discovered_versions"] == ["2019", "2021", "2024", "365"]
+        assert context["metadata"]["discovered_versions"] == ["2019", "365"]
         assert context["metadata"]["pass_index"] == 1
         summary = context["metadata"]["summary"]
         assert summary["total_steps"] == len(plan_steps)
@@ -172,7 +172,7 @@ class TestPlanBuilder:
 
         context = plan_steps[0]
         assert context["metadata"]["mode"] == "auto-all"
-        assert set(context["metadata"]["discovered_versions"]) == expected_versions
+        assert context["metadata"]["discovered_versions"] == []
         assert context["metadata"]["target_versions"] == sorted(expected_versions)
 
     def test_auto_all_seeding_skips_detected_release_ids(self) -> None:
