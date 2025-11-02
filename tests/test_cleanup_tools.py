@@ -445,11 +445,15 @@ def test_stop_services_invokes_sc(monkeypatch, tmp_path) -> None:
         return _command_result(command)
 
     monkeypatch.setattr(tasks_services.exec_utils, "run_command", fake_run)
-    tasks_services.stop_services(["ClickToRunSvc"], timeout=10)
+    outcome = tasks_services.stop_services(["ClickToRunSvc"], timeout=10)
 
     assert len(commands) == 2
     assert commands[0][:2] == ["sc.exe", "stop"]
     assert commands[1][:2] == ["sc.exe", "config"]
+    assert outcome == {
+        "reboot_required": False,
+        "services_requiring_reboot": [],
+    }
 
 
 def test_start_services_invokes_sc(monkeypatch, tmp_path) -> None:

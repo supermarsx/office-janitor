@@ -89,18 +89,55 @@ def delete_tasks(task_names: Sequence[str], *, dry_run: bool = False) -> None:
             )
 
 
-def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
+_PENDING_REBOOT_SERVICES: set[str] = set()
+"""!
+@brief Services that could not be stopped cleanly and require a reboot.
+"""
+
+
+def _record_reboot_recommendation(service: str) -> None:
+    """!
+    @brief Track ``service`` as requiring a reboot to finish shutting down.
+    """
+
+    clean_name = str(service).strip()
+    if not clean_name:
+        return
+    _PENDING_REBOOT_SERVICES.add(clean_name)
+
+
+def consume_reboot_recommendations() -> List[str]:
+    """!
+    @brief Return and clear the accumulated reboot recommendations.
+    @details ``stop_services`` records any services that timed out while
+    stopping. This helper exposes the aggregated list so scrub summaries can
+    remind operators to reboot the host before retrying Office tasks.
+    """
+
+    if not _PENDING_REBOOT_SERVICES:
+        return []
+    services = sorted(_PENDING_REBOOT_SERVICES)
+    _PENDING_REBOOT_SERVICES.clear()
+    return services
+
+
+def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> dict[str, object]:
     """!
     @brief Stop services that keep Office components resident.
     @details Issues ``sc stop`` followed by ``sc config start= disabled`` to
     prevent restarts during cleanup.
     @param service_names Iterable of service names.
     @param timeout Maximum seconds for each subprocess call.
+    @returns Dictionary containing ``reboot_required`` and
+    ``services_requiring_reboot`` flags for downstream summaries.
     """
 
     human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
 
     services: List[str] = [name for name in (str(name).strip() for name in service_names) if name]
+    reboot_services: List[str] = []
+
     for service in services:
         stop_result = exec_utils.run_command(
             ["sc.exe", "stop", service],
@@ -115,8 +152,20 @@ def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
             continue
 
         if stop_result.timed_out:
-            human_logger.warning("Timed out stopping service %s", service)
-            continue
+            reboot_services.append(service)
+            _record_reboot_recommendation(service)
+            human_logger.warning(
+                "Timed out stopping service %s; recommend reboot to finish shutting it down.",
+                service,
+            )
+            machine_logger.warning(
+                "service_stop_timeout",
+                extra={
+                    "event": "service_stop_timeout",
+                    "service": service,
+                    "reboot_required": True,
+                },
+            )
 
         if stop_result.returncode == 0 and not stop_result.error:
             human_logger.info("Stopped service %s", service)
@@ -147,6 +196,13 @@ def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
             human_logger.debug(
                 "Service %s disable returned %s", service, disable_result.returncode
             )
+
+    unique_reboot_services = list(dict.fromkeys(reboot_services))
+
+    return {
+        "reboot_required": bool(unique_reboot_services),
+        "services_requiring_reboot": unique_reboot_services,
+    }
 
 
 def start_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
