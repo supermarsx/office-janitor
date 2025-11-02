@@ -573,6 +573,10 @@ def _enforce_runtime_guards(options: Mapping[str, object], *, dry_run: bool) -> 
         restore_point_available=restore_point_available,
         force=bool(options.get("force", False)),
         allow_unsupported_windows=bool(options.get("allow_unsupported_windows", False)),
+        minimum_free_space_bytes=options.get("minimum_free_space_bytes"),
+        disk_usage_root=options.get("disk_usage_root")
+        or options.get("free_space_root")
+        or options.get("system_drive"),
     )
 
 

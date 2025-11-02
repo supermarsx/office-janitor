@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +18,22 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from office_janitor import safety
+
+
+@pytest.fixture(autouse=True)
+def _mock_disk_usage_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """!
+    @brief Ensure runtime guards observe plentiful free disk space by default.
+    @details Individual tests override the monkeypatch when simulating low space
+    scenarios. The baseline keeps unrelated tests deterministic regardless of
+    host disk utilisation.
+    """
+
+    def fake_usage(_: str) -> SimpleNamespace:
+        baseline = safety.DEFAULT_MINIMUM_FREE_SPACE_BYTES * 4
+        return SimpleNamespace(total=baseline * 2, used=baseline, free=baseline)
+
+    monkeypatch.setattr(safety, "_query_disk_usage", fake_usage)
 
 
 class TestSafetyPreflight:
@@ -529,6 +546,82 @@ class TestSafetyRuntimeEnvironment:
             dry_run=False,
             require_restore_point=True,
             restore_point_available=False,
+            force=True,
+        )
+
+    def test_runtime_guard_accepts_sufficient_free_space(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """!
+        @brief Free-space guard succeeds when enough capacity remains.
+        @details Monkeypatched disk usage is set to guarantee the guard observes
+        adequate free space relative to the configured threshold override.
+        """
+
+        monkeypatch.setattr(
+            safety,
+            "_query_disk_usage",
+            lambda _: SimpleNamespace(total=1000, used=100, free=900),
+        )
+
+        safety.evaluate_runtime_environment(
+            is_admin=True,
+            os_system="Windows",
+            os_release="10.0",
+            blocking_processes=[],
+            dry_run=False,
+            require_restore_point=False,
+            restore_point_available=True,
+            minimum_free_space_bytes=512,
+        )
+
+    def test_runtime_guard_rejects_insufficient_free_space(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """!
+        @brief Guard raises when remaining free space is below the threshold.
+        """
+
+        monkeypatch.setattr(
+            safety,
+            "_query_disk_usage",
+            lambda _: SimpleNamespace(total=1000, used=990, free=10),
+        )
+
+        with pytest.raises(RuntimeError):
+            safety.evaluate_runtime_environment(
+                is_admin=True,
+                os_system="Windows",
+                os_release="10.0",
+                blocking_processes=[],
+                dry_run=False,
+                require_restore_point=False,
+                restore_point_available=True,
+                minimum_free_space_bytes=128,
+            )
+
+    def test_runtime_guard_force_bypasses_free_space(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """!
+        @brief Force flag allows execution despite low free space.
+        """
+
+        monkeypatch.setattr(
+            safety,
+            "_query_disk_usage",
+            lambda _: SimpleNamespace(total=1000, used=995, free=5),
+        )
+
+        safety.evaluate_runtime_environment(
+            is_admin=True,
+            os_system="Windows",
+            os_release="10.0",
+            blocking_processes=[],
+            dry_run=False,
+            require_restore_point=False,
+            restore_point_available=True,
+            minimum_free_space_bytes=256,
             force=True,
         )
 

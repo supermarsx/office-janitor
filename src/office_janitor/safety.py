@@ -9,6 +9,8 @@ and ``--force`` semantics remain consistent.
 """
 from __future__ import annotations
 
+import os
+import shutil
 from typing import Iterable, Mapping, Sequence
 
 from . import constants, fs_tools
@@ -20,6 +22,18 @@ FILESYSTEM_BLACKLIST = fs_tools.FILESYSTEM_BLACKLIST
 SUPPORTED_SYSTEMS = {"windows", "nt"}
 
 MINIMUM_SUPPORTED_WINDOWS_RELEASE = (6, 1)
+
+if os.name == "nt":  # pragma: no branch - deterministic platform handling
+    _SYSTEM_DRIVE = os.environ.get("SystemDrive") or os.environ.get("SYSTEMDRIVE") or "C:"
+    DEFAULT_DISK_USAGE_ROOT = _SYSTEM_DRIVE.rstrip("\\/") + "\\"
+else:  # pragma: no cover - exercised implicitly on non-Windows hosts
+    DEFAULT_DISK_USAGE_ROOT = os.path.abspath(os.sep)
+
+DEFAULT_MINIMUM_FREE_SPACE_BYTES = 1 * 1024 * 1024 * 1024
+
+
+def _query_disk_usage(path: str) -> shutil._ntuple_diskusage:
+    return shutil.disk_usage(path)
 
 REGISTRY_WHITELIST = (
     r"HKLM\\SOFTWARE\\MICROSOFT\\OFFICE",
@@ -90,6 +104,8 @@ def evaluate_runtime_environment(
     restore_point_available: bool,
     force: bool = False,
     allow_unsupported_windows: bool = False,
+    minimum_free_space_bytes: int | None = None,
+    disk_usage_root: str | None = None,
 ) -> None:
     """!
     @brief Validate runtime prerequisites before destructive execution.
@@ -112,6 +128,8 @@ def evaluate_runtime_environment(
     rails to be bypassed.
     @param allow_unsupported_windows Overrides the Windows release minimum
     guard without relaxing other safety rails.
+    @param minimum_free_space_bytes Optional override for the free-space guard.
+    @param disk_usage_root Filesystem root used when calculating free space.
     @raises PermissionError If administrative rights are missing for a
     destructive run.
     @raises RuntimeError If any advisory guard blocks execution.
@@ -132,6 +150,12 @@ def evaluate_runtime_environment(
         restore_point_available=restore_point_available,
         dry_run=dry_run,
         force=force,
+    )
+    _enforce_free_space_guard(
+        dry_run=dry_run,
+        force=force,
+        minimum_free_space_bytes=minimum_free_space_bytes,
+        disk_usage_root=disk_usage_root,
     )
 
 
@@ -367,6 +391,53 @@ def _enforce_restore_point_guard(
     )
 
 
+def _enforce_free_space_guard(
+    *,
+    dry_run: bool,
+    force: bool,
+    minimum_free_space_bytes: int | None,
+    disk_usage_root: str | None,
+) -> None:
+    if dry_run:
+        return
+
+    if minimum_free_space_bytes is None:
+        threshold = DEFAULT_MINIMUM_FREE_SPACE_BYTES
+    else:
+        try:
+            threshold = int(minimum_free_space_bytes)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("minimum_free_space_bytes must be an integer value") from exc
+
+    if threshold <= 0:
+        return
+
+    root = str(disk_usage_root or DEFAULT_DISK_USAGE_ROOT).strip()
+    if not root:
+        root = DEFAULT_DISK_USAGE_ROOT
+    if len(root) == 2 and root[1] == ":":
+        root = root + "\\"
+
+    try:
+        usage = _query_disk_usage(root)
+    except Exception as exc:  # pragma: no cover - defensive safeguard
+        if force:
+            return
+        raise RuntimeError(f"Unable to determine free disk space for {root}: {exc}") from exc
+
+    free_bytes = int(getattr(usage, "free", 0))
+    if free_bytes >= threshold or force:
+        return
+
+    required_text = _format_bytes(threshold)
+    available_text = _format_bytes(free_bytes)
+    raise RuntimeError(
+        "Insufficient free disk space on "
+        f"{root}; {available_text} available, {required_text} required. "
+        "Use --force to override or adjust the minimum_free_space_bytes option."
+    )
+
+
 def _parse_windows_release(release: str) -> tuple[int, int]:
     parts: list[int] = []
     for token in str(release).split('.'):
@@ -382,3 +453,16 @@ def _parse_windows_release(release: str) -> tuple[int, int]:
     while len(parts) < 2:
         parts.append(0)
     return parts[0], parts[1]
+
+
+def _format_bytes(amount: int) -> str:
+    value = float(max(amount, 0))
+    units = ["bytes", "KiB", "MiB", "GiB", "TiB", "PiB"]
+    index = 0
+    while value >= 1024 and index < len(units) - 1:
+        value /= 1024
+        index += 1
+
+    if index == 0:
+        return f"{int(value)} {units[index]}"
+    return f"{value:.1f} {units[index]}"
