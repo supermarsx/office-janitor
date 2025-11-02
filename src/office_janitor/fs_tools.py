@@ -1,20 +1,26 @@
 """!
 @brief Filesystem utilities for Office residue cleanup.
-@details Implements path discovery, whitelist enforcement, attribute reset, and
-backup helpers mirroring the behaviour described in :mod:`spec.md`. All
-functions rely solely on the standard library so they can be exercised on
-non-Windows hosts while still modelling the Windows-centric workflow used by
-the real scrubber.
+@details Implements path discovery, whitelist enforcement, attribute reset,
+ deletion scheduling, and backup helpers mirroring the behaviour described in
+ :mod:`spec.md`. All functions rely solely on the standard library so they can
+ be exercised on non-Windows hosts while still modelling the Windows-centric
+ workflow used by the real scrubber.
 """
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import os
 import re
 import shutil
 import stat
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
+
+try:  # pragma: no cover - platform specific module availability
+    import winreg
+except ImportError:  # pragma: no cover - non-Windows hosts
+    winreg = None  # type: ignore[assignment]
 
 from . import constants, exec_utils, logging_ext
 
@@ -55,6 +61,10 @@ _ENVIRONMENT_DEFAULTS: Mapping[str, str] = {
 """
 
 _ENV_PATTERN = re.compile(r"%([A-Za-z0-9_]+)%")
+
+_MOVEFILE_DELAY_UNTIL_REBOOT = 0x00000004
+_PENDING_FILE_RENAME_KEY = r"SYSTEM\\CurrentControlSet\\Control\\Session Manager"
+_PENDING_FILE_RENAME_VALUE = "PendingFileRenameOperations"
 
 
 def normalize_windows_path(path: str | os.PathLike[str]) -> str:
@@ -261,6 +271,156 @@ def _handle_readonly(function, path: str, exc_info) -> None:  # pragma: no cover
         raise exc_info[1]
 
 
+def _get_movefileex() -> Callable[[str, str | None, int], int] | None:
+    """!
+    @brief Retrieve the Windows ``MoveFileExW`` API when available.
+    @details Returns ``None`` on non-Windows hosts or when ``ctypes`` cannot
+    expose the API entry point.
+    """
+
+    if os.name != "nt":
+        return None
+    if ctypes is None:  # pragma: no cover - defensive guard
+        return None
+    try:
+        movefileex = ctypes.windll.kernel32.MoveFileExW  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+    try:  # pragma: no cover - attribute assignment skipped in tests
+        movefileex.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint)
+        movefileex.restype = ctypes.c_int
+    except AttributeError:
+        pass
+    return movefileex
+
+
+def _queue_pending_file_rename(path: str) -> bool:
+    """!
+    @brief Append ``path`` to ``PendingFileRenameOperations``.
+    @details Acts as a fallback when :func:`MoveFileExW` is unavailable by
+    updating the registry multi-string value used by Windows to process delayed
+    deletions after a reboot.
+    """
+
+    if winreg is None:
+        return False
+
+    try:
+        access = winreg.KEY_READ | winreg.KEY_SET_VALUE  # type: ignore[attr-defined]
+    except AttributeError:  # pragma: no cover - legacy Python
+        access = getattr(winreg, "KEY_WRITE", 0)
+
+    try:
+        with winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE) as registry:  # type: ignore[attr-defined]
+            with winreg.OpenKey(registry, _PENDING_FILE_RENAME_KEY, 0, access) as key:
+                try:
+                    existing, regtype = winreg.QueryValueEx(key, _PENDING_FILE_RENAME_VALUE)
+                except FileNotFoundError:
+                    existing = []
+                    regtype = getattr(winreg, "REG_MULTI_SZ", 7)
+                if regtype != getattr(winreg, "REG_MULTI_SZ", 7):
+                    existing = []
+                queued = list(existing)
+                queued.extend([path, ""])
+                winreg.SetValueEx(
+                    key,
+                    _PENDING_FILE_RENAME_VALUE,
+                    0,
+                    getattr(winreg, "REG_MULTI_SZ", 7),
+                    queued,
+                )
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def _schedule_delete_on_reboot(
+    path: Path,
+    *,
+    dry_run: bool = False,
+    human_logger=None,
+    machine_logger=None,
+) -> bool:
+    """!
+    @brief Queue ``path`` for removal during the next system reboot.
+    @details The helper first attempts to call ``MoveFileExW`` via ``ctypes``.
+    When that fails it falls back to updating the ``PendingFileRenameOperations``
+    registry value. A ``True`` return value indicates that one of the strategies
+    accepted the request.
+    """
+
+    human_logger = human_logger or logging_ext.get_human_logger()
+    machine_logger = machine_logger or logging_ext.get_machine_logger()
+    path_text = str(path)
+
+    if dry_run:
+        human_logger.info("Dry-run: would schedule %s for deletion on reboot", path_text)
+        machine_logger.info(
+            "filesystem_remove_queued",
+            extra={
+                "event": "filesystem_remove_queued",
+                "path": path_text,
+                "method": "dry_run",
+                "dry_run": True,
+            },
+        )
+        return True
+
+    movefileex = _get_movefileex()
+    if movefileex is not None:
+        try:
+            result = movefileex(path_text, None, _MOVEFILE_DELAY_UNTIL_REBOOT)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            human_logger.warning("MoveFileExW failed for %s: %s", path_text, exc)
+        else:
+            if result:
+                human_logger.info("Queued %s for deletion on next reboot via MoveFileEx", path_text)
+                machine_logger.info(
+                    "filesystem_remove_queued",
+                    extra={
+                        "event": "filesystem_remove_queued",
+                        "path": path_text,
+                        "method": "movefileex",
+                        "dry_run": False,
+                    },
+                )
+                return True
+            get_last_error = getattr(ctypes, "get_last_error", lambda: None)
+            human_logger.warning(
+                "MoveFileExW did not queue %s for deletion (error %s)",
+                path_text,
+                get_last_error(),
+            )
+
+    if _queue_pending_file_rename(path_text):
+        human_logger.info(
+            "Queued %s for deletion on next reboot via PendingFileRenameOperations",
+            path_text,
+        )
+        machine_logger.info(
+            "filesystem_remove_queued",
+            extra={
+                "event": "filesystem_remove_queued",
+                "path": path_text,
+                "method": "registry",
+                "dry_run": False,
+            },
+        )
+        return True
+
+    human_logger.warning("Unable to queue %s for deletion on reboot", path_text)
+    machine_logger.warning(
+        "filesystem_remove_queue_failed",
+        extra={
+            "event": "filesystem_remove_queue_failed",
+            "path": path_text,
+            "dry_run": False,
+        },
+    )
+    return False
+
+
 def remove_paths(paths: Iterable[Path | str], *, dry_run: bool = False) -> None:
     """!
     @brief Delete the supplied paths recursively while respecting dry-run behaviour.
@@ -301,13 +461,55 @@ def remove_paths(paths: Iterable[Path | str], *, dry_run: bool = False) -> None:
 
         human_logger.info("Removing %s", target)
         if target.is_dir():
-            shutil.rmtree(target, onerror=_handle_readonly)
+            try:
+                shutil.rmtree(target, onerror=_handle_readonly)
+            except PermissionError as exc:
+                human_logger.warning("Unable to remove %s due to permissions: %s", target, exc)
+                _schedule_delete_on_reboot(
+                    target,
+                    dry_run=dry_run,
+                    human_logger=human_logger,
+                    machine_logger=machine_logger,
+                )
+            except OSError as exc:  # pragma: no cover - unexpected failure
+                human_logger.warning("Unable to remove %s: %s", target, exc)
+                _schedule_delete_on_reboot(
+                    target,
+                    dry_run=dry_run,
+                    human_logger=human_logger,
+                    machine_logger=machine_logger,
+                )
         else:
             try:
                 target.unlink()
             except PermissionError:
                 os.chmod(target, stat.S_IWRITE)
-                target.unlink()
+                try:
+                    target.unlink()
+                except PermissionError as exc:
+                    human_logger.warning("Unable to remove %s due to permissions: %s", target, exc)
+                    _schedule_delete_on_reboot(
+                        target,
+                        dry_run=dry_run,
+                        human_logger=human_logger,
+                        machine_logger=machine_logger,
+                    )
+                except OSError as exc:  # pragma: no cover - unexpected failure
+                    human_logger.warning("Unable to remove %s: %s", target, exc)
+                    _schedule_delete_on_reboot(
+                        target,
+                        dry_run=dry_run,
+                        human_logger=human_logger,
+                        machine_logger=machine_logger,
+                    )
+            except OSError as exc:
+                human_logger.warning("Unable to remove %s: %s", target, exc)
+                _schedule_delete_on_reboot(
+                    target,
+                    dry_run=dry_run,
+                    human_logger=human_logger,
+                    machine_logger=machine_logger,
+                )
 
 
 def reset_acl(path: Path) -> None:
