@@ -130,6 +130,18 @@ def prompt_user_to_close(
     question = "Proceed with forced termination? [y/N]: "
     human_logger.warning(message)
 
+    normalized = {name.lower() for name in remaining}
+    if "outlook.exe" in normalized:
+        reassurance = (
+            "Outlook data providers are only suspended; OST/PST mail stores remain intact."
+        )
+        human_logger.warning(reassurance)
+        logging_ext.emit_ui_event(
+            "processes.outlook_reassurance",
+            reassurance,
+            status="Outlook data providers suspended; OST/PST files remain intact.",
+        )
+
     for attempt in range(attempts):
         response = input_func(question).strip().lower()
         if response in {"y", "yes"}:
