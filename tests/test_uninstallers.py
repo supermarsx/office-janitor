@@ -80,9 +80,11 @@ def test_msi_uninstall_builds_msiexec_command(monkeypatch, tmp_path) -> None:
     assert "/norestart" in command
 
 
-def test_msi_uninstall_uses_setup_when_available(monkeypatch, tmp_path) -> None:
+def test_msi_uninstall_falls_back_to_setup_when_msiexec_fails(
+    monkeypatch, tmp_path
+) -> None:
     """!
-    @brief Setup-based maintenance executables should be preferred when present.
+    @brief Setup-based maintenance executables should be attempted after ``msiexec`` failures.
     """
 
     logging_ext.setup_logging(tmp_path)
@@ -103,6 +105,8 @@ def test_msi_uninstall_uses_setup_when_available(monkeypatch, tmp_path) -> None:
         extra: dict | None = None,
     ) -> command_runner.CommandResult:
         executed.append((command, event, dry_run))
+        if command[0].lower().endswith("msiexec.exe"):
+            return _command_result(command, returncode=1603)
         state["present"] = False
         return _command_result(command)
 
@@ -126,11 +130,16 @@ def test_msi_uninstall_uses_setup_when_available(monkeypatch, tmp_path) -> None:
 
     msi_uninstall.uninstall_products([record])
 
-    assert executed, "Expected setup.exe to be invoked"
-    command, event, dry_run = executed[0]
-    assert command[0] == str(setup_path)
-    assert command[1:] == ["/uninstall"]
-    assert event == "msi_setup_uninstall"
+    assert len(executed) >= 2, "Expected setup.exe fallback after msiexec failure"
+    msiexec_events = [item for item in executed if item[0][0].lower().endswith("msiexec.exe")]
+    setup_events = [item for item in executed if item[0][0] == str(setup_path)]
+    assert msiexec_events, "msiexec should run before setup fallback"
+    assert setup_events, "setup.exe fallback should execute"
+    msiexec_command, msiexec_event, _ = msiexec_events[0]
+    setup_command, setup_event, dry_run = setup_events[-1]
+    assert msiexec_event == "msi_uninstall"
+    assert setup_command[1:] == ["/uninstall"]
+    assert setup_event == "msi_setup_uninstall"
     assert dry_run is False
     assert False in probe_states, "Verification should observe removal state"
 

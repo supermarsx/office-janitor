@@ -440,6 +440,94 @@ def build_command(product_code: str, *, maintenance_executable: str | None = Non
     return [*MSIEXEC_BASE_COMMAND, normalized, *MSIEXEC_ADDITIONAL_ARGS, *extra_args]
 
 
+def _run_uninstall_command(
+    entry: _MsiProduct,
+    command: Sequence[str],
+    *,
+    using_setup: bool,
+    total_attempts: int,
+    dry_run: bool,
+    busy_input_func: Callable[[str], str] | None,
+) -> command_runner.CommandResult | None:
+    """!
+    @brief Execute ``command`` with retry semantics for ``entry``.
+    @details Mirrors the legacy OffScrub retry loop while allowing callers to
+    swap between ``msiexec`` and ``setup.exe`` executors. ``msiexec`` commands
+    continue to receive busy-installer handling whereas setup-based fallbacks do
+    not since they are external bootstrappers.
+    @returns The final :class:`~office_janitor.command_runner.CommandResult` or
+    ``None`` if execution was skipped entirely.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+
+    event_name = "msi_setup_uninstall" if using_setup else "msi_uninstall"
+    result: command_runner.CommandResult | None = None
+
+    for attempt in range(1, total_attempts + 1):
+        if using_setup:
+            message = (
+                "Uninstalling MSI product %s (%s) via setup.exe [attempt %d/%d]"
+                % (entry.display_name, entry.product_code, attempt, total_attempts)
+            )
+        else:
+            message = (
+                "Uninstalling MSI product %s (%s) [attempt %d/%d]"
+                % (entry.display_name, entry.product_code, attempt, total_attempts)
+            )
+
+        result = command_runner.run_command(
+            list(command),
+            event=event_name,
+            timeout=MSIEXEC_TIMEOUT,
+            dry_run=dry_run,
+            human_message=message,
+            extra={
+                "product_code": entry.product_code,
+                "display_name": entry.display_name,
+                "version": entry.version,
+                "attempt": attempt,
+                "attempts": total_attempts,
+                "executor": command[0] if command else None,
+            },
+        )
+
+        if result.skipped:
+            break
+        if result.returncode == 0:
+            break
+        if dry_run:
+            break
+
+        if (
+            not using_setup
+            and result.returncode == MSI_BUSY_RETURN_CODE
+            and attempt < total_attempts
+        ):
+            should_retry, delay = _handle_busy_installer(
+                entry,
+                attempt=attempt,
+                attempts=total_attempts,
+                input_func=busy_input_func,
+            )
+            if should_retry:
+                if delay > 0:
+                    time.sleep(delay)
+                continue
+            break
+
+        if attempt < total_attempts:
+            human_logger.warning(
+                "Retrying %s for %s (%s)",
+                command[0] if command else "uninstall",
+                entry.display_name,
+                entry.product_code,
+            )
+            time.sleep(MSI_RETRY_DELAY)
+
+    return result
+
+
 def _await_removal(entry: _MsiProduct) -> bool:
     """!
     @brief Poll registry keys to confirm the product has been removed.
@@ -527,71 +615,55 @@ def uninstall_products(
             )
             continue
 
-        command = build_command(
-            entry.product_code, maintenance_executable=entry.maintenance_executable
+        primary_command = build_command(entry.product_code)
+        result = _run_uninstall_command(
+            entry,
+            primary_command,
+            using_setup=False,
+            total_attempts=total_attempts,
+            dry_run=dry_run,
+            busy_input_func=busy_input_func,
         )
-        using_setup = bool(entry.maintenance_executable)
-        event_name = "msi_setup_uninstall" if using_setup else "msi_uninstall"
-        result: command_runner.CommandResult | None = None
+        command: Sequence[str] = primary_command
 
-        for attempt in range(1, total_attempts + 1):
-            if using_setup:
-                message = (
-                    "Uninstalling MSI product %s (%s) via setup.exe [attempt %d/%d]"
-                    % (entry.display_name, entry.product_code, attempt, total_attempts)
-                )
-            else:
-                message = (
-                    "Uninstalling MSI product %s (%s) [attempt %d/%d]"
-                    % (entry.display_name, entry.product_code, attempt, total_attempts)
-                )
-            result = command_runner.run_command(
-                command,
-                event=event_name,
-                timeout=MSIEXEC_TIMEOUT,
-                dry_run=dry_run,
-                human_message=message,
+        if (
+            not dry_run
+            and result is not None
+            and not result.skipped
+            and result.returncode != 0
+            and entry.maintenance_executable
+        ):
+            fallback_command = build_command(
+                entry.product_code, maintenance_executable=entry.maintenance_executable
+            )
+            human_logger.warning(
+                (
+                    "msiexec uninstall of %s (%s) returned %d; attempting setup.exe fallback"
+                ),
+                entry.display_name,
+                entry.product_code,
+                result.returncode,
+            )
+            machine_logger.info(
+                "msi_uninstall_fallback",
                 extra={
+                    "event": "msi_uninstall_fallback",
                     "product_code": entry.product_code,
                     "display_name": entry.display_name,
                     "version": entry.version,
-                    "attempt": attempt,
-                    "attempts": total_attempts,
-                    "executor": command[0] if command else None,
+                    "return_code": result.returncode,
+                    "fallback_executable": entry.maintenance_executable,
                 },
             )
-            if result.skipped:
-                break
-            if result.returncode == 0:
-                break
-            if (
-                not using_setup
-                and result.returncode == MSI_BUSY_RETURN_CODE
-                and attempt < total_attempts
-                and not dry_run
-            ):
-                should_retry, delay = _handle_busy_installer(
-                    entry,
-                    attempt=attempt,
-                    attempts=total_attempts,
-                    input_func=busy_input_func,
-                )
-                if should_retry:
-                    if delay > 0:
-                        time.sleep(delay)
-                    continue
-                break
-            if attempt < total_attempts:
-                human_logger.warning(
-                    "Retrying %s for %s (%s)",
-                    command[0] if command else "uninstall",
-                    entry.display_name,
-                    entry.product_code,
-                )
-                time.sleep(MSI_RETRY_DELAY)
-        else:
-            # Loop exhausted without break.
-            result = result
+            result = _run_uninstall_command(
+                entry,
+                fallback_command,
+                using_setup=True,
+                total_attempts=total_attempts,
+                dry_run=dry_run,
+                busy_input_func=busy_input_func,
+            )
+            command = fallback_command
 
         if result is None:
             continue
