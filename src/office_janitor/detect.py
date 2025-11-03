@@ -10,6 +10,7 @@ import csv
 import json
 import logging
 import os
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
@@ -68,6 +69,8 @@ class DetectedInstallation:
     product_code: str | None = None
     release_ids: Tuple[str, ...] = ()
     properties: Mapping[str, object] | None = None
+    display_icon: str | None = None
+    maintenance_paths: Tuple[str, ...] = ()
 
     def to_dict(self) -> Dict[str, object]:
         """!
@@ -88,7 +91,75 @@ class DetectedInstallation:
             payload["release_ids"] = list(self.release_ids)
         if self.properties:
             payload["properties"] = dict(self.properties)
+        if self.display_icon:
+            payload["display_icon"] = self.display_icon
+        if self.maintenance_paths:
+            payload["maintenance_paths"] = list(self.maintenance_paths)
         return payload
+
+
+def _strip_icon_index(raw: str) -> str:
+    """!
+    @brief Remove trailing icon index fragments from registry path values.
+    """
+
+    text = raw.strip()
+    if "," not in text:
+        return text
+    prefix, _, suffix = text.partition(",")
+    remainder = suffix.strip()
+    if not remainder:
+        return prefix
+    if remainder.lstrip("+-").isdigit():
+        return prefix
+    return text
+
+
+def _extract_executable_candidate(value: object) -> str:
+    """!
+    @brief Attempt to extract an executable path from ``value``.
+    """
+
+    if value is None:
+        return ""
+    text = _strip_icon_index(str(value).strip())
+    if not text:
+        return ""
+    cleaned_text = text.strip().strip('"').strip()
+    candidates: List[str] = []
+    if cleaned_text:
+        candidates.append(cleaned_text)
+    try:
+        parts = shlex.split(text, posix=False)
+    except ValueError:
+        parts = []
+    if parts:
+        candidates.extend(parts)
+    for token in candidates:
+        cleaned = token.strip().strip('"').strip()
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if lowered.endswith(".exe"):
+            return cleaned
+        if "setup.exe" in lowered:
+            index = lowered.find("setup.exe")
+            return cleaned[: index + len("setup.exe")]
+    return ""
+
+
+def _collect_maintenance_paths(values: Mapping[str, object]) -> Tuple[str, ...]:
+    """!
+    @brief Collect setup.exe maintenance candidates from registry values.
+    """
+
+    candidates: List[str] = []
+    for key in ("DisplayIcon", "ModifyPath", "UninstallString"):
+        candidate = _extract_executable_candidate(values.get(key))
+        if candidate and candidate.lower().endswith("setup.exe"):
+            if candidate not in candidates:
+                candidates.append(candidate)
+    return tuple(candidates)
 
 
 def _friendly_channel(raw_channel: str | None) -> str:
@@ -474,6 +545,8 @@ def detect_msi_installations() -> List[DetectedInstallation]:
             install_location = str(
                 values.get("InstallLocation") or (fallback_meta or {}).get("install_location") or ""
             )
+            display_icon_value = str(values.get("DisplayIcon") or "").strip()
+            maintenance_paths = _collect_maintenance_paths(values)
             raw_architecture = str(metadata.get("architecture", "")).strip()
             architecture = raw_architecture or _infer_architecture(display_name, install_location or None)
             if not architecture:
@@ -495,6 +568,10 @@ def detect_msi_installations() -> List[DetectedInstallation]:
                 properties["uninstall_string"] = uninstall_string
             if install_location:
                 properties["install_location"] = install_location
+            if display_icon_value:
+                properties["display_icon"] = display_icon_value
+            if maintenance_paths:
+                properties["maintenance_paths"] = list(maintenance_paths)
             if family:
                 properties["family"] = family
             if languages:
@@ -512,6 +589,8 @@ def detect_msi_installations() -> List[DetectedInstallation]:
                     channel="MSI",
                     product_code=product_code,
                     properties=properties,
+                    display_icon=display_icon_value or None,
+                    maintenance_paths=maintenance_paths,
                 )
             )
             seen_handles.add(handle)
@@ -545,6 +624,8 @@ def detect_msi_installations() -> List[DetectedInstallation]:
                 channel="MSI",
                 product_code=product_code,
                 properties=properties,
+                display_icon=None,
+                maintenance_paths=(),
             )
         )
 

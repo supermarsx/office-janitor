@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+import os
+from pathlib import Path
+import shlex
 import sys
 from typing import Callable, Iterable, List, Mapping, MutableMapping, Sequence, Tuple
 
@@ -71,6 +74,7 @@ class _MsiProduct:
     display_name: str
     version: str
     uninstall_handles: Sequence[str]
+    maintenance_executable: str | None = None
 
 
 def _normalise_product_code(raw: str) -> str:
@@ -98,6 +102,94 @@ def _default_handles_for_code(product_code: str) -> List[str]:
     for hive, base in registry_roots:
         handles.append(f"{registry_tools.hive_name(hive)}\\{base}\\{product_code}")
     return handles
+
+
+def _strip_icon_index(raw: str) -> str:
+    """!
+    @brief Remove trailing icon index fragments from registry values.
+    """
+
+    text = raw.strip()
+    if "," not in text:
+        return text
+    prefix, _, suffix = text.partition(",")
+    remainder = suffix.strip()
+    if remainder and not remainder.lstrip("+-").isdigit():
+        return text
+    return prefix
+
+
+def _extract_setup_candidate(value: object) -> str:
+    """!
+    @brief Attempt to extract a ``setup.exe`` path from ``value``.
+    """
+
+    if value is None:
+        return ""
+    text = _strip_icon_index(str(value).strip())
+    if not text or "setup.exe" not in text.lower():
+        return ""
+    cleaned_text = text.strip().strip('"').strip()
+    candidates: List[str] = []
+    if cleaned_text:
+        candidates.append(cleaned_text)
+    try:
+        parts = shlex.split(text, posix=False)
+    except ValueError:
+        parts = []
+    if parts:
+        candidates.extend(parts)
+    for token in candidates:
+        cleaned = token.strip().strip('"').strip()
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if lowered.endswith("setup.exe"):
+            return cleaned
+        if "setup.exe" in lowered:
+            index = lowered.find("setup.exe")
+            return cleaned[: index + len("setup.exe")]
+    return ""
+
+
+def _normalise_maintenance_paths(*sources: object) -> Tuple[str, ...]:
+    """!
+    @brief Normalise a collection of maintenance path hints into unique strings.
+    """
+
+    collected: List[str] = []
+    for source in sources:
+        if not source:
+            continue
+        if isinstance(source, (list, tuple, set)):
+            for item in source:
+                candidate = _extract_setup_candidate(item)
+                if candidate and candidate not in collected:
+                    collected.append(candidate)
+        else:
+            candidate = _extract_setup_candidate(source)
+            if candidate and candidate not in collected:
+                collected.append(candidate)
+    return tuple(collected)
+
+
+def _select_existing_setup(paths: Sequence[str]) -> str | None:
+    """!
+    @brief Return the first existing ``setup.exe`` from ``paths``.
+    """
+
+    for raw in paths:
+        candidate = str(raw).strip().strip('"')
+        if not candidate:
+            continue
+        expanded = os.path.expanduser(os.path.expandvars(candidate))
+        path = Path(expanded)
+        try:
+            if path.is_file() and path.name.lower() == "setup.exe":
+                return str(path)
+        except OSError:
+            continue
+    return None
 
 
 def _normalise_product_entry(product: Mapping[str, object] | str) -> _MsiProduct:
@@ -150,11 +242,21 @@ def _normalise_product_entry(product: Mapping[str, object] | str) -> _MsiProduct
     if not handles:
         handles = _default_handles_for_code(product_code)
 
+    maintenance_paths = _normalise_maintenance_paths(
+        mapping.get("maintenance_paths"),
+        property_map.get("maintenance_paths"),
+        mapping.get("display_icon"),
+        property_map.get("display_icon"),
+        property_map.get("uninstall_string"),
+    )
+    maintenance_executable = _select_existing_setup(maintenance_paths)
+
     return _MsiProduct(
         product_code=product_code,
         display_name=display_name,
         version=version,
         uninstall_handles=tuple(handles),
+        maintenance_executable=maintenance_executable,
     )
 
 
@@ -312,10 +414,16 @@ def _handle_busy_installer(
     return True, delay
 
 
-def build_command(product_code: str) -> List[str]:
+def build_command(product_code: str, *, maintenance_executable: str | None = None) -> List[str]:
     """!
-    @brief Compose the ``msiexec`` command used to uninstall ``product_code``.
+    @brief Compose the command used to uninstall ``product_code``.
     """
+
+    if maintenance_executable:
+        cleaned = maintenance_executable.strip()
+        if not cleaned:
+            raise ValueError("maintenance_executable must be non-empty when provided")
+        return [cleaned, "/uninstall"]
 
     normalized = _normalise_product_code(product_code)
     if not normalized:
@@ -330,6 +438,94 @@ def build_command(product_code: str) -> List[str]:
         extra_args = [potential.strip()]
 
     return [*MSIEXEC_BASE_COMMAND, normalized, *MSIEXEC_ADDITIONAL_ARGS, *extra_args]
+
+
+def _run_uninstall_command(
+    entry: _MsiProduct,
+    command: Sequence[str],
+    *,
+    using_setup: bool,
+    total_attempts: int,
+    dry_run: bool,
+    busy_input_func: Callable[[str], str] | None,
+) -> command_runner.CommandResult | None:
+    """!
+    @brief Execute ``command`` with retry semantics for ``entry``.
+    @details Mirrors the legacy OffScrub retry loop while allowing callers to
+    swap between ``msiexec`` and ``setup.exe`` executors. ``msiexec`` commands
+    continue to receive busy-installer handling whereas setup-based fallbacks do
+    not since they are external bootstrappers.
+    @returns The final :class:`~office_janitor.command_runner.CommandResult` or
+    ``None`` if execution was skipped entirely.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+
+    event_name = "msi_setup_uninstall" if using_setup else "msi_uninstall"
+    result: command_runner.CommandResult | None = None
+
+    for attempt in range(1, total_attempts + 1):
+        if using_setup:
+            message = (
+                "Uninstalling MSI product %s (%s) via setup.exe [attempt %d/%d]"
+                % (entry.display_name, entry.product_code, attempt, total_attempts)
+            )
+        else:
+            message = (
+                "Uninstalling MSI product %s (%s) [attempt %d/%d]"
+                % (entry.display_name, entry.product_code, attempt, total_attempts)
+            )
+
+        result = command_runner.run_command(
+            list(command),
+            event=event_name,
+            timeout=MSIEXEC_TIMEOUT,
+            dry_run=dry_run,
+            human_message=message,
+            extra={
+                "product_code": entry.product_code,
+                "display_name": entry.display_name,
+                "version": entry.version,
+                "attempt": attempt,
+                "attempts": total_attempts,
+                "executor": command[0] if command else None,
+            },
+        )
+
+        if result.skipped:
+            break
+        if result.returncode == 0:
+            break
+        if dry_run:
+            break
+
+        if (
+            not using_setup
+            and result.returncode == MSI_BUSY_RETURN_CODE
+            and attempt < total_attempts
+        ):
+            should_retry, delay = _handle_busy_installer(
+                entry,
+                attempt=attempt,
+                attempts=total_attempts,
+                input_func=busy_input_func,
+            )
+            if should_retry:
+                if delay > 0:
+                    time.sleep(delay)
+                continue
+            break
+
+        if attempt < total_attempts:
+            human_logger.warning(
+                "Retrying %s for %s (%s)",
+                command[0] if command else "uninstall",
+                entry.display_name,
+                entry.product_code,
+            )
+            time.sleep(MSI_RETRY_DELAY)
+
+    return result
 
 
 def _await_removal(entry: _MsiProduct) -> bool:
@@ -369,7 +565,7 @@ def uninstall_products(
     busy_input_func: Callable[[str], str] | None = None,
 ) -> None:
     """!
-    @brief Uninstall the supplied MSI products via ``msiexec``.
+    @brief Uninstall the supplied MSI products via ``msiexec`` or setup fallbacks.
     @details Each product is normalised, executed with retry semantics, and
     verified for removal using registry probes. Non-zero exit codes or failed
     verifications raise :class:`RuntimeError` summarising the offending product
@@ -407,6 +603,7 @@ def uninstall_products(
                 "version": entry.version,
                 "dry_run": bool(dry_run),
                 "handles": list(entry.uninstall_handles),
+                "maintenance_executable": entry.maintenance_executable,
             },
         )
 
@@ -418,56 +615,55 @@ def uninstall_products(
             )
             continue
 
-        command = build_command(entry.product_code)
-        result: command_runner.CommandResult | None = None
+        primary_command = build_command(entry.product_code)
+        result = _run_uninstall_command(
+            entry,
+            primary_command,
+            using_setup=False,
+            total_attempts=total_attempts,
+            dry_run=dry_run,
+            busy_input_func=busy_input_func,
+        )
+        command: Sequence[str] = primary_command
 
-        for attempt in range(1, total_attempts + 1):
-            message = (
-                "Uninstalling MSI product %s (%s) [attempt %d/%d]"
-                % (entry.display_name, entry.product_code, attempt, total_attempts)
+        if (
+            not dry_run
+            and result is not None
+            and not result.skipped
+            and result.returncode != 0
+            and entry.maintenance_executable
+        ):
+            fallback_command = build_command(
+                entry.product_code, maintenance_executable=entry.maintenance_executable
             )
-            result = command_runner.run_command(
-                command,
-                event="msi_uninstall",
-                timeout=MSIEXEC_TIMEOUT,
-                dry_run=dry_run,
-                human_message=message,
+            human_logger.warning(
+                (
+                    "msiexec uninstall of %s (%s) returned %d; attempting setup.exe fallback"
+                ),
+                entry.display_name,
+                entry.product_code,
+                result.returncode,
+            )
+            machine_logger.info(
+                "msi_uninstall_fallback",
                 extra={
+                    "event": "msi_uninstall_fallback",
                     "product_code": entry.product_code,
                     "display_name": entry.display_name,
                     "version": entry.version,
-                    "attempt": attempt,
-                    "attempts": total_attempts,
+                    "return_code": result.returncode,
+                    "fallback_executable": entry.maintenance_executable,
                 },
             )
-            if result.skipped:
-                break
-            if result.returncode == 0:
-                break
-            if (
-                result.returncode == MSI_BUSY_RETURN_CODE
-                and attempt < total_attempts
-                and not dry_run
-            ):
-                should_retry, delay = _handle_busy_installer(
-                    entry,
-                    attempt=attempt,
-                    attempts=total_attempts,
-                    input_func=busy_input_func,
-                )
-                if should_retry:
-                    if delay > 0:
-                        time.sleep(delay)
-                    continue
-                break
-            if attempt < total_attempts:
-                human_logger.warning(
-                    "Retrying msiexec for %s (%s)", entry.display_name, entry.product_code
-                )
-                time.sleep(MSI_RETRY_DELAY)
-        else:
-            # Loop exhausted without break.
-            result = result
+            result = _run_uninstall_command(
+                entry,
+                fallback_command,
+                using_setup=True,
+                total_attempts=total_attempts,
+                dry_run=dry_run,
+                busy_input_func=busy_input_func,
+            )
+            command = fallback_command
 
         if result is None:
             continue
@@ -482,6 +678,7 @@ def uninstall_products(
                     "display_name": entry.display_name,
                     "version": entry.version,
                     "return_code": result.returncode,
+                    "executor": command[0] if command else None,
                 },
             )
             failures.append(entry.product_code)
@@ -489,7 +686,9 @@ def uninstall_products(
 
         if not _await_removal(entry):
             human_logger.error(
-                "Registry still reports %s (%s) after msiexec", entry.display_name, entry.product_code
+                "Registry still reports %s (%s) after uninstall command",
+                entry.display_name,
+                entry.product_code,
             )
             machine_logger.error(
                 "msi_uninstall_residue",
@@ -498,6 +697,7 @@ def uninstall_products(
                     "product_code": entry.product_code,
                     "display_name": entry.display_name,
                     "version": entry.version,
+                    "executor": command[0] if command else None,
                 },
             )
             failures.append(entry.product_code)

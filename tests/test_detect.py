@@ -41,6 +41,7 @@ def msi_registry_layout(monkeypatch: pytest.MonkeyPatch) -> None:
                 "DisplayName": f"Display for {product_code}",
                 "DisplayVersion": "16.0.0.123",
                 "UninstallString": f"MsiExec.exe /X{product_code}",
+                "DisplayIcon": r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\Office Setup Controller\\setup.exe,0",
             }
 
     def fake_read_values(root: int, path: str) -> Dict[str, str]:
@@ -112,6 +113,25 @@ class TestRegistryDetectionScenarios:
             "x86",
             "x64",
         }
+
+    def test_msi_detection_records_display_icon(self, msi_registry_layout: None) -> None:
+        """!
+        @brief Ensure MSI detection captures DisplayIcon and setup candidates.
+        """
+
+        installations = detect.detect_msi_installations()
+        target_code = "{90160000-0011-0000-0000-0000000FF1CE}"
+        record = next(entry for entry in installations if entry.product_code == target_code)
+        expected_icon = (
+            r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\Office Setup Controller\\setup.exe,0"
+        )
+        expected_setup = (
+            r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\Office Setup Controller\\setup.exe"
+        )
+        assert record.display_icon == expected_icon
+        assert record.maintenance_paths == (expected_setup,)
+        assert record.properties["display_icon"] == expected_icon
+        assert record.properties["maintenance_paths"] == [expected_setup]
 
     def test_click_to_run_detection_collects_channel_metadata(
         self, c2r_registry_layout: None
