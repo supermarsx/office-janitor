@@ -80,6 +80,61 @@ def test_msi_uninstall_builds_msiexec_command(monkeypatch, tmp_path) -> None:
     assert "/norestart" in command
 
 
+def test_msi_uninstall_uses_setup_when_available(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Setup-based maintenance executables should be preferred when present.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+    executed: List[Tuple[List[str], str, bool]] = []
+    probe_states: List[bool] = []
+    state = {"present": True}
+
+    setup_path = tmp_path / "setup.exe"
+    setup_path.write_text("dummy")
+
+    def fake_run_command(
+        command: List[str],
+        *,
+        event: str,
+        timeout: float | None = None,
+        dry_run: bool = False,
+        human_message: str | None = None,
+        extra: dict | None = None,
+    ) -> command_runner.CommandResult:
+        executed.append((command, event, dry_run))
+        state["present"] = False
+        return _command_result(command)
+
+    def fake_key_exists(*_: object, **__: object) -> bool:
+        probe_states.append(state["present"])
+        return state["present"]
+
+    monkeypatch.setattr(msi_uninstall.command_runner, "run_command", fake_run_command)
+    monkeypatch.setattr(msi_uninstall.registry_tools, "key_exists", fake_key_exists)
+    monkeypatch.setattr(msi_uninstall.time, "sleep", lambda *_: None)
+
+    record = {
+        "product": "Office",
+        "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
+        "maintenance_paths": [str(setup_path)],
+        "properties": {
+            "maintenance_paths": [str(setup_path)],
+            "display_icon": f"{setup_path},0",
+        },
+    }
+
+    msi_uninstall.uninstall_products([record])
+
+    assert executed, "Expected setup.exe to be invoked"
+    command, event, dry_run = executed[0]
+    assert command[0] == str(setup_path)
+    assert command[1:] == ["/uninstall"]
+    assert event == "msi_setup_uninstall"
+    assert dry_run is False
+    assert False in probe_states, "Verification should observe removal state"
+
+
 def test_msi_uninstall_dry_run(monkeypatch, tmp_path) -> None:
     """!
     @brief Dry-run mode should record the plan without executing ``msiexec``.
