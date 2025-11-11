@@ -1,0 +1,236 @@
+﻿    If fQuietRelaunch Then
+        sCmd = Replace (sCmd, "\cscript.exe", "\wscript.exe")
+        Wscript.Quit CLng(oWShell.Run (sCmd, 0, True))
+    Else
+        Wscript.Quit CLng(oWShell.Run (sCmd, 1, True))
+    End If
+
+End Sub 'RelaunchAs64Host
+
+'-------------------------------------------------------------------------------
+'   RelaunchAsCScript
+'
+'   Relaunch self with Cscript as host
+'-------------------------------------------------------------------------------
+Sub RelaunchAsCScript
+    Dim Argument
+    Dim sCmdLine
+    
+    sCmdLine = "cmd.exe /c " & WScript.Path & "\cscript.exe //NOLOGO " & Chr(34) & WScript.scriptFullName & Chr(34)
+    If Wscript.Arguments.Count > 0 Then
+        For Each Argument in Wscript.Arguments
+            sCmdLine = sCmdLine  &  " " & Chr(34) & Argument & Chr(34)
+        Next 'Argument
+    End If
+    Log "Relaunching with CScript as host. Full command: " & sCmdLine
+    Wscript.Quit CLng(oWShell.Run(sCmdLine, 1, True))
+
+End Sub 'RelaunchAsCScript
+
+'-------------------------------------------------------------------------------
+'   RelaunchElevated
+'
+'   Relaunch the script with elevated permissions
+'-------------------------------------------------------------------------------
+Sub RelaunchElevated
+    Dim Argument, Process, Processes
+    Dim iParentProcessId, iSpawnedProcessId
+    Dim sCmdLine, sRetValFile, sValue
+    Dim oShell
+
+    SetError ERROR_RELAUNCH
+    ' Shell object for relaunch
+    Set oShell = CreateObject("Shell.Application")
+    ' build command line for relaunch
+    sCmdLine = Chr(34) & WScript.ScriptFullName & Chr(34)
+    If Wscript.Arguments.Count > 0 Then
+        For Each Argument in Wscript.Arguments
+            Select Case UCase(Argument)
+            Case "/Q","/QUIET"
+                'Don't try to relaunch in quiet mode
+                Exit Sub
+                SetError ERROR_ELEVATION_FAILED
+            Case "UAC"
+                'Already tried elevated relaunch
+                SetError ERROR_ELEVATION_FAILED
+                Exit Sub
+            Case Else
+                sCmdLine = sCmdLine  &  " " & Chr(34) & Argument & Chr(34)
+            End Select
+        Next 'Argument
+    End If
+    ' prep work to get the return value from the elevated process
+    iParentProcessId = GetMyProcessId 
+    
+    ' launch the elevated instance
+    oShell.ShellExecute "cscript.exe", sCmdLine & " /NoElevate UAC", "", "runas", 1
+    ' get the process id of the spawned instance
+    WScript.Sleep 500
+    Set Processes = oWmiLocal.ExecQuery("Select * From Win32_Process WHERE ParentProcessId='" & iParentProcessId & "'")
+    If Processes.Count > 0 Then
+        For Each Process in Processes
+		    iSpawnedProcessId = Process.ProcessId
+		    Exit For
+        Next 'Process
+        ' monitor the tasklist to detect the end of the spawned process
+        While oWmiLocal.ExecQuery("Select * From Win32_Process WHERE ProcessId='" & iSpawnedProcessId & "'").Count > 0
+            WScript.Sleep 3000
+        Wend
+        ' get the return value from the file
+        Wscript.Quit GetRetValFromFile
+    End If
+    ' elevation failed (user declined)
+    SetError ERROR_ELEVATION_USERDECLINED
+End Sub 'RelaunchElevated
+
+'-------------------------------------------------------------------------------
+'   GetMyProcessId
+'
+'   Returns the process id of the own process
+'-------------------------------------------------------------------------------
+Function GetMyProcessId()
+    Dim iParentProcessId
+
+    iParentProcessId = 0
+    ' try to obtain from creating a new cscript instance
+    On Error Resume Next
+    iParentProcessId = GetObject("winmgmts:root\cimv2").Get("Win32_Process.Handle='" & oWShell.Exec("cscript.exe").ProcessId & "'").ParentProcessId
+    On Error Goto 0
+    If iParentProcessId > 0 Then
+        ' succeeded to obtain the process id
+        GetMyProcessId = iParentProcessId
+        Exit Function
+    End If
+
+    ' failed to obtain the id from the creation of a new instance
+    ' get it from enum of Win32_Process
+    Dim Process, Processes
+    Err.Clear
+    Set Processes = oWmiLocal.ExecQuery("Select * From Win32_Process WHERE Name='cscript.exe' AND CommandLine like '%" & SCRIPTNAME & "%'")
+    For Each Process in Processes
+        iParentProcessId = Process.ProcessId
+        Exit For
+    Next
+    GetMyProcessId = iParentProcessId
+End Function 'GetMyProcessId
+
+
+'-------------------------------------------------------------------------------
+'   SetError
+'
+'   Set error bit(s) 
+'-------------------------------------------------------------------------------
+Sub SetError(ErrorBit)
+    iError = iError OR ErrorBit
+    Select Case ErrorBit
+    Case ERROR_DCAF_FAILURE, ERROR_STAGE2, ERROR_ELEVATION_USERDECLINED, ERROR_ELEVATION, ERROR_SCRIPTINIT
+        iError = iError OR ERROR_FAIL
+    End Select
+End Sub
+
+'-------------------------------------------------------------------------------
+'   ClearError
+'
+'   Unset error bit(s) 
+'-------------------------------------------------------------------------------
+Sub ClearError(ErrorBit)
+    iError = iError AND (ERROR_ALL - ErrorBit)
+    Select Case ErrorBit
+    Case ERROR_ELEVATION_USERDECLINED, ERROR_ELEVATION, ERROR_SCRIPTINIT
+        iError = iError AND (ERROR_ALL - ERROR_FAIL)
+    End Select
+End Sub
+
+'-------------------------------------------------------------------------------
+'   SetRetVal
+'
+'   Write return value to file
+'-------------------------------------------------------------------------------
+Sub SetRetVal(iError)
+    Dim RetValFileStream
+    
+    'don't fail script execution if writing the return value to file fails
+    On Error Resume Next 
+
+    Set RetValFileStream = oFso.createTextFile(sScrubDir & "\" & RETVALFILE, True, True)
+    RetValFileStream.Write iError
+    RetValFileStream.Close
+    On Error Goto 0
+End Sub 'SetRetVal
+
+'-------------------------------------------------------------------------------
+'   GetRetValFromFile
+'
+'   Read return value from file.
+'   Used to ensure return value can get obtained from an elevated process
+'-------------------------------------------------------------------------------
+Function GetRetValFromFile ()
+    Dim RetValFileStream
+    Dim iRetValFromFile
+
+    On Error Resume Next 'don't fail script execution when getting the return value from file fails
+
+    If oFso.FileExists(sScrubDir & "\" & RETVALFILE) Then
+        Set RetValFileStream = oFso.OpenTextFile(sScrubDir & "\" & RETVALFILE, 1, False, -2)
+        GetRetValFromFile = RetValFileStream.ReadAll
+        RetValFileStream.Close
+        Exit Function
+    End If
+    Err.Clear
+    On Error Goto 0
+    GetRetValFromFile = ERROR_UNKNOWN
+End Function 'GetRetValFromFile
+
+'-------------------------------------------------------------------------------
+'   ShowSyntax
+'
+'   Show the expected syntax for the script usage
+'-------------------------------------------------------------------------------
+Sub ShowSyntax
+    TmpKeyCleanUp
+    Wscript.Echo vbCrLf & _
+             SCRIPTFILE & " V " & SCRIPTVERSION & vbCrLf & _
+             "Copyright (c) Microsoft Corporation. All Rights Reserved" & vbCrLf & vbCrLf & _
+             "Microsoft Customer Support Services - " & ONAME & " Removal Utility" & vbCrLf & vbCrLf & _
+             SCRIPTFILE & " helps to remove " & ONAME & " Server & Client products" & vbCrLf & vbCrLf & _
+             "Usage:" & vbTab & SCRIPTFILE & " [List of config ProductIDs] [Options]" & vbCrLf & vbCrLf & _
+             vbTab & "/?                          ' Displays this help"& vbCrLf &_
+             vbTab & "/Log [LogfolderPath]        ' Custom folder for log files" & vbCrLf & _
+             vbTab & "/SkipSD                     ' Skips the ShortcutDetection in local profiles" & vbCrLf & _
+             vbTab & "/NoCancel                   ' Setup.exe and Msiexec.exe have no Cancel button" & vbCrLf &_
+             vbTab & "/Quiet                      ' Script, Setup.exe and Msiexec.exe run quiet with no UI" & vbCrLf &_
+             vbTab & "/Preview                    ' Run this script to preview what would get removed"& vbCrLf & vbCrLf & _
+             "Examples:"& vbCrLf & _
+             vbTab & SCRIPTFILE & " CLIENTSUITES    ' Remove all " & ONAME & " Client suites/products" & vbCrLf &_
+             vbTab & SCRIPTFILE & " CLIENTALL       ' Remove all " & ONAME & " Client products" & vbCrLf &_
+             vbTab & SCRIPTFILE & " SERVER          ' Remove all " & ONAME & " Server products" & vbCrLf &_
+             vbTab & SCRIPTFILE & " ALL             ' Remove all " & ONAME & " Server & Client products" & vbCrLf &_
+             vbTab & SCRIPTFILE & " ProPlus,PrjPro  ' Remove ProPlus and Project" & vbCrLf
+    Wscript.Quit
+End Sub 'ShowSyntax
+'=======================================================================================================
+
+
+Sub LogY (sLog)
+	'LogPipe sLog
+End Sub
+
+Sub LogPipe (sLog)
+	Err.Clear
+	On Error Resume Next
+	'wscript.Echo "Here"
+	'wscript.Echo sLog
+	
+	
+    Set fs = CreateObject("Scripting.FileSystemObject")
+	Set pipeStream = fs.CreateTextFile("\\.\pipe\offscrub_pipe", True)
+	pipeStream.WriteLine(sLog)
+	pipeStream.Close()
+    WScript.Sleep 5000
+	
+	If Err <> 0 Then 
+        'wscript.Echo Err.Source
+        'wscript.echo Err.Description
+        'Wscript.Quit
+    End If 'Err = 0
+End Sub

@@ -403,6 +403,30 @@ def _render_license_script(options: Mapping[str, object]) -> str:
     )
 
 
+def get_cleanoffice_embedded(draft_path: Path | None = None) -> str:
+    """!
+    @brief Return the embedded PowerShell payload from the draft `CleanOffice.txt` file.
+    @param draft_path Optional path to the draft file; defaults to the repository draft location.
+    @returns PowerShell script content extracted from the `:embed:` markers.
+    @raises FileNotFoundError if the draft file cannot be read.
+    """
+
+    repo_draft = Path("office-janitor-draft-code") / "bin" / "CleanOffice.txt"
+    path = Path(draft_path) if draft_path is not None else repo_draft
+    if not path.exists():
+        raise FileNotFoundError(f"Draft CleanOffice file not found: {path}")
+    raw = path.read_text(encoding="utf-8")
+    parts = raw.split(":embed:")
+    if len(parts) < 3:
+        # The payload is expected between two :embed: markers
+        raise RuntimeError("Embedded payload not found in CleanOffice.txt")
+    # The payload is the content between the first and second :embed:
+    payload = parts[1]
+    return payload
+
+
 __all__ = [
     "cleanup_licenses",
+    "get_cleanoffice_embedded",
 ]
+

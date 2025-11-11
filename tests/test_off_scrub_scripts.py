@@ -14,14 +14,14 @@ from office_janitor import off_scrub_scripts, constants
 def test_build_offscrub_command_msi_defaults(tmp_path):
     cmd = off_scrub_scripts.build_offscrub_command("msi", version=None, base_directory=tmp_path)
     assert isinstance(cmd, list)
-    assert cmd[0] == constants.OFFSCRUB_EXECUTABLE
+    assert cmd[0] == sys.executable
     assert any(str(tmp_path) in part for part in cmd)
 
 
 def test_build_offscrub_command_c2r(tmp_path):
     cmd = off_scrub_scripts.build_offscrub_command("c2r", base_directory=tmp_path)
     assert isinstance(cmd, list)
-    assert cmd[0] == constants.OFFSCRUB_EXECUTABLE
+    assert cmd[0] == sys.executable
     assert any(constants.C2R_OFFSCRUB_SCRIPT in part for part in cmd)
 
 

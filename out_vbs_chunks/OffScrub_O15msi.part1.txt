@@ -1,0 +1,2000 @@
+﻿'=======================================================================================================
+' Name: OffScrub_O15msi.vbs
+' Author: Microsoft Customer Support Services
+' Copyright (c) 2011-2015 Microsoft Corporation
+' Script to remove (scrub) Office 2013 MSI products
+' when a regular uninstall is no longer possible
+'=======================================================================================================
+Option Explicit
+
+Dim sDefault
+'=======================================================================================================
+'[INI] Section for script behavior customizations
+
+'Pre-configure the SKU's to remove.
+'Only for use without command line parameters
+'Example: sDefault = "CLIENTALL"
+sDefault = "" 
+
+'DO NOT CUSTOMIZE BELOW THIS LINE!
+'=======================================================================================================
+
+
+Const SCRIPTVERSION = "2.19"
+Const SCRIPTFILE    = "OffScrub_O15msi.vbs"
+Const SCRIPTNAME    = "OffScrub_O15msi"
+Const RETVALFILE    = "ScrubRetValFile.txt"
+Const OVERSION      = "15.0"
+Const OVERSIONMAJOR = "15"
+Const OREF          = "Office15"
+Const OREGREF       = "OFFICE15."
+Const ONAME         = "Office 2013 MSI"
+Const OPACKAGE      = "PackageRefs"
+Const OFFICEID      = "000000FF1CE}"
+Const HKCR          = &H80000000
+Const HKCU          = &H80000001
+Const HKLM          = &H80000002
+Const HKU           = &H80000003
+Const FOR_WRITING   = 2
+Const PRODLEN       = 12
+Const COMPPERMANENT = "00000000000000000000000000000000"
+Const UNCOMPRESSED  = 38
+Const SQUISHED      = 20
+Const COMPRESSED    = 32
+Const REG_ARP       = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\"
+Const VB_YES        = 6
+Const MSIOPENDATABASEREADONLY = 0
+Const LYNC_ALL      = "{4A2C120F-307B-4400-B239-F29ADB54D3C6}{5CFD6599-10E5-4CF0-B6E1-BF39D30A64F8}{5CFD6599-10E5-4CF0-B6E1-BF39D30A64F8}{BF3AC8BA-1A0F-42AD-8B65-4250617AF682}{3475BF22-3564-4EF3-A633-C5F3F4582392}{263BA91B-7782-4EEB-A4FC-7BD554CAF1F3}{AA256AE1-6B6A-48E6-9957-B38F92CA614B}{D79732A1-BB17-4789-AE75-69D61261E305}{C7B887F2-07CA-4903-93A2-9B4E16E4EABD}{81BE0B17-563B-45D4-B198-5721E6C665CD}{11298539-8073-4D54-B6A0-88D4FA512E5C}{C192041D-2861-4E02-9F43-4041858A58F1}{7023C711-0E65-471E-8048-12C455968841}{58A013B1-1613-4978-881A-FCA43710C84A}{7FD6C049-9777-4B51-91FF-B19D79ADF439}{D3001D99-675B-44DF-A8EB-A7BB6F864DB7}{0C5EA724-8649-47FA-B505-75B35390378D}{13DE0C92-2AE4-48D0-8CC8-58D5E327BDCB}{E7EC16E6-C220-41C0-9C91-5E7702B8EC86}{1B10C75C-70E1-460E-B07B-D7DFF365D80F}{331977BC-B246-46B4-8829-1D52F41C8C7B}{D8255EF2-0BB2-4AF1-A662-5EBACD179475}{DD069437-C92B-4C1C-A992-14F6C7E12C2C}{E9E30DB3-8D72-43A0-B1B8-A6F8261D20D6}{545B7E32-E254-40E1-8935-91C61E3D02C2}{70409E9E-AFAE-4C05-AE57-F83B89819434}{1D6E3225-753D-41AD-A2C4-68684700F592}{217AA75D-82C0-4C49-9252-A0E6F9661688}{5AB81CD4-7C78-420C-AAAC-855C4BADBDDD}{AA595672-6515-4961-B81F-485F86627C76}{C9F2C38C-21F0-4687-8C7D-51AA02CE8C98}{DD80DED6-700D-4CC5-B2A9-C64A1AD155B9}{88257193-EC61-4152-8AB1-A5FB4BE638D7}{7D9109C3-58A9-4AFD-A1D3-47E7D811726E}{71C6D199-5B8E-41E7-BA36-D99F66E0072E}{1CFE7869-777D-4563-8161-2C75ED95B621}{FE25DDB2-5766-4A9E-86D2-2B709CC8F65D}{621F7793-1C51-45BA-899F-41557946B0E3}{B31017AA-FBF8-4003-8785-EC789C2AE0C2}{11849FBC-C416-4742-8279-17C3A2C85F72}{4F380D4B-A84D-45C7-AF58-59EA2AEDF35A}{81BE0B17-563B-45D4-B198-5721E6C665CD}"
+
+Const ERROR_SUCCESS                 = 0   'Bit #1.  0 indicates Success. Script completed successfully
+Const ERROR_FAIL                    = 1   'Bit #1.  Failure bit. Indicates an overall script failure.
+                                          'RESERVED bit! Returned when process is killed from task manager
+Const ERROR_REBOOT_REQUIRED         = 2   'Bit #2.  Reboot bit. If set a reboot is required
+Const ERROR_USERCANCEL              = 4   'Bit #3.  User Cancel bit. Controlled cancel from script UI
+Const ERROR_STAGE1                  = 8   'Bit #4.  Informational. Msiexec based install was not possible
+Const ERROR_STAGE2                  = 16  'Bit #5.  Critical. Not all of the intended cleanup operations could be applied
+Const ERROR_INCOMPLETE              = 32  'Bit #6.  Pending file renames (del on reboot) - OR - Removal needs to run again after a system reboot.
+Const ERROR_DCAF_FAILURE            = 64  'Bit #7.  Critical. Da capo al fine (second attempt) still failed.
+Const ERROR_ELEVATION_USERDECLINED  = 128 'Bit #8.  Critical script error. User declined to allow mandatory script elevation
+Const ERROR_ELEVATION               = 256 'Bit #9.  Critical script error. The attempt to elevate the process did not succeed
+Const ERROR_SCRIPTINIT              = 512 'Bit #10. Critical script error. Initialization failed
+Const ERROR_RELAUNCH                = 1024'Bit #11. Critical script error. This is a temporary value and must not be the final return code
+Const ERROR_UNKNOWN                 = 2048'Bit #12 Critical script error. Script did not complete in a well defined state
+Const ERROR_ALL                     = 4095'Full BitMask
+Const ERROR_USER_ABORT              = &HC000013A 'RESERVED. Dec -1073741510. Critical error. Returned when user aborts with <Ctrl>+<Break> or closes the cmd window
+Const ERROR_SUCCESS_CONFIG_COMPLETE = 1728
+Const ERROR_SUCCESS_REBOOT_REQUIRED = 3010
+
+'=======================================================================================================
+Dim oFso, oMsi, oReg, oWShell, oWmiLocal, oShellApp
+Dim ComputerItem, Item, LogStream, TmpKey
+Dim arrTmpSKUs, arrDeleteFiles, arrDeleteFolders, arrMseFolders, arrVersion
+Dim dicKeepProd, dicKeepLis, dicApps, dicKeepFolder, dicDelRegKey, dicKeepReg
+Dim dicInstalledSku, dicRemoveSku, dicKeepSku, dicSrv, dicCSuite, dicCSingle
+Dim f64, fLegacyProductFound, fCScript
+Dim sTmp, sSkuRemoveList, sWinDir, sWICacheDir, sMode
+Dim sAppData, sTemp, sScrubDir, sProgramFiles, sProgramFilesX86, sCommonProgramFiles
+Dim sAllusersProfile, sOSinfo, sOSVersion, sCommonProgramFilesX86, sProfilesDirectory
+Dim sProgramData, sLocalAppData, sOInstallRoot, sScriptDir, sNotepad
+Dim iVersionNT, iError
+Dim pipename, pipeStream, fs
+
+'=======================================================================================================
+'Main
+'=======================================================================================================
+'Configure defaults
+Dim sLogDir : sLogDir = ""
+Dim sMoveMessage: sMoveMessage = ""
+Dim fClearAddinReg	: fClearAddinReg = False
+Dim fRemoveOse      : fRemoveOse = False
+Dim fRemoveOspp     : fRemoveOspp = False
+Dim fRemoveAll      : fRemoveAll = False
+Dim fRemoveC2R      : fRemoveC2R = False
+Dim fRemoveAppV     : fRemoveAppV = False
+Dim fRemoveCSuites  : fRemoveCSuites = False
+Dim fRemoveCSingle  : fRemoveCSingle = False
+Dim fRemoveSrv      : fRemoveSrv = False
+Dim fRemoveLync     : fRemoveLync = False
+Dim fRemoveVBA      : fRemoveVBA = False
+Dim fKeepUser       : fKeepUser = True  'Default to keep per user settings
+Dim fSkipSD         : fSkipSD = False 'Default to not Skip the Shortcut Detection
+Dim fKeepSG         : fKeepSG = False 'Default to not override the SoftGrid detection
+Dim fDetectOnly     : fDetectOnly = False
+Dim fQuiet          : fQuiet = False
+Dim fBasic          : fBasic = False
+Dim fNoCancel       : fNoCancel = False
+Dim fPassive        : fPassive = True
+Dim fNoReboot       : fNoReboot = False 'Default to offer reboot prompt if needed
+Dim fNoElevate      : fNoElevate = False
+Dim fElevated       : fElevated = False
+Dim fTryReconcile   : fTryReconcile = False
+Dim fC2rInstalled   : fC2rInstalled = False
+Dim fRebootRequired : fRebootRequired = False
+Dim fReturnErrorOrSuccess : fReturnErrorOrSuccess = False
+Dim fEndCurrentInstalls : fEndCurrentInstalls = False
+'CAUTION! -> "fForce" will kill running applications which can result in data loss! <- CAUTION
+Dim fForce          : fForce = False
+'CAUTION! -> "fForce" will kill running applications which can result in data loss! <- CAUTION
+Dim fLogInitialized : fLogInitialized = False
+Dim fBypass_Stage1  : fBypass_Stage1 = True 'Component Detection
+Dim fBypass_Stage2  : fBypass_Stage2 = False 'Setup
+Dim fBypass_Stage3  : fBypass_Stage3 = False 'Msiexec
+Dim fBypass_Stage4  : fBypass_Stage4 = False 'CleanUp
+Dim fx86Only        : fx86Only = False
+Dim fx64Only        : fx64Only = False
+
+'Create required objects
+Set oWmiLocal   = GetObject("winmgmts:{(Debug)}\\.\root\cimv2")
+Set oWShell     = CreateObject("Wscript.Shell")
+Set oShellApp   = CreateObject("Shell.Application")
+Set oFso        = CreateObject("Scripting.FileSystemObject")
+Set oMsi        = CreateObject("WindowsInstaller.Installer")
+Set oReg        = GetObject("winmgmts:\\.\root\default:StdRegProv")
+
+LogY "stage0"
+
+'Get environment path info
+sAppData            = oWShell.ExpandEnvironmentStrings("%appdata%")
+sLocalAppData       = oWShell.ExpandEnvironmentStrings("%localappdata%")
+sTemp               = oWShell.ExpandEnvironmentStrings("%temp%")
+sAllUsersProfile    = oWShell.ExpandEnvironmentStrings("%allusersprofile%")
+RegReadValue HKLM, "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList", "ProfilesDirectory", sProfilesDirectory, "REG_EXPAND_SZ"
+If NOT oFso.FolderExists(sProfilesDirectory) Then 
+    sProfilesDirectory  = oFso.GetParentFolderName(oWShell.ExpandEnvironmentStrings("%userprofile%"))
+End If
+sProgramFiles       = oWShell.ExpandEnvironmentStrings("%programfiles%")
+'Deferred until after architecture check
+'sProgramFilesX86 = oWShell.ExpandEnvironmentStrings("%programfiles(x86)%")
+
+sCommonProgramFiles = oWShell.ExpandEnvironmentStrings("%commonprogramfiles%")
+'Deferred until after architecture check
+'sCommonProgramFilesX86 = oWShell.ExpandEnvironmentStrings("%CommonProgramFiles(x86)%")
+
+sProgramData        = oWSHell.ExpandEnvironmentStrings("%programdata%")
+sWinDir             = oWShell.ExpandEnvironmentStrings("%windir%")
+sWICacheDir         = sWinDir & "\" & "Installer"
+sScrubDir           = sTemp & "\" & SCRIPTNAME
+sNotepad            = sWinDir & "\notepad.exe"
+'sScriptDir only required for OSPP cleanup
+sScriptDir          = wscript.ScriptFullName
+sScriptDir          = Left(sScriptDir, InStrRev(sScriptDir, "\"))
+
+' Get current script host
+fCScript = UCase(Mid(Wscript.FullName, Len(Wscript.Path) + 2, 1)) = "C"
+
+'Detect if we're running on a 64 bit OS
+Set ComputerItem = oWmiLocal.ExecQuery("Select * from Win32_ComputerSystem")
+For Each Item In ComputerItem
+    f64 = Instr(Left(Item.SystemType, 3), "64") > 0
+    If f64 Then Exit For
+Next
+If f64 Then sProgramFilesX86 = oWShell.ExpandEnvironmentStrings("%programfiles(x86)%")
+If f64 Then sCommonProgramFilesX86 = oWShell.ExpandEnvironmentStrings("%CommonProgramFiles(x86)%")
+
+'Get OS details and VersionNT
+Set ComputerItem = oWmiLocal.ExecQuery("Select * from Win32_OperatingSystem")
+For Each Item in ComputerItem 
+    sOSinfo = sOSinfo & Item.Caption 
+    sOSinfo = sOSinfo & Item.OtherTypeDescription
+    sOSinfo = sOSinfo & ", " & "SP " & Item.ServicePackMajorVersion
+    sOSinfo = sOSinfo & ", " & "Version: " & Item.Version
+    sOsVersion = Item.Version
+    sOSinfo = sOSinfo & ", " & "Codepage: " & Item.CodeSet
+    sOSinfo = sOSinfo & ", " & "Country Code: " & Item.CountryCode
+    sOSinfo = sOSinfo & ", " & "Language: " & Item.OSLanguage
+Next
+
+'Build the VersionNT number
+arrVersion = Split(sOsVersion, Delimiter(sOsVersion))
+iVersionNt = CInt(arrVersion (0)) * 100 + CInt(arrVersion (1))
+
+'Check if we're running as 32 bit process on a 64 bit OS
+If InStr(LCase(wscript.path), "syswow64") > 0 Then RelaunchAs64Host
+
+fElevated = CheckRegPermissions
+If NOT fElevated AND NOT fNoElevate Then
+    'Try to relaunch elevated
+    RelaunchElevated
+
+    ' can't relaunch. Exit out
+    SetError ERROR_ELEVATION
+    If UCase(Mid(Wscript.FullName, Len(Wscript.Path) + 2, 1)) = "C" Then
+        If Not fLogInitialized Then CreateLog
+        Log "Error: Insufficient registry access permissions - exiting"
+    End If
+    SetRetVal iError
+    'Undo temporary entries created in ARP
+    TmpKeyCleanUp
+    'wscript.quit 3
+    ExitScript
+End If
+
+' set retval for file based logic
+'--------------------------------
+' value needs to be kept on 'user abort'
+SetRetVal ERROR_USER_ABORT
+
+' create dictionary objects
+'--------------------------
+Set dicKeepProd = CreateObject("Scripting.Dictionary")
+Set dicInstalledSku = CreateObject("Scripting.Dictionary")
+Set dicRemoveSku = CreateObject("Scripting.Dictionary")
+Set dicKeepSku = CreateObject("Scripting.Dictionary")
+Set dicKeepLis = CreateObject("Scripting.Dictionary")
+Set dicKeepFolder = CreateObject("Scripting.Dictionary")
+Set dicApps = CreateObject("Scripting.Dictionary")
+Set dicDelRegKey = CreateObject("Scripting.Dictionary")
+Set dicKeepReg = CreateObject("Scripting.Dictionary")
+Set dicSrv = CreateObject("Scripting.Dictionary")
+Set dicCSuite = CreateObject("Scripting.Dictionary")
+Set dicCSingle = CreateObject("Scripting.Dictionary")
+
+'Create the temp folder
+If Not oFso.FolderExists(sScrubDir) Then oFso.CreateFolder sScrubDir
+
+'Set the default logging directory
+sLogDir = sScrubDir
+
+'Call the command line parser
+ParseCmdLine
+
+'Ensure CScript as engine
+If NOT fCScript AND NOT fQuiet Then RelaunchAsCScript
+
+'Get Office Install Folder
+If NOT RegReadValue(HKLM, "SOFTWARE\Microsoft\Office\" & OVERSION & "\Common\InstallRoot", "Path", sOInstallRoot, "REG_SZ") Then 
+    sOInstallRoot = sProgramFiles & "\Microsoft Office\" & OREF
+End If
+
+'Ensure integrity of WI metadata which could fail used APIs otherwise
+EnsureValidWIMetadata HKCU, "Software\Classes\Installer\Products", COMPRESSED
+EnsureValidWIMetadata HKCR, "Installer\Products", COMPRESSED
+EnsureValidWIMetadata HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products", COMPRESSED
+EnsureValidWIMetadata HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components", COMPRESSED
+EnsureValidWIMetadata HKCR, "Installer\Components", COMPRESSED
+
+'Add initial known .exe files that might need to be closed
+dicApps.Add "communicator.exe", "communicator.exe"
+'Adding setup.exe to the hard list of processes that are shut down will potentially break wrappers that invoke OffScrub
+'dicApps.Add "setup.exe", "setup.exe"
+Select Case OVERSIONMAJOR
+Case "12"
+Case "14"
+    dicApps.Add "bcssync.exe", "bcssync.exe"
+    dicApps.Add "officesas.exe", "officesas.exe"
+    dicApps.Add "officesasscheduler.exe", "officesasscheduler.exe"
+    dicApps.Add "msosync.exe", "msosync.exe"
+    dicApps.Add "onenotem.exe", "onenotem.exe"
+Case "16"
+    dicApps.Add "msosync.exe", "msosync.exe"
+    dicApps.Add "onenotem.exe", "onenotem.exe"
+Case Else
+End Select
+
+'-------------------
+'Stage # 0 - Basics |
+'-------------------
+'Build a list with installed/registered Office products
+sTmp = "Stage # 0 " & Chr(34) & "Basics" & Chr(34) & " (" & Time & ")"
+LogH2 vbCrLf & sTmp & vbCrLf & String(Len(sTmp), "=") & vbCrLf
+
+FindInstalledOProducts
+If dicInstalledSku.Count > 0 Then Log "Found registered product(s): " & Join(RemoveDuplicates(dicInstalledSku.Items), ",")
+
+'Validate the list of products we got from the command line if applicable
+ValidateRemoveSkuList
+
+'Log detection results
+If dicRemoveSku.Count > 0 Then Log "Product(s) to be removed: " & Join(RemoveDuplicates(dicRemoveSku.Items), ",")
+sMode = "Selected " & ONAME & " products"
+If NOT dicRemoveSku.Count > 0 Then sMode = "Orphaned " & ONAME & " products"
+If fRemoveAll Then sMode = "All " & ONAME & " products"
+Log "Final removal mode: " & sMode
+Log "Remove OSE service: " & fRemoveOse
+
+'Log preview mode if applicable
+If fDetectOnly Then Log "*************************************************************************"
+If fDetectOnly Then Log "*                          PREVIEW MODE                                 *"
+If fDetectOnly Then Log "* All uninstall and delete operations will only be logged not executed! *"
+If fDetectOnly Then Log "*************************************************************************" & vbCrLf
+
+'Check if there are legacy products installed
+CheckForLegacyProducts
+If fLegacyProductFound Then Log "Found legacy Office products that will not be removed." Else Log "No legacy Office products found."
+
+'Cache .msi files
+If dicRemoveSku.Count > 0 Then CacheMsiFiles
+
+'Log Sku/Prod detection results
+LogSkuResults
+
+'UnPin Shortcuts
+If NOT fSkipSD AND dicRemoveSku.Count > 0 Then
+    On Error Resume Next
+    LogH1 "UnPin shortcuts"
+    CleanShortcuts sAllUsersProfile, False, True
+    CleanShortcuts sProfilesDirectory, False, True
+    On Error Goto 0
+End If 'NOT SkipSD
+
+
+'--------------------------------
+'Stage # 1 - Component Detection |
+'--------------------------------
+LogY "stage1"
+sTmp = "Stage # 1 " & Chr(34) & "Component Detection" & Chr(34) & " (" & Time & ")"
+LogH2 vbCrLf & sTmp & vbCrLf & String(Len(sTmp), "=") & vbCrLf
+If Not fBypass_Stage1 OR fForce Then
+    'Build a list with files which are installed/registered to a product that's going to be removed
+    Log "Prepare for CleanUp stages."
+    Log "Identifying removable elements. This can take several minutes."
+    ScanComponents 
+Else
+    Log "Not running Component Detection in default removal."
+End If
+
+'End all running Office applications
+If fForce OR fQuiet OR fPassive Then CloseOfficeApps
+
+'----------------------
+'Stage # 2 - Setup.exe |
+'----------------------
+LogY "stage2"
+sTmp = "Stage # 2 " & Chr(34) & "Setup.exe" & Chr(34) & " (" & Time & ")"
+LogH2 vbCrLf & sTmp & vbCrLf & String(Len(sTmp), "=") & vbCrLf
+If Not fBypass_Stage2 Then
+    SetupExeRemoval
+Else
+    Log "Skipping Setup.exe because bypass was requested."
+End If
+
+'------------------------
+'Stage # 3 - Msiexec.exe |
+'------------------------
+LogY "stage3"
+sTmp = "Stage # 3 " & Chr(34) & "Msiexec.exe" & Chr(34) & " (" & Time & ")"
+LogH2 vbCrLf & sTmp & vbCrLf & String(Len(sTmp), "=") & vbCrLf
+If Not fBypass_Stage3 Then
+    MsiexecRemoval
+Else
+    Log "Skipping Msiexec.exe because bypass was requested."
+End If
+
+'--------------------
+'Stage # 4 - CleanUp |
+'--------------------
+'Removal of files and registry settings
+sTmp = "Stage # 4 " & Chr(34) & "CleanUp" & Chr(34) & " (" & Time & ")"
+LogH2 vbCrLf & sTmp & vbCrLf & String(Len(sTmp), "=")
+If Not fBypass_Stage4 Then
+    
+    'Office Source Engine
+    If fRemoveOse Then
+        LogH1 "Office Source Engine CleanUp"
+        RemoveOSE
+    End If
+
+    'Local Installation Source (MSOCache)
+    LogH1 "Local Installation Source CleanUp"
+    WipeLIS
+    
+    'Obsolete files
+    LogH1 "File CleanUp"
+    If fRemoveAll Then 
+        FileWipeAll 
+    Else 
+        FileWipeIndividual
+    End If
+    
+    'Empty Folders
+    LogH1 "Folder CleanUp"
+    DeleteEmptyFolders
+    
+    'Restore Explorer if needed
+    If fForce OR fQuiet OR fPassive Then RestoreExplorer
+    
+    'Registry data
+    LogH1 "Registry CleanUp"
+    RegWipe
+    
+    'Wipe orphaned files from Windows Installer cache
+    LogH1 "MSI Cache - orphaned files CleanUp"
+    MsiClearOrphanedFiles
+    
+    'Temporary .msi files in scrubcache
+    LogH1 "Temporary files CleanUp"
+    DeleteMsiScrubCache
+    
+    'Temporary files
+    DelScrubTmp
+    
+Else
+    Log vbCrLf & "Skipping CleanUp because bypass was requested."
+End If
+
+If Not sMoveMessage = "" Then Log vbCrLf & "Please remove this folder after next reboot: " & sMoveMessage
+
+ExitScript
+
+'-------------------------------------------------------------------------------
+'   ExitScript
+'
+'   Returncode and reboot handler 
+'-------------------------------------------------------------------------------
+Sub ExitScript
+    Dim sPrompt
+    LogY "stage4"
+    sTmp = "END " & " (" & Time & ")"
+    LogH2 vbCrLf & sTmp & vbCrLf & String(Len(sTmp), "=") & vbCrLf
+
+    ' Update cached error and quit
+    '-----------------------------
+    SetRetVal iError
+    LogOnly "For detailed logging please refer to the log in folder " & Chr(34) & sScrubDir & Chr(34) & vbCrLf
+
+    ' log result
+    If CBool(iError AND ERROR_INCOMPLETE) Then 
+        LogH2 "Removal result: " & iError & " - INCOMPLETE. Uninstall requires a system reboot to complete."
+    Else
+        sTmp = " - SUCCESS"
+        If CBool(iError AND ERROR_USERCANCEL) Then sTmp = " - USER CANCELED"
+        If CBool(iError AND ERROR_FAIL) Then sTmp = " - FAIL"
+        LogH2 "Removal result: " & iError & sTmp
+    End If
+    If CBool(iError AND ERROR_FAIL) Then
+        If CBool(iError AND ERROR_REBOOT_REQUIRED) Then Log " - Reboot required"
+        If CBool(iError AND ERROR_USERCANCEL) Then Log " - User cancel"
+        If CBool(iError AND ERROR_STAGE1) Then Log " - Msiexec failed"
+        If CBool(iError AND ERROR_STAGE2) Then Log " - Cleanup failed"
+        If CBool(iError AND ERROR_INCOMPLETE) Then Log " - Removal incomplete. Rerun after reboot needed"
+        If CBool(iError AND ERROR_DCAF_FAILURE) Then Log " - Second attempt cleanup still incomplete"
+        If CBool(iError AND ERROR_ELEVATION_USERDECLINED) Then Log " - User declined elevation"
+        If CBool(iError AND ERROR_ELEVATION) Then Log " - Elevation failed"
+        If CBool(iError AND ERROR_SCRIPTINIT) Then Log " - Initialization error"
+        If CBool(iError AND ERROR_RELAUNCH) Then Log " - Unhandled error during relaunch attempt"
+        If CBool(iError AND ERROR_UNKNOWN) Then Log " - Unknown error"
+        ' ERROR_USER_ABORT is only valid for the temporary cached error file
+        'If CBool(iError AND ERROR_USER_ABORT) Then Log " - Process terminated by user"
+    End If
+
+    ' Check if we need to show a simplified return code
+    ' 0 = Success
+    ' Non Zero = Error
+     If CBool(iError AND ERROR_FAIL) AND fReturnErrorOrSuccess Then
+        Dim fOverallSuccess
+        fOverallSuccess = True
+        If CBool(iError AND ERROR_USERCANCEL) Then fOverallSuccess = False
+        If CBool(iError AND ERROR_STAGE2) Then fOverallSuccess = False
+        If CBool(iError AND ERROR_DCAF_FAILURE) Then fOverallSuccess = False
+        If CBool(iError AND ERROR_ELEVATION_USERDECLINED) Then fOverallSuccess = False
+        If CBool(iError AND ERROR_ELEVATION) Then fOverallSuccess = False
+        If CBool(iError AND ERROR_SCRIPTINIT) Then fOverallSuccess = False
+        If CBool(iError AND ERROR_RELAUNCH) Then fOverallSuccess = False
+        If CBool(iError AND ERROR_UNKNOWN) Then fOverallSuccess = False
+
+        sTmp = "ReturnErrorOrSuccess switch has been set. The current value return code translates to: "
+        If fOverallSuccess Then 
+            iError = ERROR_SUCCESS
+            Log sTmp & "SUCCESS"
+        Else
+            Log sTmp & "ERROR"
+        End If
+    End If
+
+    LogH2 "Removal end." 
+
+    ' Reboot handling
+    If fRebootRequired Then
+        LogY "reboot"
+        sPrompt = "In order to complete uninstall, a system reboot is necessary. Would you like to reboot now?"
+        If NOT (fQuiet OR fPassive OR fNoReboot) Then
+            Log vbCrLf & "A restart is required to complete the operation!"
+            If MsgBox(sPrompt, vbYesNo, SCRIPTNAME & " - Reboot Required") = VB_YES Then
+                Dim colOS, oOS
+                Dim oWmiReboot
+                Set oWmiReboot = GetObject("winmgmts:{impersonationLevel=impersonate,(Shutdown)}!\\.\root\cimv2")
+                Set colOS = oWmiReboot.ExecQuery ("Select * from Win32_OperatingSystem")
+                For Each oOS in colOS
+                    oOS.Reboot()
+                Next
+            End If
+        End If
+    End If
+
+    If NOT fQuiet Then
+        For Each Item in Wscript.Arguments
+            If Item = "UAC" Then 
+                wscript.stdout.write "Press <Enter> to close this window"
+                sTemp = wscript.stdin.read(1)
+            End If
+        Next 'Argument
+    End If
+
+    LogY "ok"
+    WScript.quit iError
+End Sub 'ExitScript
+
+'=======================================================================================================
+'=======================================================================================================
+
+'Stage 0 - 4 Subroutines
+'=======================================================================================================
+
+'Office configuration products are listed with their configuration product name in the "Uninstall" key
+'To identify an Office configuration product all of these condiditions have to be met:
+' - "SystemComponent" does not have a value of "1" (DWORD) 
+' - "OPACKAGE" (see constant declaration) entry exists and is not empty
+' - "DisplayVersion" exists and the 2 leftmost digits are "OVERSIONMAJOR"
+Sub FindInstalledOProducts
+    Dim ArpItem, File
+    Dim sCurKey, sValue, sConfigName, sProdC, sCVHValue
+    Dim sProductCodeList, sProductCode 
+    Dim arrKeys, arrMultiSzValues
+    Dim fSystemComponent0, fPackages, fDisplayVersion, fReturn, fCategorized
+
+    If dicInstalledSku.Count > 0 Then Exit Sub 'Already done from InputBox prompt
+    
+    'Handle orphaned products to get them added to the detection scope
+    If fTryReconcile Then
+        For Each File in oFso.GetFolder(sWICacheDir).Files
+            If Len(File.Name)>3 Then
+                Select Case LCase(Right(File.Name, 4))
+                Case ".msi"
+                    sProductCode = ""
+                    sProductCode = GetMsiProductCode(File.Path)
+                    If InScope(sProductCode) Then
+                        If NOT RegKeyExists(HKLM, REG_ARP & sProductCode) Then
+                            'Ensure the orphaned item is getting removed
+                            If Len(sSkuRemoveList) > 0 Then
+                                sSkuRemoveList = sSkuRemoveList & "," & GetProductID(Mid(sProductCode, 11, 4))
+                            Else
+                                sSkuRemoveList = GetProductID(Mid(sProductCode, 11, 4))
+                            End If
+                            'Add to ScrubDir
+                            oFso.CopyFile File.Path, sScrubDir & "\" & sProductCode & ".msi", True
+                            'Register the product with MSI
+                            MsiRegisterProduct File.Path
+                        End If 'NOT sProductCode
+                    End If 'InScope
+                Case Else
+                End Select
+            End If '>3
+        Next 'File
+    End If 'fTryReconcile
+
+    'Locate standalone Office products that have no configuration product entry and create a
+    'temporary configuration entry
+    ReDim arrTmpSKUs(-1)
+    If RegEnumKey(HKLM, REG_ARP, arrKeys) Then
+        For Each ArpItem in arrKeys
+            If InScope(ArpItem) Then
+                sCurKey = REG_ARP & ArpItem & "\"
+                fSystemComponent0 = Not (RegReadValue(HKLM, sCurKey, "SystemComponent", sValue, "REG_DWORD") AND (sValue = "1"))
+                If (fSystemComponent0 AND (NOT RegReadValue(HKLM, sCurKey, "CVH", sCVHValue, "REG_DWORD"))) Then
+                    RegReadValue HKLM, sCurKey, "DisplayVersion", sValue, "REG_SZ"
+                    Redim arrMultiSzValues(0)
+                    'Logic changed to drop the LCID identifier
+                    'sConfigName = GetProductID(Mid(ArpItem, 11, 4)) & "_" & CInt("&h" & Mid(ArpItem, 16, 4))
+                    sConfigName = OREGREF & GetProductID(Mid(ArpItem, 11, 4))
+                    If NOT RegKeyExists(HKLM, REG_ARP&sConfigName) Then
+                        'Create a new ARP item
+                        ReDim Preserve arrTmpSKUs(UBound(arrTmpSKUs) + 1)
+                        arrTmpSKUs(UBound(arrTmpSKUs)) = sConfigName
+                        oReg.CreateKey HKLM, REG_ARP & sConfigName
+                        arrMultiSzValues(0) = sConfigName
+                        oReg.SetMultiStringValue HKLM, REG_ARP & sConfigName, OPACKAGE, arrMultiSzValues
+                        arrMultiSzValues(0) = ArpItem
+                        oReg.SetStringValue HKLM, REG_ARP & sConfigName, "Comment", "Temporary OffScrub generated key. Please delete this key!"
+                        oReg.SetMultiStringValue HKLM, REG_ARP & sConfigName, "ProductCodes", arrMultiSzValues
+                        oReg.SetStringValue HKLM, REG_ARP & sConfigName, "DisplayVersion", sValue
+                        oReg.SetStringValue HKLM, REG_ARP & sConfigName, "DisplayName", SCRIPTNAME & "_" & sConfigName
+                        oReg.SetDWordValue HKLM, REG_ARP & sConfigName, "SystemComponent", 0
+                    Else
+                        'Update the existing temporary ARP item
+                        fReturn = RegReadValue(HKLM, REG_ARP&sConfigName, "ProductCodes", sProdC, "REG_MULTI_SZ")
+                        If NOT InStr(sProdC, ArpItem) > 0 Then sProdC = sProdC & Chr(34) & ArpItem
+                        oReg.SetMultiStringValue HKLM, REG_ARP & sConfigName, "ProductCodes", Split(sProdC, Chr(34))
+                    End If 'RegKeyExists
+                End If 'fSystemComponent0
+            End If 'InScope
+        Next 'ArpItem
+    End If 'RegEnumKey
+    
+    'Find the configuration products
+    If RegEnumKey(HKLM, REG_ARP, arrKeys) Then
+        For Each ArpItem in arrKeys
+            sCurKey = REG_ARP & ArpItem & "\"
+            sValue = ""
+            fSystemComponent0 = NOT (RegReadValue(HKLM, sCurKey, "SystemComponent", sValue, "REG_DWORD") AND (sValue = "1"))
+            fPackages = RegReadValue(HKLM, sCurKey, OPACKAGE, sValue, "REG_MULTI_SZ")
+            fDisplayVersion = RegReadValue(HKLM, sCurKey, "DisplayVersion", sValue, "REG_SZ")
+            If fDisplayVersion Then
+                If Len(sValue) > 1 Then
+                    fDisplayVersion = (Left(sValue, 2) = OVERSIONMAJOR)
+                Else
+                    fDisplayVersion = False
+                End If
+            End If
+            'fSystemComponent0 filter causes issues if the ARP entries have been hidden 
+            'If (fSystemComponent0 AND fPackages AND fDisplayVersion) Then
+            If (fPackages AND fDisplayVersion) Then
+                If InStr(ArpItem, ".") > 0 Then sConfigName = UCase(Mid(ArpItem, InStr(ArpItem, ".") + 1)) Else sConfigName = UCase(ArpItem)
+                If NOT dicInstalledSku.Exists(sConfigName) Then dicInstalledSku.Add sConfigName, sConfigName
+
+                'Categorize the SKU
+                'Four categories are available: ClientSuite, ClientSingleProduct, Server, C2R
+                If RegReadValue(HKLM, REG_ARP & OREGREF & sConfigName, "ProductCodes", sProductCodeList, "REG_MULTI_SZ") Then
+                    fCategorized = False
+                    For Each sProductCode in Split(sProductCodeList, Chr(34))
+                        If Len(sProductCode) = 38 Then
+                            If Mid(sProductCode, 11, 1) = "1" Then
+                                'Server product
+                                If NOT dicSrv.Exists(UCase(sConfigName)) Then dicSrv.Add UCase(sConfigName), sConfigName
+                                fCategorized = True
+                                Exit For
+                            Else
+                                Select Case Mid(sProductCode, 11, 4)
+                                'Client Suites
+                                Case "000F", "0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018", "0019", "001A", "001B", "0029", "002B", "002E", "002F", "0030", "0031", "0033", "0035", "0037", "003D", "0044", "0049", "0061", "0062", "0066", "006C", "006D", "006F", "0074", "00A1", "00A3", "00A9", "00BA", "00CA", "00E0", "0100", "0103", "011A"
+                                'Case "000F", "0011", "0012", "0013", "0014", "002E", "002F", "0030", "0031", "0033", "0035", "003D", "0061", "0062", "0066", "0074", "00CA", "0100"
+                                    If NOT dicCSuite.Exists(UCase(sConfigName)) Then dicCSuite.Add UCase(sConfigName), sConfigName
+                                    fCategorized = True
+                                    Exit For
+
+                                Case "007E", "008F", "008C", "24E1", "237A", "00DD"
+                                    If NOT dicKeepProd.Exists(sProductCode) Then dicKeepProd.Add sProductCode, sConfigName 
+                                    fC2rInstalled = True
+                                Case Else
+                                End Select
+                            End If
+                        End If 'Len 38
+                    Next 'sProductCode
+                    If NOT fCategorized Then
+                        If NOT dicCSingle.Exists(UCase(sConfigName)) Then dicCSingle.Add UCase(sConfigName), sConfigName
+                    End If 'fCategorized
+                End If 'RegReadValue "ProductCodes"
+            End If
+        Next 'ArpItem
+    End If 'RegEnumKey
+End Sub 'FindInstalledOProducts
+'=======================================================================================================
+
+'Check if there are Office products from previous versions on the computer
+Sub CheckForLegacyProducts
+    Const OLEGACY = "78E1-11D2-B60F-006097C998E7}.6000-11D3-8CFE-0050048383C9}.6000-11D3-8CFE-0150048383C9}.BDCA-11D1-B7AE-00C04FB92F3D}.6D54-11D4-BEE3-00C04F990354}"
+    Dim Product
+    
+    'Set safe default
+    fLegacyProductFound = True
+    
+    For Each Product in oMsi.Products
+        If Len(Product) = 38 Then
+            'Handle O09 - O11 Products
+            If InStr(OLEGACY, UCase(Right(Product, 28))) > 0 Then
+                'Found legacy Office product. Keep flag in default and exit
+                Exit Sub
+            End If
+            If UCase(Right(Product, PRODLEN)) = OFFICEID Then
+                Select Case Mid(Product, 4, 2)
+                Case "12", "14"
+                    If CInt(OVERSIONMAJOR) > 14 Then
+                        'Found legacy Office product. Keep flag in default and exit
+                        Exit Sub
+                    End If
+                Case Else
+                End Select
+            End If
+        End If '38
+    Next 'Product
+    fLegacyProductFound = False
+    
+End Sub 'CheckForLegacyProducts
+'=======================================================================================================
+
+'Create clean list of Products to remove.
+'Strip off bad & empty contents
+Sub ValidateRemoveSkuList
+    Dim Sku, Key, sProductCode, sProductCodeList
+    Dim arrRemoveSKUs
+    
+    If fRemoveAll Then
+        'Remove all mode
+        For Each Key in dicInstalledSku.Keys
+            dicRemoveSku.Add Key, dicInstalledSku.Item(Key)
+        Next 'Key
+    Else
+        'Remove individual products or preconfigured configurations mode
+        
+        'Handle RemovLync switch
+        For Each Key in dicInstalledSku.Keys
+            If fRemoveLync AND (InStr(UCase(Key), "LYNC") > 0) Then
+                sSkuRemoveList = sSkuRemoveList & "," & Key
+            End If
+        Next 'Key
+        
+        'Ensure to have a string with no unexpected contents
+        sSkuRemoveList = Replace(sSkuRemoveList, ";", ",")
+        sSkuRemoveList = Replace(sSkuRemoveList, " ", "")
+        sSkuRemoveList = Replace(sSkuRemoveList, Chr(34), "")
+        While InStr(sSkuRemoveList, ",,") > 0
+            sSkuRemoveList = Replace(sSkuRemoveList, ",,", ",")
+        Wend
+        
+        'Prepare 'remove' and 'keep' dictionaries to determine what has to be removed
+        
+        'Initial pre-fill of 'keep' dic
+        For Each Key in dicInstalledSku.Keys
+            dicKeepSku.Add Key, dicInstalledSku.Item(Key)
+        Next 'Key
+        
+        'Determine contents of keep and remove dic
+        'Individual products
+        arrRemoveSKUs = Split(UCase(sSkuRemoveList), ",")
+        For Each Sku in arrRemoveSKUs
+            If Sku = "OSE" Then fRemoveOse = True
+            If dicKeepSku.Exists(Sku) Then
+                'A Sku to remove has been passed in
+                'remove the item from the keep dic
+                dicKeepSku.Remove(Sku)
+                'Now add it to the remove dic
+                If NOT dicRemoveSku.Exists(Sku) Then dicRemoveSku.Add Sku, Sku
+            End If
+        Next 'Sku
+
+        'Client Suite Category
+        If fRemoveCSuites Then
+            For Each Key in dicInstalledSku.Keys
+                If dicCSuite.Exists(Key) Then
+                    If dicKeepSku.Exists(Key) Then dicKeepSku.Remove(Key)
+                    If NOT dicRemoveSku.Exists(Key) Then dicRemoveSku.Add Key, Key
+                End If
+            Next 'Key
+        End If 'fRemoveCSuites
+        
+        'Client Single/Standalone Category
+        If fRemoveCSingle Then
+            For Each Key in dicInstalledSku.Keys
+                If dicCSingle.Exists(Key) Then
+                    If dicKeepSku.Exists(Key) Then dicKeepSku.Remove(Key)
+                    If NOT dicRemoveSku.Exists(Key) Then dicRemoveSku.Add Key, Key
+                End If
+            Next 'Key
+        End If 'fRemoveCSingle
+        
+        'Server Category
+        If fRemoveSrv Then
+            For Each Key in dicInstalledSku.Keys
+                If dicSrv.Exists(Key) Then
+                    If dicKeepSku.Exists(Key) Then dicKeepSku.Remove(Key)
+                    If NOT dicRemoveSku.Exists(Key) Then dicRemoveSku.Add Key, Key
+                End If
+            Next 'Key
+        End If 'fRemoveSrv
+        
+        If NOT dicKeepSku.Count > 0 Then fRemoveAll = True
+
+    End If 'fRemoveAll
+
+    'Fill the KeepProd dic
+    For Each Sku in dicKeepSku.Keys
+        If RegReadValue(HKLM, REG_ARP & OREGREF & Sku, "ProductCodes", sProductCodeList, "REG_MULTI_SZ") Then
+            For Each sProductCode in Split(sProductCodeList, Chr(34))
+                If Len(sProductCode) = 38 Then
+                    If NOT dicKeepProd.Exists(sProductCode) Then
+                    	dicKeepProd.Add sProductCode, Sku
+                    	' also add the UpgradeCode 
+                    	If Not dicKeepProd.Exists(GetUpgradeCode(sProductCode)) Then dicKeepProd.Add GetUpgradeCode(sProductCode), Sku & "_UpgradeCode"
+                    End If
+                End If '38
+            Next 'sProductCode 
+        End If
+    Next 'Sku
+        
+    If fRemoveAll OR fRemoveOse Then CheckRemoveOSE
+    If fRemoveAll OR fRemoveOspp Then CheckRemoveOspp
+
+End Sub 'ValidateRemoveSkuList
+'=======================================================================================================
+
+'Check if OSE service can be scrubbed
+Sub CheckRemoveOSE
+    Const O11 = "6000-11D3-8CFE-0150048383C9}"
+    Dim Product
+    
+    If fRemoveOse Then Exit Sub
+    For Each Product in oMsi.Products
+        If Len(Product) = 38 Then
+            If UCase(Right(Product, 28)) = O11 Then 
+                'Found Office 2003 Product. Set flag to not remove the OSE service
+                Exit Sub
+            End If
+            If UCase(Right(Product, PRODLEN)) = OFFICEID Then
+                Select Case Mid(Product, 4, 2)
+                Case "12", "14", "15", "16", "17"
+                    If NOT Mid(Product, 4, 2) = OVERSIONMAJOR Then
+	                    'Found another Office product. Set flag to keep the OSE service
+                        fRemoveOse = False
+                        Exit Sub
+                    End If
+                Case Else
+                End Select
+            End If
+        End If '38
+    Next 'Product
+    fRemoveOse = True
+End Sub 'CheckRemoveOSE
+'=======================================================================================================
+
+'Check if OSPP service can be scrubbed
+Sub CheckRemoveOSPP
+    Dim Product
+    
+    If NOT CInt(OVERSIONMAJOR) > 12 Then 
+        fRemoveOspp = False
+        Exit Sub
+    End If
+
+    If fRemoveOspp Then Exit Sub
+
+    If fC2rInstalled Then
+        fRemoveOspp = False
+        Exit Sub
+    End If
+
+    For Each Product in oMsi.Products
+        If Len(Product) = 38 Then
+            If UCase(Right(Product, PRODLEN)) = OFFICEID Then
+                Select Case Mid(Product, 4, 2)
+                Case "14", "15", "16", "17"
+                    If NOT Mid(Product, 4, 2) = OVERSIONMAJOR Then
+						'Found another Office product. Set flag to keep the OSPP service
+                        fRemoveOspp = False
+                        Exit Sub
+                    End If
+                Case Else
+                End Select
+            End If
+        End If '38
+    Next 'Product
+    fRemoveOspp = True
+End Sub 'CheckRemoveOSPP
+'=======================================================================================================
+
+'Cache .msi files for products that will be removed in case they are needed for later file detection
+Sub CacheMsiFiles
+    Dim Product
+    Dim sMsiFile
+    
+    'Non critical routine for failures.
+    'Errors will be logged but must not fail the execution
+    On Error Resume Next
+    LogH1 "Cache .msi files to temporary Scrub folder"
+    'Cache the files
+    For Each Product in oMsi.Products
+        'Ensure valid GUID length
+        If CheckDeleteEx(Product) Then
+            CheckError "CacheMsiFiles"
+            sMsiFile = oMsi.ProductInfo(Product, "LocalPackage") : CheckError "CacheMsiFiles"
+            LogOnly " - " & Product & ".msi"
+            If oFso.FileExists(sMsiFile) Then oFso.CopyFile sMsiFile, sScrubDir & "\" & Product & ".msi", True
+            CheckError "CacheMsiFiles"
+        End If 'InScope
+    Next 'Product
+
+    Err.Clear
+End Sub 'CacheMsiFiles
+'=======================================================================================================
+
+'Build a list of all files that will be deleted
+Sub ScanComponents
+    Const MSIINSTALLSTATE_LOCAL = 3
+
+    Dim FileList, RegList, ComponentID, CompClient, Record, qView, MsiDb, CompVerbose
+    Dim Processes, Process, Prop, prod
+    Dim sQuery, sSubKeyName, sPath, sFile, sMsiFile, sCompClient, sComponent, sCompReg
+    Dim fRemoveComponent, fAffectedComponent, fIsPermanent, fIsFile, fIsFolder
+    Dim i, iProgress, iCompCnt, iRemCnt
+    Dim dicFLError, oDic, oFolderDic, dicCompPath
+    Dim hDefKey
+
+    'Logfile
+    Set FileList = oFso.OpenTextFile(sScrubDir & "\FileList.txt", FOR_WRITING, True, True)
+    Set RegList = oFso.OpenTextFile(sScrubDir & "\RegList.txt", FOR_WRITING, True, True)
+    Set CompVerbose = oFso.OpenTextFile(sScrubDir & "\CompVerbose.txt", FOR_WRITING, True, True)
+    
+    'FileListError dic
+    Set dicFLError = CreateObject("Scripting.Dictionary")
+    
+    Set oDic = CreateObject("Scripting.Dictionary")
+    Set oFolderDic = CreateObject("Scripting.Dictionary")
+    Set dicCompPath = CreateObject("Scripting.Dictionary")
+
+    'Prevent that API errors fail script execution
+    On Error Resume Next
+
+    iCompCnt = oMsi.Components.Count
+    If NOT Err = 0 Then
+        'API failure
+        Log "Error during components detection. Cannot complete this task."
+        Err.Clear
+        Exit Sub
+    End If
+
+    'Ensure to not divide by zero
+    If iCompCnt = 0 Then iCompCnt = 1
+    LogOnly " Scanning " & iCompCnt & " components"
+    'Enum all Components
+    For Each ComponentID In oMsi.Components
+        CompVerbose.WriteLine vbCrLf & "Checking Component: " & ComponentID
+        
+        'Progress bar
+        i = i + 1
+        If iProgress < (i / iCompCnt) * 100 Then 
+            LogStream.Write "."
+            iProgress = iProgress + 1
+            If iProgress = 35 OR iProgress = 70 Then LogOnly ""
+        End If
+
+        'Check if all ComponentClients will be removed
+        sCompClient = ""
+        iRemCnt = 0
+        fIsPermanent = False
+        fRemoveComponent = False 'Flag to track if the component will be completely removed
+        fAffectedComponent = False 'Flag to track if some clients remain installed who have a none shared location
+        dicCompPath.RemoveAll
+        Err.Clear
+        For Each CompClient In oMsi.ComponentClients(ComponentID)
+            CompVerbose.Write " CompClient " & CompClient & "-> "
+            If Err = 0 Then
+                'Ensure valid guid length
+                If Len(CompClient) = 38 Then
+                    fRemoveComponent = InScope(CompClient)
+                    If fRemoveComponent OR (CompClient = "{00000000-0000-0000-0000-000000000000}") Then
+                        sPath = ""
+                        sPath = LCase(oMsi.ComponentPath(CompClient, ComponentID))
+                        sPath = Replace(sPath, "?", ":")
+                        'Scan for msidbComponentAttributesPermanent flag
+                        If CompClient = "{00000000-0000-0000-0000-000000000000}" Then
+                            fIsPermanent = True
+                            iRemCnt = iRemCnt + 1
+                        End If
+                        If fRemoveComponent Then fRemoveComponent = CheckDelete(CompClient)
+                        CompVerbose.Write "CheckDelete: " & fRemoveComponent & "; "
+                        If fRemoveComponent Then
+                            iRemCnt = iRemCnt + 1
+                            fAffectedComponent = True
+                            'Since the scope remains within one Office family the keypath for the component
+                            'is assumed to be identical
+                            If sCompClient = "" Then sCompClient = CompClient
+                        ' flag the CompClient entry for removal
+                            sCompReg = "Installer\Components\"&GetCompressedGuid(ComponentID)&"\"&GetCompressedGuid(CompClient)
+                            If NOT dicDelRegKey.Exists(sCompReg) Then
+                                dicDelRegKey.Add sCompReg, HKCR
+                                RegList.WriteLine HiveString(HKCR)&"\"&sCompReg
+                            End If
+                            sCompReg = "SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\"&GetCompressedGuid(ComponentID)&"\"&GetCompressedGuid(CompClient)
+                            If NOT dicDelRegKey.Exists(sCompReg) Then
+                                dicDelRegKey.Add sCompReg, HKLM
+                                RegList.WriteLine HiveString(HKCR)&"\"&sCompReg
+                            End If
+                        Else
+                            If NOT dicCompPath.Exists(sPath) Then dicCompPath.Add sPath, CompClient
+                        End If
+                        CompVerbose.WriteLine "AffectedComponent: " & fAffectedComponent
+                        CompVerbose.WriteLine " CompClient now set to: " & sCompClient
+                    Else
+                        CompVerbose.Write "InScope: " & fRemoveComponent & "; "
+                    End If
+                Else
+                    CompVerbose.WriteLine "Error: Invalid metadata"
+                    If NOT dicFLError.Exists("Error: Invalid metadata found. ComponentID: "&ComponentID &", ComponentClient: "&CompClient) Then _
+                        dicFLError.Add "Error: Invalid metadata found. ComponentID: "&ComponentID &", ComponentClient: "&CompClient, ComponentID
+                End If '38
+            Else
+                CompVerbose.WriteLine "Error: " & Err.number & " " & Err.Description
+                Err.Clear
+            End If 'Err = 0
+        Next 'CompClient
+        
+        'Determine if the component resources go away
+        sPath = ""
+        fRemoveComponent = fAffectedComponent AND (iRemCnt = oMsi.ComponentClients(ComponentID).Count)
+        CompVerbose.WriteLine " Component goes away: " & fRemoveComponent
+' This caused unintentional removals
+'        If NOT fRemoveComponent AND fAffectedComponent Then
+'            'Flag as removable if component has a unique keypath
+'            sPath = LCase(oMsi.ComponentPath(sCompClient, ComponentID))
+'            sPath = Replace(sPath, "?", ":")
+'            fRemoveComponent = NOT dicCompPath.Exists(sPath)
+'        End If
+        If fRemoveComponent Then
+            'Check msidbComponentAttributesPermanent flag
+            If fIsPermanent AND NOT fForce Then fRemoveComponent = False
+            CompVerbose.WriteLine " msidbComponentAttributesPermanent: " & NOT fRemoveComponent
+        End If
+
+        If fRemoveComponent Then
+            CompVerbose.WriteLine " RESULT: Component IN SCOPE for removal"
+            fIsFile = False : fIsFolder = False
+
+            'Component resources go away for this product
+            Err.Clear
+            'Add the component registration key to ensure removal
+            sCompReg = "Installer\Components\"&GetCompressedGuid(ComponentID)&"\"
+            If NOT dicDelRegKey.Exists(sCompReg) Then
+                dicDelRegKey.Add sCompReg, HKCR
+                RegList.WriteLine HiveString(HKCR)&"\"&sCompReg
+            End If
+            sCompReg = "SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components\"&GetCompressedGuid(ComponentID)&"\"
+            If NOT dicDelRegKey.Exists(sCompReg) Then
+                dicDelRegKey.Add sCompReg, HKLM
+                RegList.WriteLine HiveString(HKCR)&"\"&sCompReg
+            End If
+            'Get the component path
+            If sPath = "" Then
+                sPath = LCase(oMsi.ComponentPath(sCompClient, ComponentID))
+                sPath = Replace(sPath, "?", ":")
+            End If
+            CompVerbose.WriteLine " Path: " & sPath
+            If Len(sPath) > 4 Then
+                If Left(sPath, 1) = "0" Then
+                    'Registry keypath
+
+                    Select Case Left(sPath, 2)
+                    Case "00"
+                        sPath = Mid(sPath, 5)
+                        hDefKey = HKCR
+                    Case "01"
+                        sPath = Mid(sPath, 5)
+                        hDefKey = HKCU
+                    Case "02", "22"
+                        sPath = Mid(sPath, 5)
+                        hDefKey = HKLM
+                    Case Else
+                        '
+                    End Select
+                    
+                    'Go for the safe way and just reset the default entry
+                    'compared to deleting the whole key
+                    If Right(sPath, 1) = "\" Then sPath = sPath & "(Default)"
+
+                    If NOT dicDelRegKey.Exists(sPath) Then
+                        dicDelRegKey.Add sPath, hDefKey
+                        RegList.WriteLine HiveString(hDefKey)&"\"&sPath
+                    End If
+                Else
+                
+                    'File or Folder
+                    If oFso.FileExists(sPath) OR oFso.FolderExists(sPath) Then
+                        If Right(sPath, 1) = "\" Then
+                            fIsFolder = True
+                            CompVerbose.WriteLine " Folder check OK"
+                        Else
+                            fIsFile = True
+                            CompVerbose.WriteLine " File check OK"
+                        End If
+                        If fIsFile Then sPath = oFso.GetFile(sPath).ParentFolder
+                        If Not oFolderDic.Exists(sPath) Then
+                            oFolderDic.Add sPath, sPath
+                            FileList.WriteLine sPath & vbTab & "(FOLDER)"
+                        End If
+                        'Get the .msi file
+                        If oFso.FileExists(sScrubDir & "\" & sCompClient & ".msi") Then
+                            sMsiFile = sScrubDir & "\" & sCompClient & ".msi"
+                        Else
+                            sMsiFile = oMsi.ProductInfo(sCompClient, "LocalPackage")
+                        End If
+                        CompVerbose.WriteLine " Set msi file to : " & sMsiFile
+                        If Not Err = 0 Then
+                            CompVerbose.WriteLine " Error: Failed to obtain .msi file for product " & sCompClient
+                            If NOT dicFLError.Exists("Failed to obtain .msi file for product "&sCompClient) Then _
+                                dicFLError.Add "Failed to obtain .msi file for product "&sCompClient, ComponentID
+                            Err.Clear
+                        End If
+                        CompVerbose.Write " Open .msi file for reading returned: "
+                        Set MsiDb = oMsi.OpenDatabase(sMsiFile, MSIOPENDATABASEREADONLY)
+                        
+                        If Err = 0 Then
+                            CompVerbose.WriteLine " SUCCESS"
+                            'Get the component name from the 'Component' table
+                            sQuery = "SELECT `Component`,`ComponentId` FROM Component WHERE `ComponentId` = '" & ComponentID &"'"
+                            Set qView = MsiDb.OpenView(sQuery) : qView.Execute
+                            Set Record = qView.Fetch()
+                            If Not Record Is Nothing Then sComponent = Record.Stringdata(1)
+                            CompVerbose.WriteLine " Obtained ComponentId as: " & sComponent
+
+                            'Get filenames from the 'File' table
+                            sQuery = "SELECT `Component_`,`FileName` FROM File WHERE `Component_` = '" & sComponent &"'"
+                            Set qView = MsiDb.OpenView(sQuery) : qView.Execute
+                            Set Record = qView.Fetch()
+                            Do Until Record Is Nothing
+                                'Read the filename
+                                sFile = Record.StringData(2)
+                                If InStr(sFile, "|") > 0 Then sFile = Mid(sFile, InStr(sFile, "|")+1, Len(sFile))
+                                'sFile = sPath & "\" & sFile
+                                CompVerbose.WriteLine "  File: " & sPath& "\" & sFile
+                                If Not oDic.Exists(sPath & "\" & sFile) Then 
+                                    'Exception handler
+                                    fAdd = True
+                                    Select Case UCase(sFile)
+                                    Case "FPERSON.DLL"
+                                        'Catch exception caused by changed .msi keypath authoring logic for smart tags
+                                        For Each prod in oMsi.Products
+                                            If NOT Checkdelete(prod) Then
+                                                If oMsi.FeatureState(prod, "MSTagPluginNamesFiles") = MSIINSTALLSTATE_LOCAL Then
+                                                    fAdd = False
+                                                    Exit For
+                                                End If
+                                            End If
+                                        Next 'prod
+                                    Case Else
+                                    End Select
+                                    If fAdd Then
+                                        CompVerbose.WriteLine "  Added as new file to dictionary"
+                                        oDic.Add sPath & "\" & sFile, sFile
+                                        FileList.WriteLine sFile & vbTab & sPath & "\" & sFile
+                                        If Len(sFile)>4 Then
+                                            sFile = LCase(sFile)
+                                            If Right(sFile, 4) = ".exe" Then
+                                                If NOT dicApps.Exists(sFile) Then
+                                                    Select Case sFile
+                                                    Case "setup.exe", "ose.exe", "osppsvc.exe", "explorer.exe"
+                                                    Case Else
+                                                        dicApps.Add sFile, LCase(sPath) & "\" & sFile
+                                                        CompVerbose.WriteLine "  Added to the list of processes that need to be closed."
+                                                    End Select
+                                                End If 'dicApps.Exists
+                                            End If '.exe
+                                        End If 'Len > 4
+                                    End If 'fAdd
+                                End If 'oDic.Exists
+                                Set Record = qView.Fetch()
+                            Loop
+                            Set Record = Nothing
+                            qView.Close
+                            Set qView = Nothing
+                        Else
+                            CompVerbose.WriteLine " Error: Could not read from .msi file"
+                            If NOT dicFLError.Exists("Error: Could not read from .msi file: "&sMsiFile) Then _
+                                dicFLError.Add "Error: Could not read from .msi file: "&sMsiFile, ComponentID
+                            Err.Clear
+                        End If 'Err = 0
+                    Else
+                        CompVerbose.WriteLine " Error: File check FAILED"
+                    End If 'FileExists(sPath)
+                End If
+            End If 'Len(sPath) > 4
+        Else
+            CompVerbose.WriteLine " RESULT: Component NOT in scope for removal"
+            If fAffectedComponent Then
+                'Add the path to the 'Keep' dictionary
+                Err.Clear
+                For Each CompClient In oMsi.ComponentClients(ComponentID)
+                    'Get the component path
+                    sPath = "" : sPath = LCase(oMsi.ComponentPath(CompClient, ComponentID))
+                    sPath = Replace(sPath, "?", ":")
+                
+                    If Len(sPath) > 4 Then
+                        If Left(sPath, 1) = "0" Then
+                            'Registry keypath
+
+                            Select Case Left(sPath, 2)
+                            Case "00"
+                                sPath = Mid(sPath, 5)
+                                hDefKey = HKCR
+                            Case "01"
+                                sPath = Mid(sPath, 5)
+                                hDefKey = HKCU
+                            Case "02", "22"
+                                sPath = Mid(sPath, 5)
+                                hDefKey = HKLM
+                            Case Else
+                                '
+                            End Select
+                            If NOT dicKeepReg.Exists(LCase(sPath)) Then
+                                dicKeepReg.Add LCase(sPath), hDefKey
+                            End If
+                        Else
+                            'File keypath
+                            If oFso.FileExists(sPath) Then
+                                If NOT dicKeepFolder.Exists(LCase(sPath)) Then dicKeepFolder.Add LCase(sPath)
+                                sPath = LCase(oFso.GetFile(sPath).ParentFolder) & "\"
+                                If NOT dicKeepFolder.Exists(sPath) Then AddKeepFolder sPath
+                            End If
+                            'Folder keypath
+                            If oFso.FolderExists(sPath) Then AddKeepFolder sPath
+                        End If 'Is Registry
+                    End If 'sPath > 4
+                Next 'CompClient
+            End If 'fAffectedComponent
+        End If 'fRemoveComponent
+        Err.Clear
+    Next 'ComponentID
+    On Error Goto 0
+    
+    Log " Done" & vbCrLf
+    If dicFLError.Count > 0 Then LogOnly Join(dicFLError.Keys, vbCrLf)
+    If Not oFolderDic.Count = 0 Then arrDeleteFolders = oFolderDic.Keys Else Set arrDeleteFolders = Nothing
+    If Not oDic.Count = 0 Then arrDeleteFiles = oDic.Keys Else Set arrDeleteFiles = Nothing
+End Sub 'ScanComponents
+'=======================================================================================================
+
+
+'Try to remove the products by calling setup.exe
+Sub SetupExeRemoval
+    Dim OseService, Service, TextStream
+    Dim iSetupCnt, RetVal
+    Dim Sku, sConfigFile, sUninstallCmd, sCatalyst, sDll, sDisplayLevel, sNoCancel
+
+    iSetupCnt = 0
+    If Not dicRemoveSku.Count > 0 Then
+        Log " Nothing to remove for Setup.exe"
+        Exit Sub
+    End If
+    
+    'Ensure that the OSE service is *installed, *not disabled, *running under System context.
+    'If validation fails exit out of this sub.
+    Set OseService = oWmiLocal.Execquery("Select * From Win32_Service Where Name like 'ose%'")
+    If OseService.Count = 0 Then Exit Sub
+    For Each Service in OseService
+        If (Service.StartMode = "Disabled") AND (Not Service.ChangeStartMode("Manual")=0) Then Exit Sub
+        If (Not Service.StartName = "LocalSystem") AND (Service.Change( , , , , , , "LocalSystem", "")) Then Exit Sub
+    Next 'Service
+    
+    For Each Sku in dicRemoveSku.Keys
+        If Sku="CLICK2RUN" Then
+            'Already done
+        Else
+            'Create an "unattended" config.xml file for uninstall
+            'If fQuiet Then sDisplayLevel = "None" Else sDisplayLevel="Basic"
+            sDisplayLevel = "None"
+            If fNoCancel Then sNoCancel="Yes" Else sNoCancel="No"
+            Set TextStream = oFso.OpenTextFile(sScrubDir & "\config.xml", FOR_WRITING, True, True)
+            TextStream.Writeline "<Configuration Product=""" & Sku & """>"
+            TextStream.Writeline "<Display Level=""" & sDisplayLevel & """ CompletionNotice=""No"" SuppressModal=""Yes"" NoCancel=""" & sNoCancel & """ AcceptEula=""Yes"" />"
+            TextStream.Writeline "<Logging Type=""Verbose"" Path=""" & sLogDir & """ Template=""Microsoft Office " & Sku & " Setup(*).txt"" />"
+            TextStream.Writeline "<Setting Id=""MSIRESTARTMANAGERCONTROL"" Value=""Disable"" />"
+            TextStream.Writeline "<Setting Id=""SETUP_REBOOT"" Value=""Never"" />"
+            TextStream.Writeline "</Configuration>"
+            TextStream.Close
+            Set TextStream = Nothing
+        
+            'Ensure path to setup.exe is valid to prevent errors
+            sDll = ""
+            If RegReadValue(HKLM, REG_ARP & OREGREF & Sku, "UninstallString", sCatalyst, "REG_SZ") Then
+                If InStr(LCase(sCatalyst), "/dll")> 0 Then sDll = Right(sCatalyst, Len(sCatalyst) - InStr(LCase(sCatalyst), "/dll") + 2)
+                If InStr(sCatalyst, "/") > 0 Then sCatalyst = Left(sCatalyst, InStr(sCatalyst, "/") - 1)
+                sCatalyst = Trim(Replace(sCatalyst, Chr(34), ""))
+                If NOT oFso.FileExists(sCatalyst) Then
+                    sCatalyst = sCommonProgramFiles & "\" & OREF & "\Office Setup Controller\setup.exe"
+                    If NOT oFso.FileExists(sCatalyst) AND f64 Then
+                        sCatalyst = sCommonProgramFilesX86 & "" & OREF & "\Office Setup Controller\setup.exe"
+                    End If
+                End If
+                If oFso.FileExists(sCatalyst) Then
+                    sUninstallCmd = Chr(34) & sCatalyst & Chr(34) & " /uninstall " & Sku & " /config " & Chr(34) & sScrubDir & "\config.xml" & Chr(34) & sDll 
+                    iSetupCnt = iSetupCnt + 1
+                    Log " - Run Setup.exe to remove " & Sku '& vbCrLf & sUninstallCmd 
+                    If Not fDetectOnly Then 
+                        On Error Resume Next
+                        ' end other instances of setup
+                        EndCurrentInstalls
+                        ' call uninstall
+                        RetVal = oWShell.Run(sUninstallCmd, 0, True) : CheckError "SetupExeRemoval"
+                        Log " - Setup.exe returned: " & SetupRetVal(Retval) & " (" & RetVal & ")"
+                        fRebootRequired = fRebootRequired OR (RetVal = "3010")
+                        On Error Goto 0
+                    Else
+                        Log " -> Removal suppressed in preview mode."
+                    End If
+                Else
+                    Log " Error: Office setup.exe appears to be missing"
+                End If 'RetVal = 0) AND oFso.FileExists
+            End If 'RegReadValue
+        End If
+    Next 'Sku
+    If iSetupCnt = 0 Then Log " Nothing to remove for setup."
+End Sub 'SetupExeRemoval
+'=======================================================================================================
+
+'Invoke msiexec to remove individual .MSI packages
+Sub MsiexecRemoval
+
+    Dim Product
+    Dim i
+    Dim sCmd, sReturn, sMsiProp
+    Dim fRegWipe
+
+    fRegWipe = False
+
+    Select Case OVERSIONMAJOR
+    Case "11"
+        sMsiProp = " REBOOT=ReallySuppress NOLOCALCACHEROLLBACK=1"
+    Case "12", "14", "15", "16"
+        fRegWipe = True
+        sMsiProp = " REBOOT=ReallySuppress NOREMOVESPAWN=True"
+    Case Else
+    End Select
+
+    'Clear up ARP first to avoid possible custom action dependencies
+    If fRegWipe Then RegWipeARP
+
+    'Check MSI registered products
+    'Office System does only support per machine installation so it's sufficient to use Installer.Products
+    i = 0
+    sMsiProp = " MSIRESTARTMANAGERCONTROL=Disable" & sMsiProp
+    For Each Product in oMsi.Products
+        If CheckDeleteEx(Product) Then
+            i = i + 1 
+            Log " Calling msiexec.exe to remove " & Product
+            sCmd = "msiexec.exe /x" & Product & sMsiProp
+            If fQuiet AND NOT fBasic Then 
+                sCmd = sCmd & " /q"
+            Else
+                'sCmd = sCmd & " /qb-"
+                sCmd = sCmd & " /q"
+            End If
+            sCmd = sCmd & " /l*v+ "&Chr(34)&sLogDir&"\Uninstall_"&Product&".log"&Chr(34)
+            If NOT fDetectOnly Then 
+                ' end other instances of setup
+                EndCurrentInstalls
+
+                'Execute the uninstall
+                LogOnly " - Calling msiexec with '"&sCmd&"'"
+                sReturn = oWShell.Run(sCmd, 0, True)
+                Log " - msiexec returned: " & SetupRetVal(sReturn) & " (" & sReturn & ")"
+                fRebootRequired = fRebootRequired OR (sReturn = "3010") OR (sReturn = "1618")
+            Else
+                Log "  -> Removal suppressed in preview mode."
+                LogOnly "  -> Command: "&sCmd
+            End If
+        End If 'InScope
+    Next 'Product
+    If i = 0 Then Log " Nothing to remove for msiexec"
+End Sub 'MsiexecRemoval
+'=======================================================================================================
+
+'Remove the OSE (Office Source Engine) service
+Sub RemoveOSE
+    On Error Resume Next
+    DeleteService "ose"
+    'Delete the folder
+    DeleteFolder sCommonProgramFiles & "\Microsoft Shared\Source Engine"
+    'Delete the registration
+    RegDeleteKey HKLM, "SYSTEM\CurrentControlSet\Services\ose\"
+End Sub 'RemoveOSE
+'=======================================================================================================
+
+
+'File cleanup operations for the Local Installation Source (MSOCache)
+Sub WipeLIS
+    Const LISROOT = "MSOCache\All Users\"
+    Dim LogicalDisks, Disk, Folder, SubFolder, MseFolder, File, Files
+    Dim arrSubFolders
+    Dim sFolder
+    Dim fRemoveFolder
+    
+    'LogH1 "LIS CleanUp"
+    'Search all hard disks
+    Set LogicalDisks = oWmiLocal.ExecQuery("Select * From Win32_LogicalDisk WHERE DriveType=3")
+    For Each Disk in LogicalDisks
+        If oFso.FolderExists(Disk.DeviceID & "\" & LISROOT) Then
+            Set Folder = oFso.GetFolder(Disk.DeviceID & "\" & LISROOT)
+            For Each Subfolder in Folder.Subfolders
+                If Len(Subfolder) > 37 Then
+                    If fRemoveAll Then 
+                        If  (Mid(Subfolder.Name, 27, PRODLEN) = OFFICEID AND Mid(SubFolder.Name, 4, 2)=OVERSIONMAJOR) OR _
+                            LCase(Right(Subfolder.Name, 7)) = OVERSIONMAJOR &".data" Then DeleteFolder Subfolder.Path
+                    Else
+                        If  (Mid(Subfolder.Name, 27, PRODLEN) = OFFICEID AND Mid(SubFolder.Name, 4, 2)=OVERSIONMAJOR) AND _
+                            CheckDelete(UCase(Left(Subfolder.Name, 38))) AND _
+                            UCase(Right(Subfolder, 1))= UCase(Left(Disk.DeviceID, 1))Then DeleteFolder Subfolder.Path
+                    End If
+                End If 'Len > 37
+            Next 'Subfolder
+            If (Folder.Subfolders.Count = 0) AND (Folder.Files.Count = 0) Then 
+                sFolder = Folder.Path
+                Set Folder = Nothing
+                SmartDeleteFolder sFolder
+            End If
+        End If 'oFso.FolderExists
+    Next 'Disk
+    
+    'MSECache
+    If EnumFolders(sProgramFiles, arrSubFolders) Then
+        For Each SubFolder in arrSubFolders
+            If UCase(Right(SubFolder, 9))="\MSECACHE" Then
+                ReDim arrMseFolders(-1)
+                Set Folder = oFso.GetFolder(SubFolder)
+                GetMseFolderStructure Folder
+                For Each MseFolder in arrMseFolders
+                    If oFso.FolderExists(MseFolder) Then
+                        fRemoveFolder = False
+                        Set Folder = oFso.GetFolder(MseFolder)
+                        Set Files = Folder.Files
+                        For Each File in Files
+                            If (LCase(Right(File.Name, 4))=".msi") Then
+                                If CheckDelete(ProductCode(File.Path)) Then 
+                                    fRemoveFolder = True
+                                    Exit For
+                                End If 'CheckDelete
+                            End If
+                        Next 'File
+                        Set Files = Nothing
+                        Set Folder = Nothing
+                        If fRemoveFolder Then SmartDeleteFolder MseFolder
+                    End If 'oFso.FolderExists(MseFolder)
+                Next 'MseFolder
+            End If
+        Next 'SubFolder
+    End If 'oFso.FolderExists
+End Sub 'WipeLis
+'=======================================================================================================
+
+'Wipe files and folders as documented in KB 928218
+Sub FileWipeAll
+    Dim sFolder
+    Dim Folder, Subfolder
+    
+    If fForce OR fQuiet OR fPassive Then CloseOfficeApps
+    
+    'Handle other services.
+    Select Case OVERSIONMAJOR
+    Case "11"
+    Case "12"
+    Case "14"
+        DeleteService "odserv"
+        DeleteService "Microsoft Office Groove Audit Service"
+        DeleteService "Microsoft SharePoint Workspace Audit Service"
+    Case "15"
+    Case Else
+    End Select
+
+    'User specific files
+    If NOT fKeepUser Then
+        'Delete files that should be backed up before deleting them
+        CopyAndDeleteFile sAppdata & "\Microsoft\Templates\Normal.dotm"
+        CopyAndDeleteFile sAppdata & "\Microsoft\Templates\Normalemail.dotm"
+        sFolder = sAppdata & "\microsoft\document building blocks"
+        If oFso.FolderExists(sFolder) Then 
+            Set Folder = oFso.GetFolder(sFolder)
+            For Each Subfolder In Folder.Subfolders
+                If oFso.FileExists(Subfolder & "\blocks.dotx") Then CopyAndDeleteFile Subfolder & "\blocks.dotx"
+            Next 'Subfolder
+            Set Folder = Nothing
+        End If 'oFso.FolderExists(sFolder)
+    End If  
+    
+    'Run the individual filewipe from component detection first
+    FileWipeIndividual
+    If fC2rInstalled AND NOT fForce Then Exit Sub
+    
+    'Take care of the rest
+    LogH2 "General computer specific files"
+    DeleteFolder sOInstallRoot
+    DeleteFolder sCommonProgramFiles & "\Microsoft Shared\" & OREF
+    DeleteFile sAllUsersProfile & "\Application Data\Microsoft\Office\Data\opa" & OVERSIONMAJOR & ".dat"
+    DeleteFile sAllUsersProfile & "\Application Data\Microsoft\Office\Data\opa" & OVERSIONMAJOR & ".bak"
+    DeleteFile sAllUsersProfile & "\Microsoft\Office\Data\opa" & OVERSIONMAJOR & ".dat"
+    DeleteFile sAllUsersProfile & "\Microsoft\Office\Data\opa" & OVERSIONMAJOR & ".bak"
+    If (fRemoveOspp OR fForce) AND CInt(OVERSIONMAJOR) > 12 Then
+        'If CInt(OVERSIONMAJOR) = 15 Then CleanOSPP
+        DeleteService "osppsvc"
+        DeleteFolder sCommonProgramFiles & "\Microsoft Shared\OfficeSoftwareProtectionPlatform"
+        DeleteFolder sAllUsersProfile & "\Microsoft\OfficeSoftwareProtectionPlatform"
+    End If
+    Select Case OVERSIONMAJOR
+    Case "12"
+    Case "14"
+        DeleteFile oWShell.SpecialFolders("AllUsersStartup")&"\OfficeSAS.lnk"
+        DeleteFile oWShell.SpecialFolders("Startup")&"\OneNote 2010 Screen Clipper and Launcher.lnk"
+    Case "15"
+    Case Else
+    End Select
+    DeleteEmptyFolder sCommonProgramFiles & "\Microsoft Shared\" & OREF
+    DeleteEmptyFolder sCommonProgramFiles & "\Microsoft Shared\" 
+    DeleteEmptyFolder sProgramFiles & "\Microsoft Office\" & OREF
+    DeleteEmptyFolder sProgramFiles & "\Microsoft Office\"
+
+End Sub 'FileWipeAll
+'=======================================================================================================
+
+'Wipe individual files & folders related to SKU's that are no longer installed
+Sub FileWipeIndividual
+    Dim LogicalDisks, Disk, sc
+    Dim File, Files, XmlFile, scFiles, oFile, Folder, SubFolder, Processes, Process, item
+    Dim sFile, sFolder, sPath, sConfigName, sContents, sProductCode, sLocalDrives, sScQuery
+    Dim sValue, sScRoots
+    Dim arrSubfolders, arrShortCutRoots
+    Dim fKeepFolder, fDeleteSC
+    Dim iRet, iCnt, iPos
+    
+    LogH2 "Individual files"
+    If IsArray(arrDeleteFiles) Then
+        If fForce OR fQuiet Then
+            Log " Doing Action: StopOSE"
+            iRet = StopService("ose")
+            Set Processes = oWmiLocal.ExecQuery("Select * From Win32_Process Where Name like 'ose%.exe'")
+            For Each Process in Processes
+                LogOnly " - Running process : " & Process.Name
+                Log " -> Ending process: " & Process.Name
+                iRet = Process.Terminate()
+            Next 'Process
+            LogOnly " End Action: StopOSE"
+            CloseOfficeApps
+        End If
+        'Wipe individual files detected earlier
+        LogH2 "Remove left behind files"
+        For Each sFile in arrDeleteFiles
+            If oFso.FileExists(sFile) Then DeleteFile sFile
+        Next 'File
+    End If 'IsArray
+    
+    'Wipe Catalyst in commonfiles
+    LogH2 "Office Setup Controller - Commonfiles"
+    sFolder = sCommonProgramFiles & "\microsoft shared\" & OREF & "\Office Setup Controller\"
+    If EnumFolderNames(sFolder, arrSubFolders) Then
+        For Each SubFolder in arrSubFolders
+            sPath = sFolder & SubFolder
+            If InStr(SubFolder, ".") > 0 Then sConfigName = UCase(Left(SubFolder, InStr(SubFolder, ".") - 1)) Else sConfigName = UCase(Subfolder)
+            If GetFolderPath(sPath) Then
+                Set Folder = oFso.GetFolder(sPath)
+                Set Files = Folder.Files
+                fKeepFolder = False
+                For Each File In Files
+                    If Len(File.Name)>3 Then
+                        If (LCase(Right(File.Name, 4))=".xml") Then
+                            If Len(File.Name) >= Len(sConfigName) Then
+                                If (UCase(Left(File.Name, Len(sConfigName)))=sConfigName) Then
+                                    Set XmlFile = oFso.OpenTextFile(File, 1)
+                                    sContents = XmlFile.ReadAll
+                                    Set XmlFile = Nothing
+                                    sProductCode = ""
+                                    On Error Resume Next
+                                    sProductCode = Mid(sContents, InStr(sContents, "ProductCode=")+Len("ProductCode=")+1, 38)
+                                    On Error Goto 0
+                                    If Len(sProductCode) = 38 Then
+                                        If CheckDelete(sProductCode) Then DeleteFile File.Path Else fKeepFolder = True
+                                    End If
+                                End If 'sConfigName
+                            End If 'Len >=
+                        End If '.xml
+                    End If 'Len(File.Name)>3
+                Next 'File
+                Set Files = Nothing
+                Set Folder = Nothing
+                If Not fKeepFolder Then DeleteFolder sPath
+            End If 'GetFolderPath
+        Next 'SubFolder
+    End If 'EnumFolderNames
+    
+    'Wipe Shortcuts
+    If NOT fSkipSD Then
+        On Error Resume Next
+        LogH2 "Shortcuts"
+        CleanShortcuts sAllUsersProfile, True, False
+        CleanShortcuts sProfilesDirectory, True, False
+        On Error Goto 0
+    End If 'NOT SkipSD
+    Err.Clear
+
+End Sub 'FileWipeIndividual
+'=======================================================================================================
+
+'-------------------------------------------------------------------------------
+'   CleanShortcuts
+'
+'   Recursively search all profile folders for Office shortcuts in scope 
+'-------------------------------------------------------------------------------
+Sub CleanShortcuts (sFolder, fDelete, fUnPin)
+    Dim oFolder, fld, file, sc, item
+    Dim fDeleteSC
+
+	Set oFolder = oFso.GetFolder(sFolder)
+	' exclude system protected link folders
+    If CBool(oFolder.Attributes AND 1024) Then Exit Sub
+
+    On Error Resume Next
+    For Each fld In oFolder.SubFolders
+        If Err <> 0 Then
+		    CheckError "CleanShortcuts: " & vbTab & sFolder
+        Else
+            CleanShortcuts fld.Path, fDelete, fUnPin
+        End If
+	Next
+    For Each file In oFolder.Files
+		If LCase(Right(file.Path, 4)) = ".lnk" Then
+            fDeleteSC = False
+            LogOnly " check file: " & file.Path
+            set sc = oWShell.CreateShortcut(file.Path)
+            If Err <> 0 Then
+		        CheckError "CleanShortcutsSC: " & vbTab & sFolder
+            Else
+                'Compare if the shortcut target is in the list of executables that will be removed
+                'LogOnly "  - SC.TargetPath: " & sc.TargetPath
+                If Len(sc.TargetPath) > 0 Then
+                    If InStr(sc.TargetPath, "{") > 0 Then
+                        'Handle Windows Installer shortcuts
+                        If Len(sc.TargetPath) >= InStr(sc.TargetPath, "{") + 37 Then
+                            If CheckDelete(Mid(sc.TargetPath, InStr(sc.TargetPath, "{"), 38)) Then fDeleteSC = True
+                        End If
+                    Else
+                        'Handle regular shortcuts
+                        If NOT fBypass_Stage1 Then
+                            ' Compare against results from component scan
+                            For Each item in dicApps.Items
+                                If LCase(sc.TargetPath) = item Then
+                                    LogOnly "  - removing shortcut per match from component detection: " & file.Path
+                                    fDeleteSC = True
+                                    Exit For
+                                End If
+                            Next 'item
+                        Else
+                        End If
+                        If NOT oFso.FileExists(sc.TargetPath) Then
+                            ' Shortcut target does not exist
+                            If InStr (sc.TargetPath, OREF) > 0 Then
+                                LogOnly "  - removing Office shortcut with non-existent target: " & file.Path & " - " & sc.TargetPath
+                                fDeleteSC = True
+                            Else
+                                'LogOnly "  - keep orphaned SC as target is not in scope: " & sc.TargetPath
+                            End If
+                        Else
+                            'LogOnly "  - keep SC as shortcut target does still exist: " & sc.TargetPath
+                        End If
+                    End If
+                End If
+            End If
+            If fDeleteSC Then 
+                If Not IsArray(arrDeleteFolders) Then ReDim arrDeleteFolders(0)
+                sFolder = file.Drive & file.Path
+                If Not arrDeleteFolders(UBound(arrDeleteFolders)) = sFolder Then
+                    ReDim Preserve arrDeleteFolders(UBound(arrDeleteFolders) + 1)
+                    arrDeleteFolders(UBound(arrDeleteFolders)) = sFolder
+                End If
+                If fUnPin OR fDelete Then 
+                    If oFso.FileExists(sc.TargetPath) Then
+                        UnPin file
+                    Else
+                        sc.TargetPath = sNotepad
+                        sc.Save
+                        UnPin file
+                    End If
+                End If
+                If fDelete Then DeleteFile file.Path
+                fDeleteSC = False
+            End If 'fDeleteSC
+        End If
+	Next
+    On Error Goto 0
+End Sub 'CleanShortcuts
+
+'-------------------------------------------------------------------------------
+'   UnPin
+'
+'   Unpins a shortcut from the taskbar or start menu 
+'-------------------------------------------------------------------------------
+Sub UnPin(file)
+    Dim fldItem, verb
+
+    On Error Resume Next
+    Set fldItem = oShellApp.NameSpace(file.ParentFolder.Path).ParseName(file.Name)
+    For Each verb in fldItem.Verbs
+        Select Case LCase(Replace(verb, "&", ""))
+        Case "unpin from taskbar", "von taskleiste lösen", "détacher du barre des tâches", "détacher de la barre des tâches", "desanclar de la barra de tareas", "ta bort från aktivitetsfältet", "frigør fra proceslinje", "frigør fra proceslinjen", "desanclar de la barra de tareas", "odepnout z hlavního panelu", "van de taakbalk losmaken", "poista kiinnitys tehtäväpalkista", "rimuovi dalla barra delle applicazioni"
+            LogOnly "unpinning Office shortcut from taskbar: " & file.Name 
+            verb.DoIt
+        Case "unpin from start menu", "vom startmenü lösen", "désépingler du menu démarrer", "supprimer du menu démarrer", "détacher du menu démarrer", "détacher de la menu démarrer", "odepnout z nabídky start", "frigør fra menuen start", "van het menu start losmaken", "losmaken van menu start", "poista kiinnitys käynnistä-valikosta", "irrota aloitusvalikosta"
+            LogOnly "unpinning Office shortcut from start menu: " & file.Name 
+            If iVersionNT > 600 Then verb.DoIt
+        End Select
+        Select Case Replace(verb, "&", "")
+        Case "从「开始」菜单解锁", "從 [開始] 功能表取消釘選", "タスク バーに表示しない(K)", "작업 표시줄에서 제거(K)", "Открепить от панели задач", "Ξεκαρφίτσωμα από το μενού Έναρξη", "‏‏בטל הצמדה לתפריט התחלה"
+            LogOnly "unpinning Office shortcut: " & file.Name 
+            verb.DoIt
+        End Select
+    Next
+    On Error Goto 0
+End Sub
+'=======================================================================================================
+
+Sub DelScrubTmp
+    
+    On Error Resume Next
+    If oFso.FolderExists(sScrubDir & "\ScrubTmp") Then oFso.DeleteFolder sScrubDir & "\ScrubTmp", True
+
+End Sub 'DelScrubTmp
+'=======================================================================================================
+
+'Ensure there are no unexpected .msi files in the scrub folder
+Sub DeleteMsiScrubCache
+    Dim Folder, File, Files
+    
+    Set Folder = oFso.GetFolder(sScrubDir) : CheckError "DeleteMsiScrubCache"
+    Set Files = Folder.Files
+    For Each File in Files
+        CheckError "DeleteMsiScrubCache"
+        If LCase(Right(File.Name, 4))=".msi" Then
+            CheckError "DeleteMsiScrubCache"
+            DeleteFile File.Path : CheckError "DeleteMsiScrubCache"
+        End If
+    Next 'File
+End Sub 'DeleteMsiScrubCache
+'=======================================================================================================
+
+Sub MsiClearOrphanedFiles
+    Const USERSIDEVERYONE = "s-1-1-0"
+    Const MSIINSTALLCONTEXT_ALL = 7
+    Const MSIPATCHSTATE_ALL = 15
+
+    'Error handling inlined
+    On Error Resume Next
+
+    Dim Patch, AllPatches, Product, AllProducts
+    Dim File, Files, Folder
+    Dim sFName, sLocalMsp, sLocalMsi, sPatchList, sMsiList
+
+    Set Folder = oFso.GetFolder(sWinDir & "\Installer")
+    Set Files = Folder.Files
+
+    'Get a complete list of patches
+    Err.Clear
+    Set AllPatches = oMsi.PatchesEx("", USERSIDEVERYONE, MSIINSTALLCONTEXT_ALL, MSIPATCHSTATE_ALL)
+    If Err <> 0 Then
+        CheckError "MsiClearOrphanedFiles (msp)"
+    Else
+        'Fill a comma separated stringlist with all .msp patchfiles
+        For Each Patch in AllPatches
+            sLocalMsp = "" : sLocalMsp = LCase(Patch.Patchproperty("LocalPackage")) : CheckError "MsiClearOrphanedFiles (msp)"
+            sPatchList = sPatchList & sLocalMsp & ","
+        Next 'Patch
+
+        'Delete all non referenced .msp files from %windir%\installer
+        For Each File in Files
+            sFName = "" : sFName = LCase(File.Path)
+            If LCase(Right(sFName, 4)) = ".msp" Then
+                If Not InStr(sPatchList, sFName) > 0 Then
+                    'While this is an orphaned file keep the scope of Office only
+                    If InStr(UCase(MspTargets(File.Path)), OFFICEID)>0 Then DeleteFile File.Path
+                End If
+            End If 'LCase(Right(sFName, 4))
+        Next 'File
+    End If 'Err=0
+
+    'Get a complete list products
+    Err.Clear
+    Set AllProducts = oMsi.ProductsEx("", USERSIDEVERYONE, MSIINSTALLCONTEXT_ALL)
+    If Err <> 0 Then
+        CheckError "MsiClearOrphanedFiles (msi)"
+    Else
+        'Fill a comma separated stringlist with all .msi files
+        For Each Product in AllProducts
+            sLocalMsi = "" : sLocalMsi = LCase(Product.InstallProperty("LocalPackage")) : CheckError "MsiClearOrphanedFiles (msi)"
+            sMsiList = sMsiList & sLocalMsi & ","
+        Next 'Product
+
+        'Delete all non referenced .msi files from %windir%\installer
+        For Each File in Files
+            sFName = "" : sFName = LCase(File.Path)
+            If LCase(Right(sFName, 4)) = ".msi" Then
+                If Not InStr(sMsiList, sFName) > 0 Then
+                    'While this is an orphaned file keep the scope of Office only
+                    If UCase(Right(ProductCode(File.Path), PRODLEN)) = OFFICEID Then DeleteFile File.Path
+                End If
+            End If 'LCase(Right(sFName, 4)) = ".msi"
+        Next 'File
+    End If 'Err=0
+
+End Sub 'MsiClearOrphanedFiles
+'=======================================================================================================
+
+Sub RegWipe
+    Dim Item, Name, Sku, key
+    Dim hDefKey, sSubKeyName, sCurKey, value, sValue, sGuid
+    Dim fkeep, fSystemComponent0, fPackages, fDisplayVersion
+    Dim arrKeys, arrNames, arrTypes, arrMultiSzValues, arrMultiSzNewValues
+    Dim arrTestNames, arrTestTypes
+    Dim i, iLoopCnt, iPos
+    Dim fDelReg
+    
+    'LogH1 "Registry CleanUp"
+    'Wipe registry data
+    
+    'User Profile settings
+    LogH2 "User Policies"
+    RegDeleteKey HKCU, "Software\Policies\Microsoft\Office\" & OVERSION & "\"
+    If NOT fKeepUser Then
+        RegDeleteKey HKCU, "Software\Microsoft\Office\" & OVERSION & "\"
+        LogH2 "User Settings"
+    End If 'fKeepUser
+    
+    'Computer specific settings
+    If fClearAddinReg Then
+        RegDeleteKey HKLM, "SOFTWARE\Microsoft\Office\Outlook\"
+        RegDeleteKey HKLM, "SOFTWARE\Microsoft\Office\Word\"
+        RegDeleteKey HKLM, "SOFTWARE\Microsoft\Office\Excel\"
+        RegDeleteKey HKLM, "SOFTWARE\Microsoft\Office\PowerPoint\"
+    End If
+    If (fRemoveAll AND NOT fC2rInstalled) OR (fRemoveAll AND fForce) Then
+        LogH2 "Machine Settings"
+        RegDeleteKey HKLM, "SOFTWARE\Microsoft\Office\" & OVERSION & "\"
+        If fRemoveOse OR fForce Then
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Office Test\"
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Office\Common\", "LastAccessInstall", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Office\Common\", "MID", False
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Office\Excel\Addins\Microsoft.PerformancePoint.Planning.Client.Excel\"
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Office\InfoPath\Converters\Import\InfoPath.DesignerExcelImport\Versions\", OVERSION, False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Office\InfoPath\Converters\Import\InfoPath.DesignerWordImport\Versions\", OVERSION, False
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Shared Tools\Text Converters\Export\MEWord12\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Shared Tools\Text Converters\Export\Word12\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Shared Tools\Text Converters\Export\Word97\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Shared Tools\Text Converters\Import\MEWord12\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Shared Tools\Text Converters\Import\Word12\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Shared Tools\Text Converters\Import\Word97\"
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Run\", "GrooveMonitor", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Run\", "LobiServer", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Run\", "BCSSync", False
+            RegDeleteKey HKLM, "SYSTEM\CurrentControlSet\Services\Outlook\"
+        End If
+        RegDeleteValue HKLM, "SOFTWARE\Microsoft\Office\Common\OffDiag\Location\", OVERSIONMAJOR, False
+        RegDeleteKey HKLM, "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\Install\Software\Microsoft\Office\" & OVERSION & "\"
+        RegDeleteValue HKLM, "SOFTWARE\Microsoft\Office\Common\OffDiag\Location\", OVERSIONMAJOR, False
+        RegDeleteKey HKLM, "SOFTWARE\Microsoft\OfficeCustomizeWizard\" & OVERSION & "\"
+        RegDeleteKey HKLM, "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server\Install\SOFTWARE\Microsoft\OfficeCustomizeWizard\" & OVERSION & "\"
+        
+        Select Case OVERSIONMAJOR
+        Case "11"
+            'Jet_Replication
+            sValue = ""
+            If RegReadValue(HKCR, "CLSID\{CC2C83A6-9BE4-11D0-98E7-00C04FC2CAF5}\InprocServer32", "SystemDB", sValue, "REG_SZ") Then
+                If Len(sValue) > Len(sOInstallRoot) Then
+                    If LCase(Left(sValue, Len(sOInstallRoot))) = LCase(sOInstallRoot) Then RegDeleteKey HKCR, "CLSID\{CC2C83A6-9BE4-11D0-98E7-00C04FC2CAF5}\InprocServer32\"
+                End If
+            End If
+        Case "12"
+        Case "14"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform_Test\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Office\Common\ActiveX Compatibility\{00024512-0000-0000-C000-000000000046}\"
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Office\OneNote\Adapters\", "{456B0D0E-49DD-4C95-8DB6-175F54DE69A3}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{42042206-2D85-11D3-8CFF-005004838597}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{993BE281-6695-4BA5-8A2A-7AACBFAAB69E}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{0006F045-0000-0000-C000-000000000046}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{C41662BB-1FA0-4CE0-8DC5-9B7F8279FF97}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{7CCA70DB-DE7A-4FB7-9B2B-52E2335A3B5A}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{506F4668-F13E-4AA1-BB04-B43203AB3CC0}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{D66DC78C-4F61-447F-942B-3FB6980118CF}", False
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{B4F3A835-0E21-4959-BA22-42B3008E02FF}\"
+            'Groove Extensions 
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellExecuteHooks\", "{B5A7F190-DDA6-4420-B3BA-52453494E6CD}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{99FD978C-D287-4F50-827F-B2C658EDA8E7}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{AB5C5600-7E6E-4B06-9197-9ECEF74D31CC}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{920E6DB1-9907-4370-B3A0-BAFC03D81399}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{16F3DD56-1AF5-4347-846D-7C10C4192619}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{2916C86E-86A6-43FE-8112-43ABE6BF8DCC}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{72853161-30C5-4D22-B7F9-0BBC1D38A37E}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{6C467336-8281-4E60-8204-430CED96822D}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{2A541AE1-5BF6-4665-A8A3-CFA9672E4291}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{B5A7F190-DDA6-4420-B3BA-52453494E6CD}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{A449600E-1DC6-4232-B948-9BD794D62056}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{3D60EDA7-9AB4-4DA8-864C-D9B5F2E7281D}", False
+            RegDeleteValue HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\", "{387E725D-DC16-4D76-B310-2C93ED4752A0}", False
+            RegDeleteKey HKLM, "SOFTWARE\Classes\*\shellex\ContextMenuHandlers\XXX Groove GFS Context Menu Handler XXX\"
+            RegDeleteKey HKLM, "SOFTWARE\Classes\AllFilesystemObjects\shellex\ContextMenuHandlers\XXX Groove GFS Context Menu Handler XXX\"
+            RegDeleteKey HKLM, "SOFTWARE\Classes\Directory\shellex\ContextMenuHandlers\XXX Groove GFS Context Menu Handler XXX\"
+            RegDeleteKey HKLM, "SOFTWARE\Classes\Folder\ShellEx\ContextMenuHandlers\XXX Groove GFS Context Menu Handler XXX\"
+            RegDeleteKey HKLM, "SOFTWARE\Classes\Directory\Background\shellex\ContextMenuHandlers\XXX Groove GFS Context Menu Handler XXX\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\Groove Explorer Icon Overlay 1 (GFS Unread Stub)\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\Groove Explorer Icon Overlay 2 (GFS Stub)\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\Groove Explorer Icon Overlay 2.5 (GFS Unread Folder)\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\Groove Explorer Icon Overlay 3 (GFS Folder)\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\Groove Explorer Icon Overlay 4 (GFS Unread Mark)\"
+            RegDeleteKey HKLM, "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{72853161-30C5-4D22-B7F9-0BBC1D38A37E}\"
+        
+        Case 15
+
+        Case Else
+        End Select
+
+        'Win32Assemblies
+        LogH2 "Win32Assemblies"
+        If RegEnumKey(HKCR, "Installer\Win32Assemblies\", arrKeys) Then
+            For Each Item in arrKeys
+                If InStr(UCase(Item), OREF)>0 Then RegDeleteKey HKCR, "Installer\Win32Assemblies\"&Item & "\"
+            Next 'Item
+        End If 'RegEnumKey
+        'Groove blocks reinstall if it locates groove.exe over this key
+        If RegKeyExists(HKCR, "GrooveFile\Shell\Open\Command\") Then
+            sValue = ""
+            RegReadValue HKCR, "GrooveFile\Shell\Open\Command\", "", sValue, "REG_SZ"
+            If InStr(sValue, "\" & OREF & "\")>0 Then RegDeleteKey HKCR, "GrooveFile\"
+        End If 'RegKeyExists
+    End If 'fRemoveAll
+
+    Select Case OVERSIONMAJOR
+    Case "11"
+        For iLoopCnt = 1 to 3
+            Select Case iLoopCnt
+            Case 1
+                'CIW - HKCU
+                sSubKeyName = "Software\Microsoft\OfficeCustomizeWizard\" & OVERSION & "\RegKeyPaths\"
+                hDefKey = HKCU
+            Case 2 
+                'CIW - HKLM
+                sSubKeyName = "SOFTWARE\Microsoft\OfficeCustomizeWizard\" & OVERSION & "\RegKeyPaths\"
+                hDefKey = HKLM
+            Case 3
+                'Add/Remove Programs
+                sSubKeyName = REG_ARP
+                hDefKey = HKLM
+            End Select
+        
+            If RegEnumKey(hDefKey, sSubKeyName, arrKeys) Then
+                For Each Item in arrKeys
+                    'OFFICEID id
+                    If Len(Item)>37 Then
+                        sGuid = UCase(Left(Item, 38))
+                        If Right(sGuid, PRODLEN) = OFFICEID Then
+                            If CheckDelete(sGuid) Then 
+                                RegDeleteKey hDefKey, sSubKeyName & Item & "\"
+                            End If
+                        End If 'Right(Item, PRODLEN) = OFFICEID
+                    End If 'Len(Item)>37
+                Next 'Item
+                If iLoopCnt < 3 Then
+                    If RegEnumValues(hDefKey, sSubKeyName, arrNames, arrTypes) Then
+                        i = 0
+                        For Each Name in arrNames
+                            If RegReadValue(hDefKey, sSubKeyName, Name, sValue, arrTypes(i)) Then
+                                If sValue = sGuid Then RegDeleteValue hDefKey, sSubKeyName, Name, False
+                            End If
+                            i = i + 1
+                        Next
+                    End If
+                End If
+            End If
+            If NOT RegEnumKey(hDefKey, sSubKeyName, arrKeys) Then RegDeleteKey hDefKey, "Software\Microsoft\OfficeCustomizeWizard\11.0\"
+            If NOT RegEnumKey(hDefKey, "Software\Microsoft\OfficeCustomizeWizard\11.0\", arrKeys) Then RegDeleteKey hDefKey, "Software\Microsoft\OfficeCustomizeWizard\"
+        Next 'iLoopCnt
+    Case "12"
+        'Add/Remove Programs
+        RegWipeARP 
+    Case "14"
+        'Add/Remove Programs
+        RegWipeARP 
+    Case Else
+    End Select
+
+    'UpgradeCodes, WI config, WI global config
+    For iLoopCnt = 1 to 5
+        Select Case iLoopCnt
+        Case 1
+            LogH2 "HKLM UpgradeCodes"
+            sSubKeyName = "SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UpgradeCodes\"
+            hDefKey = HKLM
+        Case 2 
+            LogH2 "HKCR UpgradeCodes"
+            sSubKeyName = "Installer\UpgradeCodes\"
+            hDefKey = HKCR
+        Case 3
+            LogH2 "HKLM Products"
+            sSubKeyName = "SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\"
+            hDefKey = HKLM
+        Case 4 
+            LogH2 "HKCR Features"
+            sSubKeyName = "Installer\Features\"
+            hDefKey = HKCR
+        Case 5 
+            LogH2 "HKCR Products"
+            sSubKeyName = "Installer\Products\"
+            hDefKey = HKCR
+        Case Else
+            sSubKeyName = ""
+            hDefKey = ""
+        End Select
+        If RegEnumKey(hDefKey, sSubKeyName, arrKeys) Then
+            For Each Item in arrKeys
+                'Ensure we have the expected length for a compressed GUID
+                If Len(Item)=32 Then
+                    'Expand the GUID
+                    sGuid = GetExpandedGuid(Item) 

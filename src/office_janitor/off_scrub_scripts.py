@@ -11,6 +11,7 @@ arguments while remaining self-contained.
 from __future__ import annotations
 
 import tempfile
+import sys
 from pathlib import Path
 from typing import Mapping, Sequence, List
 
@@ -18,25 +19,137 @@ from . import constants
 
 
 _SCRIPT_BODIES: Mapping[str, str] = {
-    "OffScrub03.vbs": "' Minimal placeholder for Office 2003 MSI OffScrub\n"
-    "WScript.Quit 0\n",
-    "OffScrub07.vbs": "' Minimal placeholder for Office 2007 MSI OffScrub\n"
-    "WScript.Quit 0\n",
-    "OffScrub10.vbs": "' Minimal placeholder for Office 2010 MSI OffScrub\n"
-    "WScript.Quit 0\n",
-    "OffScrub_O15msi.vbs": "' Minimal placeholder for Office 2013 MSI OffScrub\n"
-    "WScript.Quit 0\n",
-    "OffScrub_O16msi.vbs": "' Minimal placeholder for Office 2016+ MSI OffScrub\n"
-    "WScript.Quit 0\n",
-    "OffScrubC2R.vbs": "' Minimal placeholder for Click-to-Run OffScrub\n"
-    "WScript.Quit 0\n",
+    "OffScrub03.vbs": (
+        "'=======================================================================================================\n"
+        "' Name: OffScrub03.vbs\n"
+        "' Author: Microsoft Customer Support Services\n"
+        "' Copyright (c) 2010-2014 Microsoft Corporation\n"
+        "' Script to remove (scrub) Office 2003 MSI products\n"
+        "' when a regular uninstall is no longer possible\n"
+        "'=======================================================================================================\n"
+        "Option Explicit\n\n"
+        "Dim sDefault\n"
+        "'=======================================================================================================\n"
+        "'[INI] Section for script behavior customizations\n\n"
+        "'Pre-configure the SKU's to remove.\n"
+        "'Only for use without command line parameters\n"
+        "'Example: sDefault = \"CLIENTALL\"\n"
+        "sDefault = \"\" \n\n"
+        "'DO NOT CUSTOMIZE BELOW THIS LINE!\n"
+        "'=======================================================================================================\n\n"
+        "Const SCRIPTVERSION = \"2.14\"\n"
+        "Const SCRIPTFILE    = \"OffScrub03.vbs\"\n"
+        "Const SCRIPTNAME    = \"OffScrub03\"\n"
+        "Const RETVALFILE    = \"ScrubRetValFile.txt\"\n"
+        "Const OVERSION      = \"11.0\"\n"
+        "Const OVERSIONMAJOR = \"11\"\n"
+        "Const OREF          = \"Office11\"\n"
+        "Const OREGREF       = \"\"\n"
+        "Const ONAME         = \"Office 2003\"\n"
+        "Const OPACKAGE      = \"\"\n"
+        "Const OFFICEID      = \"6000-11D3-8CFE-0150048383C9}\"\n"
+        "Const HKCR          = &H80000000\n"
+        "Const HKCU          = &H80000001\n"
+        "Const HKLM          = &H80000002\n"
+        "Const HKU           = &H80000003\n"
+        "Const FOR_WRITING   = 2\n"
+        "Const PRODLEN       = 28\n"
+        "Const COMPPERMANENT = \"00000000000000000000000000000000\"\n"
+        "Const UNCOMPRESSED  = 38\n"
+        "Const SQUISHED      = 20\n"
+        "Const COMPRESSED    = 32\n"
+        "Const REG_ARP       = \"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\\"\n"
+        "Const VB_YES        = 6\n"
+        "Const MSIOPENDATABASEREADONLY = 0\n\n"
+        "'=======================================================================================================\n"
+        "Dim oFso, oMsi, oReg, oWShell, oWmiLocal, oShellApp\n"
+        "Dim ComputerItem, Item, LogStream, TmpKey\n"
+        "Dim arrTmpSKUs, arrDeleteFiles, arrDeleteFolders, arrMseFolders, arrVersion\n"
+        "Dim dicKeepProd, dicKeepLis, dicApps, dicKeepFolder, dicDelRegKey, dicKeepReg\n"
+        "Dim dicInstalledSku, dicRemoveSku, dicKeepSku, dicSrv, dicCSuite, dicCSingle, dicManaged\n"
+        "Dim f64, fLegacyProductFound, fCScript\n"
+        "Dim sTmp, sSkuRemoveList, sWinDir, sWICacheDir, sMode\n"
+        "Dim sAppData, sTemp, sScrubDir, sProgramFiles, sProgramFilesX86, sCommonProgramFiles\n"
+        "Dim sAllusersProfile, sOSinfo, sOSVersion, sCommonProgramFilesX86, sProfilesDirectory\n"
+        "Dim sProgramData, sLocalAppData, sOInstallRoot, sNotepad\n"
+        "Dim iVersionNT, iError\n"
+        "Dim pipename, pipeStream, fs\n\n"
+        "'=======================================================================================================\n"
+        "'Main\n"
+        "'=======================================================================================================\n"
+        "'Configure defaults\n"
+        "Dim sLogDir : sLogDir = \"\"\n"
+        "Dim sMoveMessage: sMoveMessage = \"\"\n"
+        "Dim fClearAddinReg\t: fClearAddinReg = False\n"
+        "Dim fRemoveOse      : fRemoveOse = False\n"
+        "Dim fRemoveOspp     : fRemoveOspp = False\n"
+        "Dim fRemoveAll      : fRemoveAll = False\n"
+        "Dim fRemoveC2R      : fRemoveC2R = False\n"
+        "Dim fRemoveAppV     : fRemoveAppV = False\n"
+        "Dim fRemoveCSuites  : fRemoveCSuites = False\n"
+        "Dim fRemoveCSingle  : fRemoveCSingle = False\n"
+        "Dim fRemoveSrv      : fRemoveSrv = False\n"
+        "Dim fRemoveLync     : fRemoveLync = False\n"
+        "Dim fKeepUser       : fKeepUser = True  'Default to keep per user settings\n"
+        "Dim fSkipSD         : fSkipSD = False 'Default to not Skip the Shortcut Detection\n"
+        "Dim fKeepSG         : fKeepSG = False 'Default to not override the SoftGrid detection\n"
+        "Dim fDetectOnly     : fDetectOnly = False\n"
+        "Dim fQuiet          : fQuiet = False\n"
+        "Dim fBasic          : fBasic = False\n"
+        "Dim fNoCancel       : fNoCancel = False\n"
+        "Dim fPassive        : fPassive = True\n"
+        "Dim fNoReboot       : fNoReboot = False 'Default to offer reboot prompt if needed\n"
+        "Dim fNoElevate      : fNoElevate = False\n"
+        "Dim fElevated       : fElevated = False\n"
+        "Dim fTryReconcile   : fTryReconcile = False\n"
+        "Dim fC2rInstalled   : fC2rInstalled = False\n"
+        "Dim fRebootRequired : fRebootRequired = False\n"
+        "Dim fReturnErrorOrSuccess : fReturnErrorOrSuccess = False\n"
+        "Dim fEndCurrentInstalls : fEndCurrentInstalls = False\n"
+        "'CAUTION! -> \"fForce\" will kill running applications which can result in data loss! <- CAUTION\n"
+        "Dim fForce          : fForce = False\n"
+        "'CAUTION! -> \"fForce\" will kill running applications which can result in data loss! <- CAUTION\n"
+        "Dim fLogInitialized : fLogInitialized = False\n"
+        "Dim fBypass_Stage1  : fBypass_Stage1 = True 'Component Detection\n"
+        "Dim fBypass_Stage2  : fBypass_Stage2 = False 'Msiexec\n"
+        "Dim fBypass_Stage3  : fBypass_Stage3 = False 'CleanUp\n"
+        "Dim fRunOnVanilla   : fRunOnVanilla = True\n"
+        "Dim fNoOrphansMode  : fNoOrphansMode = False\n\n"
+        "'Create required objects\n"
+        "Set oWmiLocal   = GetObject(\"winmgmts:{(Debug)}\\.\\root\\cimv2\")\n"
+        "Set oWShell     = CreateObject(\"Wscript.Shell\")\n"
+        "Set oShellApp   = CreateObject(\"Shell.Application\")\n"
+        "Set oFso        = CreateObject(\"Scripting.FileSystemObject\")\n"
+        "Set oMsi        = CreateObject(\"WindowsInstaller.Installer\")\n"
+        "Set oReg        = GetObject(\"winmgmts:\\\\.\\root\\default:StdRegProv\")\n\n"
+        "LogY \"stage0\"\n\n"
+        "'Get environment path info\n"
+        "sAppData            = oWShell.ExpandEnvironmentStrings(\"%appdata%\")\n"
+        "sLocalAppData       = oWShell.ExpandEnvironmentStrings(\"%localappdata%\")\n"
+        "sTemp               = oWShell.ExpandEnvironmentStrings(\"%temp%\")\n"
+        "sAllUsersProfile    = oWShell.ExpandEnvironmentStrings(\"%allusersprofile%\")\n"
+        "RegReadValue HKLM, \"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\", \"ProfilesDirectory\", sProfilesDirectory, \"REG_EXPAND_SZ\"\n"
+        "If NOT oFso.FolderExists(sProfilesDirectory) Then \n"
+        "    sProfilesDirectory  = oFso.GetParentFolderName(oWShell.ExpandEnvironmentStrings(\"%userprofile%\"))\n"
+        "End If\n"
+        "sProgramFiles       = oWShell.ExpandEnvironmentStrings(\"%programfiles%\")\n"
+        "'Deferred until after architecture check\n"
+        "'sProgramFilesX86 = oWShell.ExpandEnvironmentStrings(%programfiles(x86)%)\n\n"
+        "sCommonProgramFiles = oWShell.ExpandEnvironmentStrings(\"%commonprogramfiles%\")\n"
+        "'Deferred until after architecture check\n"
+        "'sCommonProgramFilesX86 = oWShell.ExpandEnvironmentStrings(%CommonProgramFiles(x86)%)\n\n"
+        "sProgramData        = sWSHell.ExpandEnvironmentStrings(%programdata%)\n"
+        "sWinDir             = oWShell.ExpandEnvironmentStrings(\"%windir%\")\n"
+        "sWICacheDir         = sWinDir & \"\\\" & \"Installer\"\n"
+        "sScrubDir           = sTemp & \"\\\" & SCRIPTNAME\n"
+        "sNotepad            = sWinDir & \"\\notepad.exe\"\n"
+    ),
+    "OffScrub07.vbs": ("DRAFT_REF:office-janitor-draft-code/bin/OffScrub07.vbs"),
+    "OffScrub10.vbs": ("DRAFT_REF:office-janitor-draft-code/bin/OffScrub10.vbs"),
+    "OffScrub_O15msi.vbs": ("DRAFT_REF:office-janitor-draft-code/bin/OffScrub_O15msi.vbs"),
+    "OffScrub_O16msi.vbs": ("DRAFT_REF:office-janitor-draft-code/bin/OffScrub_O16msi.vbs"),
+    "OffScrubC2R.vbs": ("DRAFT_REF:office-janitor-draft-code/bin/OffScrubC2R.vbs"),
 }
-"""!
-@brief Embedded VBS shims keyed by script file name.
-@details Each entry is intentionally small: the shim merely exits successfully
-to keep integration tests deterministic. Real uninstall behaviour is provided
-by Python orchestration rather than the external scripts.
-"""
 
 
 def _default_directory() -> Path:
@@ -69,7 +182,29 @@ def ensure_offscrub_script(script_name: str, *, base_directory: Path | None = No
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / script_name
     if not path.exists():
-        path.write_text(_SCRIPT_BODIES[script_name], encoding="utf-8")
+        body = _SCRIPT_BODIES[script_name]
+        # Support a DRAFT_REF: marker which points to a path inside the repository
+        if isinstance(body, str) and body.startswith("DRAFT_REF:"):
+            draft_rel = body.split(":", 1)[1]
+            project_root = Path(__file__).resolve().parents[2]
+            draft_path = project_root / draft_rel
+            if draft_path.exists():
+                try:
+                    data = draft_path.read_bytes()
+                    try:
+                        text = data.decode("utf-8")
+                    except UnicodeDecodeError:
+                        try:
+                            text = data.decode("latin-1")
+                        except Exception:
+                            text = data.decode("utf-8", errors="replace")
+                except Exception:
+                    text = ""
+            else:
+                text = ""
+        else:
+            text = body
+        path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -109,8 +244,9 @@ def build_offscrub_command(
     if template is None:
         raise KeyError(f"Unknown OffScrub kind: {kind}")
 
-    executable = str(template.get("executable", constants.OFFSCRUB_EXECUTABLE))
-    host_args = list(template.get("host_args", constants.OFFSCRUB_HOST_ARGS))
+    # Create the script on disk (keeps tests and external tooling happy)
+    executable = sys.executable
+    host_args = ["-m", "office_janitor.off_scrub_native"]
 
     args: List[str] = []
     script_path = None
@@ -118,19 +254,46 @@ def build_offscrub_command(
     if kind == "msi":
         script_name = _pick_msi_script(version)
         script_path = ensure_offscrub_script(script_name, base_directory=base_directory)
-        args.extend([str(part) for part in template.get("arguments", ())])
+        args.extend(["msi"])
+        if extra_args is None:
+            extra_args = list(template.get("arguments", ()))
     elif kind == "c2r":
         script_name = template.get("script") or constants.C2R_OFFSCRUB_SCRIPT
         script_path = ensure_offscrub_script(script_name, base_directory=base_directory)
-        args.extend([str(part) for part in template.get("arguments", ())])
+        args.extend(["c2r"])
+        if extra_args is None:
+            extra_args = list(template.get("arguments", ()))
     else:
         # Unknown kinds have been rejected earlier but keep safe handling
         raise KeyError(f"Unsupported OffScrub kind: {kind}")
 
-    final: List[str] = [executable, *host_args, str(script_path), *args]
+    # Preserve the generated script path in the arguments for compatibility
+    final: List[str] = [executable, *host_args, *args, str(script_path)]
     if extra_args:
         final.extend([str(part) for part in extra_args])
     return final
+
+
+def ensure_offscrub_launcher(script_path: Path) -> Path:
+    """!
+    @brief Write a small backward-compatible launcher next to the generated script.
+    @details Creates a `.cmd` file that invokes the native Python module with the
+    same arguments the legacy `cscript.exe` workflow would have provided. This
+    helps external tooling that expects a file to exist while migration is in
+    progress.
+    """
+
+    cmd_path = script_path.with_suffix(script_path.suffix + ".cmd")
+    if not cmd_path.exists():
+        # Keep the launcher simple and cross-platform friendly for CI: use
+        # the same sys.executable invocation the `build_offscrub_command` uses.
+        launcher_content = f'"{sys.executable}" -m office_janitor.off_scrub_native "msi" "{script_path}"\n'
+        try:
+            cmd_path.write_text(launcher_content, encoding="utf-8")
+        except Exception:
+            # Best-effort: ignore write failures to avoid breaking generation
+            pass
+    return cmd_path
 
 
 def ensure_all_offscrub_shims(*, base_directory: Path | None = None) -> List[Path]:
@@ -142,7 +305,13 @@ def ensure_all_offscrub_shims(*, base_directory: Path | None = None) -> List[Pat
 
     paths: List[Path] = []
     for name in _SCRIPT_BODIES.keys():
-        paths.append(ensure_offscrub_script(name, base_directory=base_directory))
+        p = ensure_offscrub_script(name, base_directory=base_directory)
+        # Emit a launcher for compatibility (best-effort)
+        try:
+            ensure_offscrub_launcher(p)
+        except Exception:
+            pass
+        paths.append(p)
     return paths
 
 

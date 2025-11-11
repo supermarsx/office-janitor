@@ -16,6 +16,7 @@ from typing import Iterable, Mapping, MutableMapping
 
 from . import (
     c2r_uninstall,
+    off_scrub_native,
     constants,
     detect,
     fs_tools,
@@ -292,7 +293,7 @@ class StepExecutor:
                     "Skipping C2R uninstall step without installation metadata",
                 )
             else:
-                c2r_uninstall.uninstall_products(installation, dry_run=dry_run)
+                off_scrub_native.uninstall_products(installation, dry_run=dry_run)
             return None
         if category == "licensing-cleanup":
             extended = dict(metadata)
