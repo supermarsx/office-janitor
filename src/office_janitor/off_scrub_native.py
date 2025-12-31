@@ -21,6 +21,8 @@ from . import (
     detect,
     logging_ext,
     msi_uninstall,
+    fs_tools,
+    registry_tools,
     tasks_services,
 )
 
@@ -452,6 +454,37 @@ def _select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, An
     return targets
 
 
+def _perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool) -> None:
+    """!
+    @brief Execute optional cleanup implied by legacy flags.
+    """
+
+    human_logger = logging_ext.get_human_logger()
+
+    if directives.delete_user_settings and not directives.keep_user_settings:
+        human_logger.info("Deleting user settings directories requested by legacy flags.")
+        fs_tools.remove_paths(_USER_SETTINGS_PATHS, dry_run=dry_run)
+
+    if directives.clear_addin_registry:
+        human_logger.info("Clearing Office add-in registry keys requested by legacy flags.")
+        addin_keys = []
+        for version in _ADDIN_VERSION_KEYS:
+            addin_keys.extend(
+                [
+                    f"HKCU\\Software\\Microsoft\\Office\\{version}\\Addins",
+                    f"HKLM\\SOFTWARE\\Microsoft\\Office\\{version}\\Addins",
+                    f"HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Office\\{version}\\Addins",
+                ]
+            )
+        try:
+            registry_tools.delete_keys(addin_keys, dry_run=dry_run)
+        except registry_tools.RegistryError as exc:  # pragma: no cover - defensive
+            human_logger.warning("Add-in registry cleanup skipped: %s", exc)
+
+    if directives.remove_vba:
+        human_logger.info("Legacy /REMOVEVBA flag set; VBA-specific cleanup not implemented in native flow.")
+
+
 @contextmanager
 def _quiet_logging(enabled: bool, human_logger: logging.Logger):
     """!
@@ -569,6 +602,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         if directives.reruns > 1:
                             human_logger.info("Legacy rerun pass %d/%d for Click-to-Run target.", attempt, directives.reruns)
                         uninstall_products(target, dry_run=dry_run, retries=args.retries)
+            _perform_optional_cleanup(directives, dry_run=dry_run)
             return 0
         elif args.command == "msi":
             legacy = _parse_legacy_arguments("msi", getattr(args, "legacy_args", []) or [])
@@ -609,6 +643,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if directives.reruns > 1:
                         human_logger.info("Legacy rerun pass %d/%d for MSI targets.", attempt, directives.reruns)
                     uninstall_msi_products(products_to_use, dry_run=dry_run, retries=args.retries)
+            _perform_optional_cleanup(directives, dry_run=dry_run)
             return 0
         else:
             human_logger.info("No command supplied; nothing to do.")
@@ -620,3 +655,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+_ADDIN_VERSION_KEYS = ("11.0", "12.0", "14.0", "15.0", "16.0")
+_USER_SETTINGS_PATHS = (
+    r"%APPDATA%\\Microsoft\\Office",
+    r"%LOCALAPPDATA%\\Microsoft\\Office",
+    r"%APPDATA%\\Microsoft\\Templates",
+    r"%LOCALAPPDATA%\\Microsoft\\Office\\Templates",
+)
