@@ -28,11 +28,6 @@ from . import off_scrub_helpers as _helpers
 fs_tools = _helpers.fs_tools
 registry_tools = _helpers.registry_tools
 from .off_scrub_helpers import ExecutionDirectives, LegacyInvocation
-# Public-facing aliases kept for tests/backwards compatibility
-_parse_legacy_arguments = _wrap_parse_legacy_arguments
-_select_c2r_targets = _wrap_select_c2r_targets
-_select_msi_targets = _wrap_select_msi_targets
-_perform_optional_cleanup = _wrap_perform_optional_cleanup
 
 
 def _wrap_parse_legacy_arguments(command: str, argv: Sequence[str]) -> LegacyInvocation:

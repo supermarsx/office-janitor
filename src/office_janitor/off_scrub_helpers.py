@@ -369,7 +369,7 @@ def select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, obj
         if desired_release_ids and not any(rid.lower() in desired_release_ids for rid in releases):
             continue
         group = _infer_c2r_group(entry)
-        if invocation.version_group and group and group != invocation.version_group:
+        if invocation.version_group and invocation.version_group != "c2r" and group and group != invocation.version_group:
             continue
         if not allow_all and invocation.version_group is None:
             continue
