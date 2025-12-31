@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
 
-from office_janitor import off_scrub_native
+from office_janitor import off_scrub_native, logging_ext, tasks_services
 import pytest
 
 
@@ -124,6 +125,67 @@ def test_offline_flag_carried_into_c2r_invocation(monkeypatch):
     assert captured[0].get("offline") is True
 
 
+def test_quiet_suppresses_info_logging(monkeypatch, caplog):
+    inventory = {
+        "c2r": [
+            {"release_ids": ["O365ProPlusRetail"], "product": "Microsoft 365 Apps", "version": "16.0"}
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+
+    monkeypatch.setattr(off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None)
+
+    caplog.set_level(logging.INFO, logger=logging_ext.HUMAN_LOGGER_NAME)
+    rc = off_scrub_native.main(["c2r", "OffScrubC2R.vbs", "/QUIET", "ALL"])
+    assert rc == 0
+    assert not [record for record in caplog.records if record.levelno == logging.INFO]
+
+
+def test_no_reboot_suppresses_recommendations(monkeypatch):
+    inventory = {
+        "c2r": [
+            {"release_ids": ["O365ProPlusRetail"], "product": "Microsoft 365 Apps", "version": "16.0"}
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+
+    tasks_services.consume_reboot_recommendations()
+
+    def fake_uninstall(config, dry_run=False, retries=None):
+        tasks_services._record_reboot_recommendation("ClickToRunSvc")  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(off_scrub_native, "uninstall_products", fake_uninstall)
+
+    rc = off_scrub_native.main(["c2r", "OffScrubC2R.vbs", "/NOREBOOT", "ALL"])
+    assert rc == 0
+    assert tasks_services.consume_reboot_recommendations() == []
+
+
+def test_user_settings_flags_forwarded(monkeypatch):
+    inventory = {
+        "msi": [
+            {
+                "product_code": "{AAA11111-2222-3333-4444-555555555555}",
+                "version": "14.0.1234",
+                "properties": {"supported_versions": ["2010"]},
+            }
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+
+    captured = []
+
+    def fake_uninstall(products, dry_run=False, retries=None):
+        captured.append(products)
+
+    monkeypatch.setattr(off_scrub_native, "uninstall_msi_products", fake_uninstall)
+
+    rc = off_scrub_native.main(["msi", "OffScrub10.vbs", "/DELETEUSERSETTINGS", "ALL"])
+    assert rc == 0
+    assert captured
+    assert captured[0][0].get("delete_user_settings") is True
+
+
 def test_unmapped_flags_logged(monkeypatch, caplog):
     caplog.set_level("INFO")
     inventory = {
@@ -140,4 +202,4 @@ def test_unmapped_flags_logged(monkeypatch, caplog):
 
     rc = off_scrub_native.main(["msi", "OffScrub10.vbs", "/NOREBOOT", "ALL"])
     assert rc == 0
-    assert any("not yet implemented" in record.message for record in caplog.records)
+    assert not any("not yet implemented" in record.message for record in caplog.records)

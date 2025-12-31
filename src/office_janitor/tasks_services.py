@@ -8,6 +8,7 @@ respecting dry-run and timeout safeguards.
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
 from typing import Iterable, List, Sequence
 
 from . import exec_utils, logging_ext
@@ -94,12 +95,19 @@ _PENDING_REBOOT_SERVICES: set[str] = set()
 @brief Services that could not be stopped cleanly and require a reboot.
 """
 
+_SUPPRESS_REBOOT_RECOMMENDATIONS = False
+"""!
+@brief When ``True``, reboot recommendations are not recorded (legacy /NOREBOOT).
+"""
+
 
 def _record_reboot_recommendation(service: str) -> None:
     """!
     @brief Track ``service`` as requiring a reboot to finish shutting down.
     """
 
+    if _SUPPRESS_REBOOT_RECOMMENDATIONS:
+        return
     clean_name = str(service).strip()
     if not clean_name:
         return
@@ -119,6 +127,32 @@ def consume_reboot_recommendations() -> List[str]:
     services = sorted(_PENDING_REBOOT_SERVICES)
     _PENDING_REBOOT_SERVICES.clear()
     return services
+
+
+def reboot_recommendations_suppressed() -> bool:
+    """!
+    @brief Return whether reboot recommendation recording is currently suppressed.
+    """
+
+    return bool(_SUPPRESS_REBOOT_RECOMMENDATIONS)
+
+
+@contextmanager
+def suppress_reboot_recommendations(enabled: bool = True):
+    """!
+    @brief Temporarily suppress recording of reboot recommendations.
+    @details Mirrors legacy ``/NOREBOOT`` behaviour by preventing
+    :func:`_record_reboot_recommendation` from tracking services during the
+    managed block.
+    """
+
+    global _SUPPRESS_REBOOT_RECOMMENDATIONS
+    previous = _SUPPRESS_REBOOT_RECOMMENDATIONS
+    _SUPPRESS_REBOOT_RECOMMENDATIONS = bool(enabled)
+    try:
+        yield
+    finally:
+        _SUPPRESS_REBOOT_RECOMMENDATIONS = previous
 
 
 def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> dict[str, object]:

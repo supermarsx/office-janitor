@@ -8,10 +8,12 @@ automation can migrate without ``cscript.exe``. The module can be invoked via
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping, Sequence, List
+from contextlib import contextmanager
 
 from . import (
     c2r_uninstall,
@@ -19,6 +21,7 @@ from . import (
     detect,
     logging_ext,
     msi_uninstall,
+    tasks_services,
 )
 
 
@@ -71,6 +74,12 @@ class ExecutionDirectives:
     keep_license: bool = False
     skip_shortcut_detection: bool = False
     offline: bool = False
+    quiet: bool = False
+    no_reboot: bool = False
+    delete_user_settings: bool = False
+    keep_user_settings: bool = False
+    clear_addin_registry: bool = False
+    remove_vba: bool = False
 
 
 def uninstall_products(config: Mapping[str, object], *, dry_run: bool = False, retries: int | None = None) -> None:
@@ -328,6 +337,12 @@ def _derive_execution_directives(legacy: LegacyInvocation, *, dry_run: bool) -> 
         keep_license=bool(legacy.flags.get("keep_license")),
         skip_shortcut_detection=bool(legacy.flags.get("skip_shortcut_detection")),
         offline=bool(legacy.flags.get("offline")),
+        quiet=bool(legacy.flags.get("quiet")),
+        no_reboot=bool(legacy.flags.get("no_reboot")),
+        delete_user_settings=bool(legacy.flags.get("delete_user_settings") and not legacy.flags.get("keep_user_settings")),
+        keep_user_settings=bool(legacy.flags.get("keep_user_settings")),
+        clear_addin_registry=bool(legacy.flags.get("clear_addin_registry")),
+        remove_vba=bool(legacy.flags.get("remove_vba")),
     )
 
 
@@ -437,6 +452,22 @@ def _select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, An
     return targets
 
 
+@contextmanager
+def _quiet_logging(enabled: bool, human_logger: logging.Logger):
+    """!
+    @brief Temporarily raise the human logger threshold when quiet mode is set.
+    """
+
+    previous_level = human_logger.level
+    if enabled:
+        human_logger.setLevel(max(logging.WARNING, previous_level))
+    try:
+        yield
+    finally:
+        if enabled:
+            human_logger.setLevel(previous_level)
+
+
 def _log_flag_effects(
     legacy: LegacyInvocation, directives: ExecutionDirectives, human_logger
 ) -> None:
@@ -456,6 +487,18 @@ def _log_flag_effects(
         human_logger.info("Legacy offline flag set; Click-to-Run config will be marked offline.")
     if directives.reruns > 1:
         human_logger.info("Legacy test-rerun flag set; uninstall passes will run %d times.", directives.reruns)
+    if directives.quiet:
+        human_logger.info("Legacy quiet flag set; human log verbosity reduced for this run.")
+    if directives.no_reboot:
+        human_logger.info("Legacy no-reboot flag set; reboot recommendations will be suppressed.")
+    if directives.delete_user_settings:
+        human_logger.info("Legacy delete-user-settings flag set; user settings would be purged where applicable.")
+    if directives.keep_user_settings:
+        human_logger.info("Legacy keep-user-settings flag set; user settings cleanup will be skipped where applicable.")
+    if directives.clear_addin_registry:
+        human_logger.info("Legacy clear add-in registry flag set; add-in registry cleanup would be executed where applicable.")
+    if directives.remove_vba:
+        human_logger.info("Legacy remove VBA flag set; VBA-only package cleanup would be executed where applicable.")
 
     handled = {
         "all",
@@ -464,6 +507,12 @@ def _log_flag_effects(
         "keep_license",
         "skip_shortcut_detection",
         "test_rerun",
+        "quiet",
+        "no_reboot",
+        "delete_user_settings",
+        "keep_user_settings",
+        "clear_addin_registry",
+        "remove_vba",
     }
     unmapped = sorted(
         flag for flag, enabled in legacy.flags.items() if enabled and flag not in handled
@@ -502,20 +551,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             dry_run = bool(args.dry_run or legacy.flags.get("detect_only"))
             directives = _derive_execution_directives(legacy, dry_run=dry_run)
-            _log_flag_effects(legacy, directives, human_logger)
 
-            for target in targets:
-                if args.display_name and isinstance(target, MutableMapping):
-                    merged = dict(target)
-                    merged["product"] = args.display_name
-                    target = merged
-                if directives.offline and isinstance(target, MutableMapping):
-                    target = dict(target)
-                    target["offline"] = True
-                for attempt in range(1, directives.reruns + 1):
-                    if directives.reruns > 1:
-                        human_logger.info("Legacy rerun pass %d/%d for Click-to-Run target.", attempt, directives.reruns)
-                    uninstall_products(target, dry_run=dry_run, retries=args.retries)
+            with _quiet_logging(directives.quiet, human_logger), tasks_services.suppress_reboot_recommendations(directives.no_reboot):
+                _log_flag_effects(legacy, directives, human_logger)
+                for target in targets:
+                    if args.display_name and isinstance(target, MutableMapping):
+                        merged = dict(target)
+                        merged["product"] = args.display_name
+                        target = merged
+                    if directives.offline and isinstance(target, MutableMapping):
+                        target = dict(target)
+                        target["offline"] = True
+                    if directives.keep_license and isinstance(target, MutableMapping):
+                        target = dict(target)
+                        target["keep_license"] = True
+                    for attempt in range(1, directives.reruns + 1):
+                        if directives.reruns > 1:
+                            human_logger.info("Legacy rerun pass %d/%d for Click-to-Run target.", attempt, directives.reruns)
+                        uninstall_products(target, dry_run=dry_run, retries=args.retries)
             return 0
         elif args.command == "msi":
             legacy = _parse_legacy_arguments("msi", getattr(args, "legacy_args", []) or [])
@@ -535,11 +588,27 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             dry_run = bool(args.dry_run or legacy.flags.get("detect_only"))
             directives = _derive_execution_directives(legacy, dry_run=dry_run)
-            _log_flag_effects(legacy, directives, human_logger)
-            for attempt in range(1, directives.reruns + 1):
-                if directives.reruns > 1:
-                    human_logger.info("Legacy rerun pass %d/%d for MSI targets.", attempt, directives.reruns)
-                uninstall_msi_products(selected_products, dry_run=dry_run, retries=args.retries)
+            with _quiet_logging(directives.quiet, human_logger), tasks_services.suppress_reboot_recommendations(directives.no_reboot):
+                _log_flag_effects(legacy, directives, human_logger)
+                products_to_use: List[Mapping[str, object]] = []
+                for entry in selected_products:
+                    if not isinstance(entry, MutableMapping):
+                        products_to_use.append({"product_code": entry})
+                        continue
+                    merged: MutableMapping[str, object] = dict(entry)
+                    if directives.delete_user_settings:
+                        merged["delete_user_settings"] = True
+                    if directives.keep_user_settings:
+                        merged["keep_user_settings"] = True
+                    if directives.clear_addin_registry:
+                        merged["clear_addin_registry"] = True
+                    if directives.remove_vba:
+                        merged["remove_vba"] = True
+                    products_to_use.append(merged)
+                for attempt in range(1, directives.reruns + 1):
+                    if directives.reruns > 1:
+                        human_logger.info("Legacy rerun pass %d/%d for MSI targets.", attempt, directives.reruns)
+                    uninstall_msi_products(products_to_use, dry_run=dry_run, retries=args.retries)
             return 0
         else:
             human_logger.info("No command supplied; nothing to do.")
