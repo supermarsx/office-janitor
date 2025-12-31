@@ -49,6 +49,8 @@ _SHORTCUT_PATHS = (
     r"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Microsoft Office Tools",
     r"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Microsoft Office",
     r"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Microsoft Office Tools",
+    r"%APPDATA%\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar",
+    r"%APPDATA%\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\StartMenu",
 )
 
 

@@ -220,6 +220,21 @@ for major in _VERSION_MAJOR_KEYS:
     _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Office\{major}"))
     _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Cloud\Office\{major}"))
 
+# COM/CLSIDs tied to Office components (e.g., MAPI search handlers)
+_OFFICE_COM_CLSIDS = (
+    "{2027FC3B-CF9D-4EC7-A823-38BA308625CC}",
+    "{573FFD05-2805-47C2-BCE0-5F19512BEB8D}",
+    "{8BA85C75-763B-4103-94EB-9470F12FE0F7}",
+    "{CD55129A-B1A1-438E-A425-CEBC7DC684EE}",
+    "{D0498E0A-45B7-42AE-A9AA-ABA463DBD3BF}",
+    "{E768CD3B-BDDC-436D-9C13-E1B39CA257B1}",
+    "{F8E61EDD-EA25-484E-AC8A-7447F2AAE2A9}",
+)
+
+for clsid in _OFFICE_COM_CLSIDS:
+    _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\Classes\CLSID\{clsid}"))
+    _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Classes\CLSID\{clsid}"))
+
 REGISTRY_RESIDUE_PATHS = _sort_registry_entries_deepest_first(
     _normalize_registry_entries(_REGISTRY_RESIDUE_BASE)
 )
