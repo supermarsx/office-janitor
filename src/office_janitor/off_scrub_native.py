@@ -27,12 +27,44 @@ from . import (
 from . import off_scrub_helpers as _helpers
 fs_tools = _helpers.fs_tools
 registry_tools = _helpers.registry_tools
-_parse_legacy_arguments = _helpers.parse_legacy_arguments
-_derive_execution_directives = _helpers.derive_execution_directives
-_select_c2r_targets = _helpers.select_c2r_targets
-_select_msi_targets = _helpers.select_msi_targets
-_perform_optional_cleanup = _helpers.perform_optional_cleanup
 from .off_scrub_helpers import ExecutionDirectives, LegacyInvocation
+# Public-facing aliases kept for tests/backwards compatibility
+_parse_legacy_arguments = _wrap_parse_legacy_arguments
+_select_c2r_targets = _wrap_select_c2r_targets
+_select_msi_targets = _wrap_select_msi_targets
+_perform_optional_cleanup = _wrap_perform_optional_cleanup
+
+
+def _wrap_parse_legacy_arguments(command: str, argv: Sequence[str]) -> LegacyInvocation:
+    """!
+    @brief Compatibility wrapper for tests and legacy entrypoints.
+    """
+
+    return _helpers.parse_legacy_arguments(command, argv)
+
+
+def _wrap_select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, object]) -> List[Mapping[str, object]]:
+    return _helpers.select_c2r_targets(invocation, inventory)
+
+
+def _wrap_select_msi_targets(invocation: LegacyInvocation, inventory: Mapping[str, object]) -> List[Mapping[str, object]]:
+    return _helpers.select_msi_targets(invocation, inventory)
+
+
+def _wrap_perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool, kind: str | None = None) -> None:
+    # Keep helper module references in sync with monkeypatches applied to this module during tests.
+    _helpers.fs_tools = fs_tools
+    _helpers.registry_tools = registry_tools
+    _helpers.tasks_services = tasks_services
+    return _helpers.perform_optional_cleanup(directives, dry_run=dry_run, kind=kind)
+
+
+# Public-facing aliases kept for tests/backwards compatibility
+_parse_legacy_arguments = _wrap_parse_legacy_arguments
+_derive_execution_directives = _helpers.derive_execution_directives
+_select_c2r_targets = _wrap_select_c2r_targets
+_select_msi_targets = _wrap_select_msi_targets
+_perform_optional_cleanup = _wrap_perform_optional_cleanup
 
 
 def uninstall_products(config: Mapping[str, object], *, dry_run: bool = False, retries: int | None = None) -> None:
@@ -182,7 +214,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     return_success_on_error = False
     try:
         if args.command == "c2r":
-            legacy = _helpers.parse_legacy_arguments("c2r", getattr(args, "legacy_args", []) or [])
+            legacy = _parse_legacy_arguments("c2r", getattr(args, "legacy_args", []) or [])
             if legacy.unknown:
                 human_logger.warning("Unrecognised legacy arguments: %s", ", ".join(legacy.unknown))
             if legacy.log_directory:
@@ -201,13 +233,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.release_ids:
                 legacy.release_ids.extend([rid for rid in args.release_ids if rid])
 
-            targets = _helpers.select_c2r_targets(legacy, inventory)
+            targets = _select_c2r_targets(legacy, inventory)
             if not targets and not legacy.release_ids:
                 human_logger.info("No Click-to-Run installations detected for legacy request.")
                 return 0
 
             dry_run = bool(args.dry_run or legacy.flags.get("detect_only"))
-            directives = _helpers.derive_execution_directives(legacy, dry_run=dry_run)
+            directives = _derive_execution_directives(legacy, dry_run=dry_run)
             return_success_on_error = directives.return_error_or_success
 
             with _quiet_logging(directives.quiet, human_logger), tasks_services.suppress_reboot_recommendations(directives.no_reboot):
@@ -238,10 +270,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         )
                         uninstall_products(target, dry_run=dry_run, retries=args.retries)
             with _quiet_logging(directives.quiet, human_logger):
-                _helpers.perform_optional_cleanup(directives, dry_run=dry_run, kind="c2r")
+                _perform_optional_cleanup(directives, dry_run=dry_run, kind="c2r")
             exit_code = 0
         elif args.command == "msi":
-            legacy = _helpers.parse_legacy_arguments("msi", getattr(args, "legacy_args", []) or [])
+            legacy = _parse_legacy_arguments("msi", getattr(args, "legacy_args", []) or [])
             if legacy.unknown:
                 human_logger.warning("Unrecognised legacy arguments: %s", ", ".join(legacy.unknown))
             if legacy.log_directory:
@@ -260,13 +292,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.product_codes:
                 legacy.product_codes.extend([code for code in args.product_codes if code])
 
-            selected_products = _helpers.select_msi_targets(legacy, inventory)
+            selected_products = _select_msi_targets(legacy, inventory)
             if not selected_products:
                 human_logger.info("No MSI installations matched the legacy OffScrub request.")
                 return 0
 
             dry_run = bool(args.dry_run or legacy.flags.get("detect_only"))
-            directives = _helpers.derive_execution_directives(legacy, dry_run=dry_run)
+            directives = _derive_execution_directives(legacy, dry_run=dry_run)
             return_success_on_error = directives.return_error_or_success
             with _quiet_logging(directives.quiet, human_logger), tasks_services.suppress_reboot_recommendations(directives.no_reboot):
                 _log_flag_effects(legacy, directives, human_logger)
@@ -300,7 +332,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                     uninstall_msi_products(products_to_use, dry_run=dry_run, retries=args.retries)
             with _quiet_logging(directives.quiet, human_logger):
-                _helpers.perform_optional_cleanup(directives, dry_run=dry_run, kind="msi")
+                _perform_optional_cleanup(directives, dry_run=dry_run, kind="msi")
             exit_code = 0
         else:
             human_logger.info("No command supplied; nothing to do.")
