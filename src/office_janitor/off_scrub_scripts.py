@@ -20,52 +20,28 @@ from . import constants
 
 _SCRIPT_BODIES: Mapping[str, str] = {
     "OffScrub03.vbs": (
-        "'=======================================================================================================\n"
-        "' Name: OffScrub03.vbs - Compatibility shim\n"
-        "' NOTE: Native Python implementation available via\n"
-        "'       python -m office_janitor.off_scrub_native (msi)\n"
-        "' This placeholder preserves the expected filename for external tooling.\n"
-        "'=======================================================================================================\n"
+        "' OffScrub03.vbs compatibility shim\n"
+        "' Native Python flow: python -m office_janitor.off_scrub_native msi OffScrub03.vbs ALL\n"
     ),
     "OffScrub07.vbs": (
-        "'=======================================================================================================\n"
-        "' Name: OffScrub07.vbs - Compatibility shim\n"
-        "' NOTE: Native Python implementation available via\n"
-        "'       python -m office_janitor.off_scrub_native (msi)\n"
-        "' This placeholder preserves the expected filename for external tooling.\n"
-        "'=======================================================================================================\n"
+        "' OffScrub07.vbs compatibility shim\n"
+        "' Native Python flow: python -m office_janitor.off_scrub_native msi OffScrub07.vbs ALL\n"
     ),
     "OffScrub10.vbs": (
-        "'=======================================================================================================\n"
-        "' Name: OffScrub10.vbs - Compatibility shim\n"
-        "' NOTE: Native Python implementation available via\n"
-        "'       python -m office_janitor.off_scrub_native (msi)\n"
-        "' This placeholder preserves the expected filename for external tooling.\n"
-        "'=======================================================================================================\n"
+        "' OffScrub10.vbs compatibility shim\n"
+        "' Native Python flow: python -m office_janitor.off_scrub_native msi OffScrub10.vbs ALL\n"
     ),
     "OffScrub_O15msi.vbs": (
-        "'=======================================================================================================\n"
-        "' Name: OffScrub_O15msi.vbs - Compatibility shim\n"
-        "' NOTE: Native Python implementation available via\n"
-        "'       python -m office_janitor.off_scrub_native (msi)\n"
-        "' This placeholder preserves the expected filename for external tooling.\n"
-        "'=======================================================================================================\n"
+        "' OffScrub_O15msi.vbs compatibility shim\n"
+        "' Native Python flow: python -m office_janitor.off_scrub_native msi OffScrub_O15msi.vbs ALL\n"
     ),
     "OffScrub_O16msi.vbs": (
-        "'=======================================================================================================\n"
-        "' Name: OffScrub_O16msi.vbs - Compatibility shim\n"
-        "' NOTE: Native Python implementation available via\n"
-        "'       python -m office_janitor.off_scrub_native (msi)\n"
-        "' This placeholder preserves the expected filename for external tooling.\n"
-        "'=======================================================================================================\n"
+        "' OffScrub_O16msi.vbs compatibility shim\n"
+        "' Native Python flow: python -m office_janitor.off_scrub_native msi OffScrub_O16msi.vbs ALL\n"
     ),
     "OffScrubC2R.vbs": (
-        "'=======================================================================================================\n"
-        "' Name: OffScrubC2R.vbs - Compatibility shim\n"
-        "' NOTE: Native Python implementation available via\n"
-        "'       python -m office_janitor.off_scrub_native (c2r)\n"
-        "' This placeholder preserves the expected filename for external tooling.\n"
-        "'=======================================================================================================\n"
+        "' OffScrubC2R.vbs compatibility shim\n"
+        "' Native Python flow: python -m office_janitor.off_scrub_native c2r OffScrubC2R.vbs ALL\n"
     ),
 }
 
@@ -101,28 +77,7 @@ def ensure_offscrub_script(script_name: str, *, base_directory: Path | None = No
     path = directory / script_name
     if not path.exists():
         body = _SCRIPT_BODIES[script_name]
-        # Support a DRAFT_REF: marker which points to a path inside the repository
-        if isinstance(body, str) and body.startswith("DRAFT_REF:"):
-            draft_rel = body.split(":", 1)[1]
-            project_root = Path(__file__).resolve().parents[2]
-            draft_path = project_root / draft_rel
-            if draft_path.exists():
-                try:
-                    data = draft_path.read_bytes()
-                    try:
-                        text = data.decode("utf-8")
-                    except UnicodeDecodeError:
-                        try:
-                            text = data.decode("latin-1")
-                        except Exception:
-                            text = data.decode("utf-8", errors="replace")
-                except Exception:
-                    text = ""
-            else:
-                text = ""
-        else:
-            text = body
-        path.write_text(text, encoding="utf-8")
+        path.write_text(body, encoding="utf-8")
     return path
 
 
@@ -231,5 +186,3 @@ def ensure_all_offscrub_shims(*, base_directory: Path | None = None) -> List[Pat
             pass
         paths.append(p)
     return paths
-
-
