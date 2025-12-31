@@ -257,6 +257,49 @@ def test_remove_vba_registry(monkeypatch):
     assert deleted
 
 
+def test_vba_filesystem_cleanup(monkeypatch):
+    inventory = {
+        "msi": [
+            {
+                "product_code": "{AAA11111-2222-3333-4444-555555555555}",
+                "version": "14.0.1234",
+                "properties": {"supported_versions": ["2010"]},
+            }
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native, "uninstall_msi_products", lambda products, dry_run=False, retries=None: None)
+
+    removed = []
+
+    monkeypatch.setattr(off_scrub_native.registry_tools, "delete_keys", lambda keys, dry_run=False, logger=None: None)
+
+    def fake_remove_paths(paths, dry_run=False):
+        removed.extend(paths)
+
+    monkeypatch.setattr(off_scrub_native.fs_tools, "remove_paths", fake_remove_paths)
+
+    rc = off_scrub_native.main(["msi", "OffScrub10.vbs", "/REMOVEVBA", "ALL"])
+    assert rc == 0
+    assert removed
+
+
+def test_return_code_includes_reboot(monkeypatch):
+    inventory = {
+        "c2r": [
+            {"release_ids": ["O365ProPlusRetail"], "product": "Microsoft 365 Apps", "version": "16.0"}
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None)
+
+    # Seed a reboot recommendation
+    off_scrub_native.tasks_services._record_reboot_recommendation("ClickToRunSvc")  # type: ignore[attr-defined]
+
+    rc = off_scrub_native.main(["c2r", "OffScrubC2R.vbs", "ALL"])
+    assert rc & 2 == 2
+
+
 def test_unmapped_flags_logged(monkeypatch, caplog):
     caplog.set_level("INFO")
     inventory = {

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import sys
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +21,7 @@ from . import (
     c2r_uninstall,
     constants,
     detect,
+    elevation,
     logging_ext,
     msi_uninstall,
     fs_tools,
@@ -496,6 +499,8 @@ def _perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool)
             registry_tools.delete_keys(vba_keys, dry_run=dry_run)
         except registry_tools.RegistryError as exc:  # pragma: no cover - defensive
             human_logger.warning("VBA registry cleanup skipped: %s", exc)
+        human_logger.info("Removing VBA filesystem caches requested by legacy flags.")
+        fs_tools.remove_paths(_VBA_PATHS, dry_run=dry_run)
 
 
 @contextmanager
@@ -575,9 +580,11 @@ def main(argv: Sequence[str] | None = None) -> int:
       - ``python -m office_janitor.off_scrub_native msi --product-codes {GUID}``
     """
 
-    args = _parse_args(argv)
+    argv_list = list(argv) if argv is not None else list(sys.argv[1:])
+    args = _parse_args(argv_list)
     human_logger = logging_ext.get_human_logger()
 
+    exit_code = 0
     try:
         if args.command == "c2r":
             legacy = _parse_legacy_arguments("c2r", getattr(args, "legacy_args", []) or [])
@@ -585,6 +592,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 human_logger.warning("Unrecognised legacy arguments: %s", ", ".join(legacy.unknown))
             if legacy.log_directory:
                 human_logger.info("Legacy log directory requested: %s", legacy.log_directory)
+
+            if legacy.flags.get("no_elevate") and elevation.is_admin() and not os.environ.get("OFFICE_JANITOR_DEELEVATED"):
+                human_logger.info("Legacy no-elevate flag set; re-launching OffScrub native as limited user.")
+                result = elevation.run_as_limited_user(
+                    [sys.executable, "-m", "office_janitor.off_scrub_native", *argv_list],
+                    event="off_scrub_deelevate",
+                    env_overrides={"OFFICE_JANITOR_DEELEVATED": "1"},
+                )
+                return result.returncode
 
             inventory = detect.gather_office_inventory()
             if args.release_ids:
@@ -616,13 +632,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                             human_logger.info("Legacy rerun pass %d/%d for Click-to-Run target.", attempt, directives.reruns)
                         uninstall_products(target, dry_run=dry_run, retries=args.retries)
             _perform_optional_cleanup(directives, dry_run=dry_run)
-            return 0
+            exit_code = 0
         elif args.command == "msi":
             legacy = _parse_legacy_arguments("msi", getattr(args, "legacy_args", []) or [])
             if legacy.unknown:
                 human_logger.warning("Unrecognised legacy arguments: %s", ", ".join(legacy.unknown))
             if legacy.log_directory:
                 human_logger.info("Legacy log directory requested: %s", legacy.log_directory)
+
+            if legacy.flags.get("no_elevate") and elevation.is_admin() and not os.environ.get("OFFICE_JANITOR_DEELEVATED"):
+                human_logger.info("Legacy no-elevate flag set; re-launching OffScrub native as limited user.")
+                result = elevation.run_as_limited_user(
+                    [sys.executable, "-m", "office_janitor.off_scrub_native", *argv_list],
+                    event="off_scrub_deelevate",
+                    env_overrides={"OFFICE_JANITOR_DEELEVATED": "1"},
+                )
+                return result.returncode
 
             inventory = detect.gather_office_inventory()
             if args.product_codes:
@@ -657,13 +682,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                         human_logger.info("Legacy rerun pass %d/%d for MSI targets.", attempt, directives.reruns)
                     uninstall_msi_products(products_to_use, dry_run=dry_run, retries=args.retries)
             _perform_optional_cleanup(directives, dry_run=dry_run)
-            return 0
+            exit_code = 0
         else:
             human_logger.info("No command supplied; nothing to do.")
-            return 2
+            exit_code = 2
     except Exception as exc:  # pragma: no cover - propagate to caller
         human_logger.error("OffScrub native operation failed: %s", exc)
-        return 1
+        exit_code = 1
+
+    # Map pending reboot recommendations into a legacy-style return code bitmask.
+    pending_reboots = tasks_services.consume_reboot_recommendations()
+    if pending_reboots:
+        human_logger.info("Reboot recommended for services: %s", ", ".join(pending_reboots))
+        if exit_code == 0:
+            exit_code = 2
+        else:
+            exit_code = exit_code | 2
+
+    return exit_code
 
 
 if __name__ == "__main__":
@@ -674,4 +710,8 @@ _USER_SETTINGS_PATHS = (
     r"%LOCALAPPDATA%\\Microsoft\\Office",
     r"%APPDATA%\\Microsoft\\Templates",
     r"%LOCALAPPDATA%\\Microsoft\\Office\\Templates",
+)
+_VBA_PATHS = (
+    r"%APPDATA%\\Microsoft\\VBA",
+    r"%LOCALAPPDATA%\\Microsoft\\VBA",
 )

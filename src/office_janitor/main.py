@@ -15,7 +15,6 @@ import logging
 import os
 import pathlib
 import platform
-import subprocess
 import sys
 from collections import deque
 from typing import Iterable, List, Mapping, Optional
@@ -71,20 +70,7 @@ def ensure_admin_and_relaunch_if_needed() -> None:
     @brief Request elevation if the current process lacks administrative rights.
     """
 
-    if os.name != "nt":
-        return
-
-    try:
-        shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
-    except Exception:  # pragma: no cover - non-Windows platforms
-        return
-
-    try:
-        is_admin = bool(shell32.IsUserAnAdmin())
-    except Exception:
-        is_admin = False
-
-    if is_admin:
+    if elevation.is_admin():
         return
 
     argv = list(sys.argv)
@@ -98,9 +84,7 @@ def ensure_admin_and_relaunch_if_needed() -> None:
     if executable_path is not None and argv0_path == executable_path:
         argv = argv[1:]
 
-    params = subprocess.list2cmdline(argv)
-    result = shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
-    if int(result) <= 32:
+    if not elevation.relaunch_as_admin(argv):
         raise SystemExit("Failed to request elevation via ShellExecuteW.")
     sys.exit(0)
 
@@ -158,6 +142,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="MS",
         type=int,
         help="Refresh interval for the TUI renderer in milliseconds.",
+    )
+    parser.add_argument(
+        "--limited-user",
+        action="store_true",
+        help="Run detection and uninstall stages under a limited user token when possible.",
     )
     return parser
 
@@ -230,7 +219,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return 0
 
     logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
-    inventory = _run_detection(machine_log, logdir_path)
+    limited_flag = bool(getattr(args, "limited_user", False))
+    inventory = _run_detection(
+        machine_log,
+        logdir_path,
+        limited_user=limited_flag or None,
+    )
     options = _collect_plan_options(args, mode)
     generated_plan = plan_module.build_plan(inventory, options)
     safety.perform_preflight_checks(generated_plan)
@@ -321,7 +315,11 @@ def _build_app_state(
 
     def detector() -> dict:
         logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
-        return _run_detection(machine_log, logdir_path)
+        return _run_detection(
+            machine_log,
+            logdir_path,
+            limited_user=bool(getattr(args, "limited_user", False)),
+        )
 
     def planner(inventory: Mapping[str, object], overrides: Optional[Mapping[str, object]] = None) -> list[dict]:
         mode = _determine_mode(args)
@@ -420,18 +418,27 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
         "timeout": getattr(args, "timeout", None),
         "backup": getattr(args, "backup", None),
         "create_restore_point": not bool(getattr(args, "no_restore_point", False)),
+        "limited_user": bool(getattr(args, "limited_user", False)),
     }
     return options
 
 
 def _run_detection(
-    machine_log: logging.Logger, log_directory: pathlib.Path | str | None = None
+    machine_log: logging.Logger,
+    log_directory: pathlib.Path | str | None = None,
+    *,
+    limited_user: bool | None = None,
 ) -> dict:
     """!
     @brief Execute inventory gathering, persist artifacts, and emit telemetry.
     """
 
-    inventory = detect.gather_office_inventory()
+    if limited_user:
+        machine_log.info("Detection requested under limited user token.")
+    if limited_user:
+        inventory = detect.gather_office_inventory(limited_user=True)
+    else:
+        inventory = detect.gather_office_inventory()
     if log_directory is None:
         logdir_path = _resolve_log_directory(None)
     else:

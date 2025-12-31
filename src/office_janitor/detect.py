@@ -11,11 +11,12 @@ import json
 import logging
 import os
 import shlex
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
-from . import constants, exec_utils, registry_tools
+from . import constants, exec_utils, registry_tools, elevation
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -771,12 +772,33 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
     return installations
 
 
-def gather_office_inventory() -> Dict[str, object]:
+def gather_office_inventory(*, limited_user: bool | None = None) -> Dict[str, object]:
     """!
     @brief Aggregate MSI, C2R, and ancillary signals into an inventory payload.
     """
 
+    run_under_limited = bool(limited_user)
+    human_logger = logging_ext.get_human_logger()
+    if run_under_limited and elevation.is_admin() and not os.environ.get("OFFICE_JANITOR_DEELEVATED"):
+        human_logger.info("Detection requested under limited user context; attempting de-elevated probes.")
+        result = elevation.run_as_limited_user(
+            [sys.executable, "-m", "office_janitor.detect"],
+            event="detect_deelevate",
+            env_overrides={"OFFICE_JANITOR_DEELEVATED": "1"},
+        )
+        if result.returncode == 0 and result.stdout:
+            try:
+                parsed = json.loads(result.stdout)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                human_logger.warning("Failed to parse limited-user detection output; falling back to current context.")
+
     inventory: Dict[str, object] = {
+        "context": {
+            "user": elevation.current_username(),
+            "is_admin": elevation.is_admin(),
+        },
         "msi": [entry.to_dict() for entry in detect_msi_installations()],
         "c2r": [entry.to_dict() for entry in detect_c2r_installations()],
         "filesystem": [],
@@ -848,7 +870,10 @@ def reprobe(options: Mapping[str, object] | None = None) -> Dict[str, object]:
     """
 
     _ = options  # Options are presently unused but reserved for parity.
-    return gather_office_inventory()
+    limited_user = None
+    if isinstance(options, Mapping):
+        limited_user = bool(options.get("limited_user"))
+    return gather_office_inventory(limited_user=limited_user)
 
 
 def _run_command(arguments: Iterable[str]) -> Tuple[int, str]:
@@ -875,6 +900,24 @@ def _run_command(arguments: Iterable[str]) -> Tuple[int, str]:
 
     output = result.stdout or result.stderr or ""
     return result.returncode, output
+
+
+def main() -> int:
+    """!
+    @brief Module entry point returning inventory as JSON to stdout.
+    """
+
+    payload = gather_office_inventory()
+    try:
+        sys.stdout.write(json.dumps(payload, default=str))
+    except Exception:
+        sys.stdout.write("{}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - manual execution
+    raise SystemExit(main())
 
 
 def gather_running_office_processes() -> List[Dict[str, str]]:

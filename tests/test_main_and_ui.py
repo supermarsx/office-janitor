@@ -122,6 +122,32 @@ def test_main_requires_confirmation_before_execution(monkeypatch, tmp_path) -> N
     assert scrub_calls == []
 
 
+def test_limited_user_flag_passes_to_detection(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Limited-user flag should request de-elevated detection.
+    """
+
+    monkeypatch.setattr(main, "ensure_admin_and_relaunch_if_needed", _no_op)
+    monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
+    monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
+
+    captured = {}
+
+    def fake_gather(*, limited_user=None):
+        captured["limited_user"] = limited_user
+        return {"msi": [], "c2r": [], "filesystem": [], "registry": []}
+
+    monkeypatch.setattr(main.detect, "gather_office_inventory", fake_gather)
+    monkeypatch.setattr(main.plan_module, "build_plan", lambda inv, opts: [])
+    monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
+    monkeypatch.setattr(main.confirm, "request_scrub_confirmation", lambda **kwargs: False)
+
+    exit_code = main.main(["--auto-all", "--limited-user", "--dry-run", "--logdir", str(tmp_path / "logs")])
+
+    assert exit_code == 0
+    assert captured.get("limited_user") is True
+
+
 def test_main_diagnose_skips_execution(monkeypatch, tmp_path) -> None:
     """!
     @brief Diagnostics mode must avoid executing the scrubber.

@@ -37,6 +37,8 @@ FILESYSTEM_WHITELIST: tuple[str, ...] = (
     r"%LOCALAPPDATA%\\MICROSOFT\\OFFICE\\LICENSES",
     r"%LOCALAPPDATA%\\MICROSOFT\\IDENTITYCACHE",
     r"%LOCALAPPDATA%\\MICROSOFT\\ONEAUTH",
+    r"%APPDATA%\\MICROSOFT\\VBA",
+    r"%LOCALAPPDATA%\\MICROSOFT\\VBA",
 )
 """!
 @brief Default filesystem whitelist mirroring OffScrub guardrails.

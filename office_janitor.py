@@ -49,3 +49,19 @@ def main() -> int:
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation
     sys.exit(main())
+
+# Delegate key attributes to the real package module so importing this shim
+# behaves like importing ``office_janitor.main`` (for tests/tooling that import
+# the shim path first).
+try:
+    import importlib
+
+    _prepend_src_to_sys_path()
+    _package_main = importlib.import_module("office_janitor.main")
+    ensure_admin_and_relaunch_if_needed = getattr(_package_main, "ensure_admin_and_relaunch_if_needed", None)
+    enable_vt_mode_if_possible = getattr(_package_main, "enable_vt_mode_if_possible", None)
+    build_arg_parser = getattr(_package_main, "build_arg_parser", None)
+    _determine_mode = getattr(_package_main, "_determine_mode", None)
+    _collect_plan_options = getattr(_package_main, "_collect_plan_options", None)
+except Exception:  # pragma: no cover - best-effort delegation
+    _package_main = None

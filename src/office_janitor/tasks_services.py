@@ -129,6 +129,16 @@ def consume_reboot_recommendations() -> List[str]:
     return services
 
 
+def get_reboot_recommendations() -> List[str]:
+    """!
+    @brief Return any recorded reboot recommendations without clearing them.
+    """
+
+    if not _PENDING_REBOOT_SERVICES:
+        return []
+    return sorted(_PENDING_REBOOT_SERVICES)
+
+
 def reboot_recommendations_suppressed() -> bool:
     """!
     @brief Return whether reboot recommendation recording is currently suppressed.
