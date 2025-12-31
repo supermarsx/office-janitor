@@ -189,7 +189,9 @@ def build_plan(
     cleanup_dependencies: List[str] = uninstall_steps or [detect_step_id]
     licensing_step_id = ""
 
-    if (not diagnose_mode) and not normalized_options.get("no_license", False):
+    if (not diagnose_mode) and not (
+        normalized_options.get("no_license", False) or normalized_options.get("keep_license", False)
+    ):
         licensing_step_id = f"licensing-{pass_index}-0"
         plan.append(
             {

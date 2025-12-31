@@ -636,3 +636,15 @@ class TestPlanBuilder:
             if step["category"] in {"msi-uninstall", "service-cleanup"}:
                 assert metadata["dry_run"] is True
 
+    def test_keep_license_option_skips_licensing_cleanup(self) -> None:
+        """!
+        @brief Licensing cleanup is omitted when keep_license/no_license is set.
+        """
+
+        inventory: Dict[str, List[dict]] = {"msi": [], "c2r": [], "filesystem": [], "registry": []}
+        options = {"auto_all": True, "keep_license": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = {step["category"] for step in plan_steps}
+        assert "licensing-cleanup" not in categories
+

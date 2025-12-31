@@ -232,6 +232,31 @@ def test_clear_addin_registry_calls_delete(monkeypatch):
     assert deleted
 
 
+def test_remove_vba_registry(monkeypatch):
+    inventory = {
+        "msi": [
+            {
+                "product_code": "{AAA11111-2222-3333-4444-555555555555}",
+                "version": "14.0.1234",
+                "properties": {"supported_versions": ["2010"]},
+            }
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native, "uninstall_msi_products", lambda products, dry_run=False, retries=None: None)
+
+    deleted = []
+
+    def fake_delete_keys(keys, dry_run=False, logger=None):
+        deleted.extend(keys)
+
+    monkeypatch.setattr(off_scrub_native.registry_tools, "delete_keys", fake_delete_keys)
+
+    rc = off_scrub_native.main(["msi", "OffScrub10.vbs", "/REMOVEVBA", "ALL"])
+    assert rc == 0
+    assert deleted
+
+
 def test_unmapped_flags_logged(monkeypatch, caplog):
     caplog.set_level("INFO")
     inventory = {

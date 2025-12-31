@@ -141,6 +141,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Simulate actions without modifying the system.")
     parser.add_argument("--no-restore-point", action="store_true", help="Skip creating a restore point.")
     parser.add_argument("--no-license", action="store_true", help="Skip license cleanup steps.")
+    parser.add_argument("--keep-license", action="store_true", help="Preserve Office licenses (alias of --no-license).")
     parser.add_argument("--keep-templates", action="store_true", help="Preserve user templates like normal.dotm.")
     parser.add_argument("--plan", metavar="OUT", help="Write the computed action plan to a JSON file.")
     parser.add_argument("--logdir", metavar="DIR", help="Directory for human/JSONL log output.")
@@ -412,7 +413,8 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
         "allow_unsupported_windows": bool(
             getattr(args, "allow_unsupported_windows", False)
         ),
-        "no_license": bool(getattr(args, "no_license", False)),
+        "no_license": bool(getattr(args, "no_license", False) or getattr(args, "keep_license", False)),
+        "keep_license": bool(getattr(args, "keep_license", False)),
         "keep_templates": bool(getattr(args, "keep_templates", False)),
         "timeout": getattr(args, "timeout", None),
         "backup": getattr(args, "backup", None),

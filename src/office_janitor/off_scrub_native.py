@@ -482,7 +482,20 @@ def _perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool)
             human_logger.warning("Add-in registry cleanup skipped: %s", exc)
 
     if directives.remove_vba:
-        human_logger.info("Legacy /REMOVEVBA flag set; VBA-specific cleanup not implemented in native flow.")
+        human_logger.info("Removing VBA registry keys requested by legacy flags.")
+        vba_keys = []
+        for version in _ADDIN_VERSION_KEYS:
+            vba_keys.extend(
+                [
+                    f"HKCU\\Software\\Microsoft\\Office\\{version}\\VBA",
+                    f"HKLM\\SOFTWARE\\Microsoft\\Office\\{version}\\VBA",
+                    f"HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Office\\{version}\\VBA",
+                ]
+            )
+        try:
+            registry_tools.delete_keys(vba_keys, dry_run=dry_run)
+        except registry_tools.RegistryError as exc:  # pragma: no cover - defensive
+            human_logger.warning("VBA registry cleanup skipped: %s", exc)
 
 
 @contextmanager
