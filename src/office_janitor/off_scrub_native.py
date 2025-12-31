@@ -11,81 +11,27 @@ import argparse
 import logging
 import os
 import sys
-import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping, Sequence, List
 from contextlib import contextmanager
 
 from . import (
     c2r_uninstall,
-    constants,
     detect,
     elevation,
     logging_ext,
     msi_uninstall,
-    fs_tools,
-    registry_tools,
     tasks_services,
 )
-
-
-_GUID_PATTERN = re.compile(
-    r"{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}}?"
+from .off_scrub_helpers import (
+    ExecutionDirectives,
+    LegacyInvocation,
+    derive_execution_directives as _derive_execution_directives,
+    parse_legacy_arguments as _parse_legacy_arguments,
+    perform_optional_cleanup as _perform_optional_cleanup,
+    select_c2r_targets as _select_c2r_targets,
+    select_msi_targets as _select_msi_targets,
 )
-_MSI_MAJOR_VERSION_MAP = {
-    "11": "2003",
-    "12": "2007",
-    "14": "2010",
-    "15": "2013",
-    "16": "2016",
-}
-_SCRIPT_VERSION_HINTS = {
-    "offscrub03.vbs": "2003",
-    "offscrub07.vbs": "2007",
-    "offscrub10.vbs": "2010",
-    "offscrub_o15msi.vbs": "2013",
-    "offscrub_o16msi.vbs": "2016",
-    "offscrubc2r.vbs": "c2r",
-}
-_HIVE_NAMES = {value: key for key, value in constants.REGISTRY_ROOTS.items()}
-
-
-@dataclass
-class LegacyInvocation:
-    """!
-    @brief Parsed legacy OffScrub invocation details.
-    @details Captures the script path, implied version group, and recognised
-    legacy flags so the native implementation can reproduce VBS semantics.
-    """
-
-    script_path: Path | None
-    version_group: str | None
-    product_codes: List[str]
-    release_ids: List[str]
-    flags: MutableMapping[str, object]
-    unknown: List[str]
-    log_directory: Path | None = None
-
-
-@dataclass
-class ExecutionDirectives:
-    """!
-    @brief Normalised behaviours derived from legacy flags.
-    @details Records how many reruns to perform and which optional behaviours
-    should be toggled for compatibility (e.g. skipping shortcut detection).
-    """
-
-    reruns: int = 1
-    keep_license: bool = False
-    skip_shortcut_detection: bool = False
-    offline: bool = False
-    quiet: bool = False
-    no_reboot: bool = False
-    delete_user_settings: bool = False
-    keep_user_settings: bool = False
-    clear_addin_registry: bool = False
-    remove_vba: bool = False
 
 
 def uninstall_products(config: Mapping[str, object], *, dry_run: bool = False, retries: int | None = None) -> None:
@@ -349,6 +295,7 @@ def _derive_execution_directives(legacy: LegacyInvocation, *, dry_run: bool) -> 
         keep_user_settings=bool(legacy.flags.get("keep_user_settings")),
         clear_addin_registry=bool(legacy.flags.get("clear_addin_registry")),
         remove_vba=bool(legacy.flags.get("remove_vba")),
+        return_error_or_success=bool(legacy.flags.get("return_error_or_success")),
     )
 
 
@@ -605,6 +552,8 @@ def _log_flag_effects(
         human_logger.info("Legacy clear add-in registry flag set; add-in registry cleanup would be executed where applicable.")
     if directives.remove_vba:
         human_logger.info("Legacy remove VBA flag set; VBA-only package cleanup would be executed where applicable.")
+    if directives.return_error_or_success:
+        human_logger.info("Legacy ReturnErrorOrSuccess flag set; exit code will be reduced to success unless a reboot bit is present.")
 
     handled = {
         "all",
@@ -619,6 +568,7 @@ def _log_flag_effects(
         "keep_user_settings",
         "clear_addin_registry",
         "remove_vba",
+        "return_error_or_success",
     }
     unmapped = sorted(
         flag for flag, enabled in legacy.flags.items() if enabled and flag not in handled
@@ -638,8 +588,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     argv_list = list(argv) if argv is not None else list(sys.argv[1:])
     args = _parse_args(argv_list)
     human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
 
     exit_code = 0
+    return_success_on_error = False
     try:
         if args.command == "c2r":
             legacy = _parse_legacy_arguments("c2r", getattr(args, "legacy_args", []) or [])
@@ -668,9 +620,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             dry_run = bool(args.dry_run or legacy.flags.get("detect_only"))
             directives = _derive_execution_directives(legacy, dry_run=dry_run)
+            return_success_on_error = directives.return_error_or_success
 
             with _quiet_logging(directives.quiet, human_logger), tasks_services.suppress_reboot_recommendations(directives.no_reboot):
                 _log_flag_effects(legacy, directives, human_logger)
+                machine_logger.info("stage0_detection", extra={"event": "stage0_detection", "command": "c2r"})
                 for target in targets:
                     if args.display_name and isinstance(target, MutableMapping):
                         merged = dict(target)
@@ -685,6 +639,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for attempt in range(1, directives.reruns + 1):
                     if directives.reruns > 1:
                         human_logger.info("Legacy rerun pass %d/%d for Click-to-Run target.", attempt, directives.reruns)
+                    machine_logger.info(
+                        "stage1_uninstall",
+                        extra={
+                            "event": "stage1_uninstall",
+                            "command": "c2r",
+                            "attempt": attempt,
+                            "attempts": directives.reruns,
+                        },
+                    )
                     uninstall_products(target, dry_run=dry_run, retries=args.retries)
             with _quiet_logging(directives.quiet, human_logger):
                 _perform_optional_cleanup(directives, dry_run=dry_run, kind="c2r")
@@ -716,8 +679,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             dry_run = bool(args.dry_run or legacy.flags.get("detect_only"))
             directives = _derive_execution_directives(legacy, dry_run=dry_run)
+            return_success_on_error = directives.return_error_or_success
             with _quiet_logging(directives.quiet, human_logger), tasks_services.suppress_reboot_recommendations(directives.no_reboot):
                 _log_flag_effects(legacy, directives, human_logger)
+                machine_logger.info("stage0_detection", extra={"event": "stage0_detection", "command": "msi"})
                 products_to_use: List[Mapping[str, object]] = []
                 for entry in selected_products:
                     if not isinstance(entry, MutableMapping):
@@ -736,6 +701,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for attempt in range(1, directives.reruns + 1):
                     if directives.reruns > 1:
                         human_logger.info("Legacy rerun pass %d/%d for MSI targets.", attempt, directives.reruns)
+                    machine_logger.info(
+                        "stage1_uninstall",
+                        extra={
+                            "event": "stage1_uninstall",
+                            "command": "msi",
+                            "attempt": attempt,
+                            "attempts": directives.reruns,
+                        },
+                    )
                     uninstall_msi_products(products_to_use, dry_run=dry_run, retries=args.retries)
             with _quiet_logging(directives.quiet, human_logger):
                 _perform_optional_cleanup(directives, dry_run=dry_run, kind="msi")
@@ -746,6 +720,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:  # pragma: no cover - propagate to caller
         human_logger.error("OffScrub native operation failed: %s", exc)
         exit_code = 1
+
+    if return_success_on_error and exit_code not in (0, 2):
+        exit_code = 2 if exit_code & 2 else 0
 
     # Map pending reboot recommendations into a legacy-style return code bitmask.
     pending_reboots = tasks_services.consume_reboot_recommendations()
