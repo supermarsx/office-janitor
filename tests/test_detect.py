@@ -22,6 +22,14 @@ if str(SRC_PATH) not in sys.path:
 from office_janitor import constants, detect, main, registry_tools
 
 
+@pytest.fixture(autouse=True)
+def stub_expensive_probes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent slow WMI/PowerShell probes from running during unit tests."""
+
+    monkeypatch.setattr(detect, "_probe_msi_wmi", lambda: {})
+    monkeypatch.setattr(detect, "_probe_msi_powershell", lambda: {})
+
+
 @pytest.fixture
 def msi_registry_layout(monkeypatch: pytest.MonkeyPatch) -> None:
     """!
@@ -187,9 +195,9 @@ class TestRegistryDetectionScenarios:
         monkeypatch.setenv("APPDATA", r"C:\\Users\\Default\\AppData\\Roaming")
 
         valid_paths = {
-            constants.INSTALL_ROOT_TEMPLATES[0]["path"],
-            constants.INSTALL_ROOT_TEMPLATES[2]["path"],
-            *(os.path.expandvars(template["path"]) for template in constants.RESIDUE_PATH_TEMPLATES),
+            str(Path(constants.INSTALL_ROOT_TEMPLATES[0]["path"])),
+            str(Path(constants.INSTALL_ROOT_TEMPLATES[2]["path"])),
+            *(str(Path(os.path.expandvars(template["path"]))) for template in constants.RESIDUE_PATH_TEMPLATES),
         }
 
         def fake_exists(self: Path) -> bool:  # type: ignore[override]

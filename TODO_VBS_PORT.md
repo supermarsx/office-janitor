@@ -21,7 +21,7 @@
 - [ ] **OffScrubC2R.vbs**
   - Capture switches `/DETECTONLY|/PREVIEW`, `/OFFLINE|/FORCEOFFLINE`, `/NOREBOOT`, `/QUIET|/PASSIVE`, `/RETERRORORSUCCESS`, `/KL|/KEEPLICENSE`, `/LOG`, `/SKIPSD`, `/FORCEARPUNINSTALL`, `/TESTRERUN`.
   - Map uninstall flows to `c2r_uninstall.uninstall_products`, adding forced ARP uninstall fallback and rerun/backoff semantics; ensure service/task cleanup aligns with `tasks_services` helpers.
-  - [x] Port Click-to-Run scheduled task cleanup into data-driven cleanup steps; COM cache/registry cleanup still pending.
+  - [x] Port Click-to-Run scheduled task cleanup into data-driven cleanup steps; COM compatibility/registry residue cleanup added; ClickToRun cache directories now removed. (COM cache purge still pending.)
 - [ ] **OffScrub_O16msi.vbs / OffScrub_O15msi.vbs**
   - Handle MSI options `/OSE`, `/ENDCURRENTINSTALLS`, `/DELETEUSERSETTINGS`, `/CLEARADDINREG`, `/REMOVELYNC`, `/KEEPUSERSETTINGS`, `/FASTREMOVE`, `/BYPASS`, `/SCANCOMPONENTS`, `/REMOVEOSPP`, `/NOREBOOT`, `/QUIET|/PASSIVE`.
   - Align product selection with `constants.MSI_UNINSTALL_VERSION_GROUPS` so 2016/2019/2021/2024 resolve to the same stage; reuse detection metadata to populate uninstall handles and setup.exe fallbacks.

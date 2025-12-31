@@ -258,6 +258,21 @@ RESIDUE_PATH_TEMPLATES = (
         "path": r"%LOCALAPPDATA%\\Microsoft\\OneAuth",
         "category": "identity",
     },
+    {
+        "label": "programdata_clicktorun",
+        "path": r"%PROGRAMDATA%\\Microsoft\\ClickToRun",
+        "category": "c2r_cache",
+    },
+    {
+        "label": "programfiles_clicktorun_x86",
+        "path": r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\ClickToRun",
+        "category": "c2r_cache",
+    },
+    {
+        "label": "programfiles_clicktorun_x64",
+        "path": r"C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun",
+        "category": "c2r_cache",
+    },
 )
 """!
 @brief Filesystem residue directories removed by the reference scripts.

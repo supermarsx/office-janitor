@@ -48,6 +48,7 @@ _SCRIPT_VERSION_HINTS = {
     "offscrub_o16msi.vbs": "2016",
     "offscrubc2r.vbs": "c2r",
 }
+_HIVE_NAMES = {value: key for key, value in constants.REGISTRY_ROOTS.items()}
 
 
 @dataclass
@@ -457,6 +458,24 @@ def _select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, An
     return targets
 
 
+def _format_registry_keys(entries: Iterable[object]) -> List[str]:
+    """!
+    @brief Convert registry entry tuples or strings into canonical ``HK**\\path`` text.
+    """
+
+    formatted: List[str] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            formatted.append(entry)
+            continue
+        if isinstance(entry, tuple) and len(entry) == 2:
+            hive, path = entry
+            name = _HIVE_NAMES.get(hive)
+            if name:
+                formatted.append(f"{name}\\{str(path).strip('\\\\')}")
+    return formatted
+
+
 def _perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool, kind: str | None = None) -> None:
     """!
     @brief Execute optional cleanup implied by legacy flags.
@@ -468,12 +487,37 @@ def _perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool,
     if kind == "c2r":
         human_logger.info("Removing Click-to-Run scheduled tasks referenced by legacy scripts.")
         tasks_services.delete_tasks(constants.C2R_CLEANUP_TASKS, dry_run=dry_run)
+        human_logger.info("Cleaning Click-to-Run COM compatibility registry keys.")
+        com_keys = _format_registry_keys(constants.C2R_COM_REGISTRY_PATHS)
+        try:
+            registry_tools.delete_keys(com_keys, dry_run=dry_run)
+        except registry_tools.RegistryError as exc:  # pragma: no cover - defensive
+            human_logger.warning("Click-to-Run COM registry cleanup skipped: %s", exc)
+        if directives.keep_license:
+            human_logger.info("Skipping Click-to-Run cache cleanup because keep-license was requested.")
+        else:
+            c2r_residue = [
+                str(Path(os.path.expandvars(entry["path"])))
+                for entry in constants.RESIDUE_PATH_TEMPLATES
+                if entry.get("category") == "c2r_cache"
+            ]
+            if c2r_residue:
+                human_logger.info("Removing Click-to-Run cache directories referenced by legacy scripts.")
+                fs_tools.remove_paths(c2r_residue, dry_run=dry_run)
 
     if not directives.skip_shortcut_detection:
         human_logger.info("Removing legacy Office shortcuts from known Start Menu roots.")
         fs_tools.remove_paths(_SHORTCUT_PATHS, dry_run=dry_run)
     else:
         human_logger.info("Skipping shortcut cleanup per legacy SkipSD flag.")
+
+    residue_keys = _format_registry_keys(constants.REGISTRY_RESIDUE_PATHS)
+    if residue_keys:
+        human_logger.info("Removing legacy Office registry residue keys.")
+        try:
+            registry_tools.delete_keys(residue_keys, dry_run=dry_run)
+        except registry_tools.RegistryError as exc:  # pragma: no cover - defensive
+            human_logger.warning("Registry residue cleanup skipped: %s", exc)
 
     if directives.delete_user_settings and not directives.keep_user_settings:
         human_logger.info("Deleting user settings directories requested by legacy flags.")
@@ -638,11 +682,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if directives.keep_license and isinstance(target, MutableMapping):
                         target = dict(target)
                         target["keep_license"] = True
-                    for attempt in range(1, directives.reruns + 1):
-                        if directives.reruns > 1:
-                            human_logger.info("Legacy rerun pass %d/%d for Click-to-Run target.", attempt, directives.reruns)
-                        uninstall_products(target, dry_run=dry_run, retries=args.retries)
-            _perform_optional_cleanup(directives, dry_run=dry_run, kind="c2r")
+                for attempt in range(1, directives.reruns + 1):
+                    if directives.reruns > 1:
+                        human_logger.info("Legacy rerun pass %d/%d for Click-to-Run target.", attempt, directives.reruns)
+                    uninstall_products(target, dry_run=dry_run, retries=args.retries)
+            with _quiet_logging(directives.quiet, human_logger):
+                _perform_optional_cleanup(directives, dry_run=dry_run, kind="c2r")
             exit_code = 0
         elif args.command == "msi":
             legacy = _parse_legacy_arguments("msi", getattr(args, "legacy_args", []) or [])
@@ -692,7 +737,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if directives.reruns > 1:
                         human_logger.info("Legacy rerun pass %d/%d for MSI targets.", attempt, directives.reruns)
                     uninstall_msi_products(products_to_use, dry_run=dry_run, retries=args.retries)
-            _perform_optional_cleanup(directives, dry_run=dry_run, kind="msi")
+            with _quiet_logging(directives.quiet, human_logger):
+                _perform_optional_cleanup(directives, dry_run=dry_run, kind="msi")
             exit_code = 0
         else:
             human_logger.info("No command supplied; nothing to do.")

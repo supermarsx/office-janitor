@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
-from . import constants, exec_utils, registry_tools, elevation
+from . import constants, exec_utils, registry_tools, elevation, logging_ext
 
 
 _LOGGER = logging.getLogger(__name__)

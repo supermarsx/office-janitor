@@ -326,6 +326,23 @@ def test_c2r_uninstall_prefers_client(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(c2r_uninstall, "_install_paths_present", lambda target: state["present"])
     monkeypatch.setattr(c2r_uninstall.time, "sleep", lambda *_: None)
 
+    def fake_find_existing_path(candidates):
+        for candidate in candidates:
+            try:
+                if candidate.name.lower() == "officec2rclient.exe" and candidate.exists():
+                    return candidate
+            except OSError:
+                continue
+        for candidate in candidates:
+            try:
+                if candidate.name.lower() == "setup.exe" and candidate.exists():
+                    return candidate
+            except OSError:
+                continue
+        return None
+
+    monkeypatch.setattr(c2r_uninstall, "_find_existing_path", fake_find_existing_path)
+
     client_path = tmp_path / "OfficeC2RClient.exe"
     client_path.write_text("")
 
@@ -376,6 +393,17 @@ def test_c2r_uninstall_fallback_to_setup(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(c2r_uninstall, "_handles_present", lambda target: state["present"])
     monkeypatch.setattr(c2r_uninstall, "_install_paths_present", lambda target: state["present"])
     monkeypatch.setattr(c2r_uninstall.time, "sleep", lambda *_: None)
+
+    def fake_find_existing_path(candidates):
+        for candidate in candidates:
+            try:
+                if candidate.name.lower() == "setup.exe" and candidate.exists():
+                    return candidate
+            except OSError:
+                continue
+        return None
+
+    monkeypatch.setattr(c2r_uninstall, "_find_existing_path", fake_find_existing_path)
 
     setup_path = tmp_path / "setup.exe"
     setup_path.write_text("")

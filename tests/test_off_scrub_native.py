@@ -13,6 +13,7 @@ def stub_cleanup_tools(monkeypatch):
 
     monkeypatch.setattr(off_scrub_native.fs_tools, "remove_paths", lambda paths, dry_run=False: None)
     monkeypatch.setattr(off_scrub_native.tasks_services, "delete_tasks", lambda task_names, dry_run=False: None)
+    monkeypatch.setattr(off_scrub_native.registry_tools, "delete_keys", lambda keys, dry_run=False, logger=None: None)
 
 
 def test_parse_legacy_arguments_msi_flags(tmp_path):
@@ -131,6 +132,53 @@ def test_offline_flag_carried_into_c2r_invocation(monkeypatch):
     assert rc == 0
     assert captured
     assert captured[0].get("offline") is True
+
+
+def test_c2r_registry_cleanup_invoked(monkeypatch):
+    inventory = {
+        "c2r": [
+            {"release_ids": ["O365ProPlusRetail"], "product": "Microsoft 365 Apps", "version": "16.0"}
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None)
+
+    deleted: list[str] = []
+    monkeypatch.setattr(
+        off_scrub_native.registry_tools,
+        "delete_keys",
+        lambda keys, dry_run=False, logger=None: deleted.extend(keys),
+    )
+
+    rc = off_scrub_native.main(["c2r", "OffScrubC2R.vbs", "ALL"])
+    assert rc == 0
+    assert any("ClickToRun" in key for key in deleted)
+    assert any("Office\\16.0" in key or "Office\\11.0" in key for key in deleted)
+
+
+def test_c2r_cache_cleanup_respects_keep_license(monkeypatch):
+    inventory = {
+        "c2r": [
+            {"release_ids": ["O365ProPlusRetail"], "product": "Microsoft 365 Apps", "version": "16.0"}
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None)
+
+    removed: list[str] = []
+    monkeypatch.setattr(
+        off_scrub_native.fs_tools, "remove_paths", lambda paths, dry_run=False: removed.extend(paths)
+    )
+
+    rc = off_scrub_native.main(["c2r", "OffScrubC2R.vbs", "/KL", "ALL"])
+    assert rc == 0
+    assert not any("ClickToRun" in path for path in removed)
+
+    removed.clear()
+    rc = off_scrub_native.main(["c2r", "OffScrubC2R.vbs", "ALL"])
+    assert rc == 0
+    clicktorun_paths = [path for path in removed if "ClickToRun" in path]
+    assert clicktorun_paths
 
 
 def test_c2r_task_cleanup_invoked(monkeypatch):
