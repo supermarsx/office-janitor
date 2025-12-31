@@ -24,6 +24,7 @@ from . import (
     constants,
     confirm,
     detect,
+    elevation,
     exec_utils,
     fs_tools,
     logging_ext,
