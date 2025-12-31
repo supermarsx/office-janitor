@@ -521,9 +521,10 @@ def reset_acl(path: Path) -> None:
 
     human_logger = logging_ext.get_human_logger()
 
+    path_text = path.as_posix()
     command = [
         "icacls",
-        str(path),
+        path_text,
         "/reset",
         "/t",
         "/c",
@@ -533,18 +534,18 @@ def reset_acl(path: Path) -> None:
         command,
         event="fs_reset_acl",
         timeout=120,
-        extra={"path": str(path)},
+        extra={"path": path_text},
     )
 
     if result.returncode == 127:
-        human_logger.debug("icacls is not available; skipping ACL reset for %s", path)
+        human_logger.debug("icacls is not available; skipping ACL reset for %s", path_text)
         return
 
     if result.returncode != 0 or result.error:
         human_logger.warning(
             "icacls reported exit code %s for %s: %s",
             result.returncode,
-            path,
+            path_text,
             result.stderr.strip(),
         )
 

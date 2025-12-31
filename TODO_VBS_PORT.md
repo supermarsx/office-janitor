@@ -21,11 +21,11 @@
 - [ ] **OffScrubC2R.vbs**
   - Capture switches `/DETECTONLY|/PREVIEW`, `/OFFLINE|/FORCEOFFLINE`, `/NOREBOOT`, `/QUIET|/PASSIVE`, `/RETERRORORSUCCESS`, `/KL|/KEEPLICENSE`, `/LOG`, `/SKIPSD`, `/FORCEARPUNINSTALL`, `/TESTRERUN`.
   - Map uninstall flows to `c2r_uninstall.uninstall_products`, adding forced ARP uninstall fallback and rerun/backoff semantics; ensure service/task cleanup aligns with `tasks_services` helpers.
-  - Port Click-to-Run residue cleanup (scheduled tasks like `Office Background Streaming`, COM cache removal, ClickToRun registry cleanup) into data-driven cleanup steps.
+  - [x] Port Click-to-Run scheduled task cleanup into data-driven cleanup steps; COM cache/registry cleanup still pending.
 - [ ] **OffScrub_O16msi.vbs / OffScrub_O15msi.vbs**
   - Handle MSI options `/OSE`, `/ENDCURRENTINSTALLS`, `/DELETEUSERSETTINGS`, `/CLEARADDINREG`, `/REMOVELYNC`, `/KEEPUSERSETTINGS`, `/FASTREMOVE`, `/BYPASS`, `/SCANCOMPONENTS`, `/REMOVEOSPP`, `/NOREBOOT`, `/QUIET|/PASSIVE`.
   - Align product selection with `constants.MSI_UNINSTALL_VERSION_GROUPS` so 2016/2019/2021/2024 resolve to the same stage; reuse detection metadata to populate uninstall handles and setup.exe fallbacks.
-  - Port user-profile cleanup (shortcuts pending) plus add-in registry and VBA cleanup into `fs_tools`/`registry_tools` with dry-run support.
+  - Port user-profile cleanup (basic Start Menu shortcut purges added; full detection/unpinning still pending) plus add-in registry and VBA cleanup into `fs_tools`/`registry_tools` with dry-run support.
 - [ ] **OffScrub10.vbs / OffScrub07.vbs / OffScrub03.vbs**
   - Mirror legacy flags listed above (minus OSPP handling) and ensure detection filters target the correct major versions (11->2003, 12->2007, 14->2010).
   - Port legacy task/service cleanup (OSE, Groove/OneDrive, VC runtime prompts) into structured cleanup steps shared with newer scripts.

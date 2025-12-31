@@ -7,6 +7,14 @@ from office_janitor import off_scrub_native, logging_ext, tasks_services
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def stub_cleanup_tools(monkeypatch):
+    """Prevent tests from touching host filesystem or scheduled tasks."""
+
+    monkeypatch.setattr(off_scrub_native.fs_tools, "remove_paths", lambda paths, dry_run=False: None)
+    monkeypatch.setattr(off_scrub_native.tasks_services, "delete_tasks", lambda task_names, dry_run=False: None)
+
+
 def test_parse_legacy_arguments_msi_flags(tmp_path):
     invocation = off_scrub_native._parse_legacy_arguments(
         "msi",
@@ -125,6 +133,28 @@ def test_offline_flag_carried_into_c2r_invocation(monkeypatch):
     assert captured[0].get("offline") is True
 
 
+def test_c2r_task_cleanup_invoked(monkeypatch):
+    inventory = {
+        "c2r": [
+            {"release_ids": ["O365ProPlusRetail"], "product": "Microsoft 365 Apps", "version": "16.0"}
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None)
+
+    deleted_tasks: list[str] = []
+    monkeypatch.setattr(
+        off_scrub_native.tasks_services,
+        "delete_tasks",
+        lambda task_names, dry_run=False: deleted_tasks.extend(task_names),
+    )
+    monkeypatch.setattr(off_scrub_native.fs_tools, "remove_paths", lambda paths, dry_run=False: None)
+
+    rc = off_scrub_native.main(["c2r", "OffScrubC2R.vbs", "ALL"])
+    assert rc == 0
+    assert deleted_tasks == list(off_scrub_native.constants.C2R_CLEANUP_TASKS)
+
+
 def test_quiet_suppresses_info_logging(monkeypatch, caplog):
     inventory = {
         "c2r": [
@@ -184,6 +214,29 @@ def test_user_settings_flags_forwarded(monkeypatch):
     assert rc == 0
     assert captured
     assert captured[0][0].get("delete_user_settings") is True
+
+
+def test_shortcut_cleanup_respects_skip_flag(monkeypatch):
+    inventory = {
+        "msi": [
+            {
+                "product_code": "{AAA11111-2222-3333-4444-555555555555}",
+                "version": "14.0.1234",
+                "properties": {"supported_versions": ["2010"]},
+            }
+        ]
+    }
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native, "uninstall_msi_products", lambda products, dry_run=False, retries=None: None)
+
+    removed_shortcuts: list[str] = []
+    monkeypatch.setattr(
+        off_scrub_native.fs_tools, "remove_paths", lambda paths, dry_run=False: removed_shortcuts.extend(paths)
+    )
+
+    rc = off_scrub_native.main(["msi", "OffScrub10.vbs", "/SKIPSD", "ALL"])
+    assert rc == 0
+    assert removed_shortcuts == []
 
 
 def test_user_settings_cleanup_executed(monkeypatch):

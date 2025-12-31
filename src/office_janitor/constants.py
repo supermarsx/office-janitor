@@ -847,6 +847,25 @@ KNOWN_SCHEDULED_TASKS = (
     r"Microsoft\\Office\\OfficeBackgroundTaskHandlerRegistration",
 )
 
+C2R_CLEANUP_TASKS = (
+    "FF_INTEGRATEDstreamSchedule",
+    "FF_INTEGRATEDUPDATEDETECTION",
+    "C2RAppVLoggingStart",
+    "Office 15 Subscription Heartbeat",
+    "Microsoft Office 15 Sync Maintenance for {d068b555-9700-40b8-992c-f866287b06c1}",
+    r"\Microsoft\Office\OfficeInventoryAgentFallBack",
+    r"\Microsoft\Office\OfficeTelemetryAgentFallBack",
+    r"\Microsoft\Office\OfficeInventoryAgentLogOn",
+    r"\Microsoft\Office\OfficeTelemetryAgentLogOn",
+    "Office Background Streaming",
+    r"\Microsoft\Office\Office Automatic Updates",
+    r"\Microsoft\Office\Office ClickToRun Service Monitor",
+    "Office Subscription Maintenance",
+)
+"""!
+@brief Scheduled tasks removed by legacy OffScrubC2R flows.
+"""
+
 KNOWN_SERVICES = (
     "ClickToRunSvc",
     "OfficeSvc",
@@ -919,6 +938,7 @@ INSTALL_ROOT_TEMPLATES = (
 
 __all__ = [
     "C2R_CHANNEL_ALIASES",
+    "C2R_CLEANUP_TASKS",
     "C2R_COM_REGISTRY_PATHS",
     "C2R_CONFIGURATION_KEYS",
     "C2R_OFFSCRUB_ARGS",

@@ -457,12 +457,23 @@ def _select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, An
     return targets
 
 
-def _perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool) -> None:
+def _perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool, kind: str | None = None) -> None:
     """!
     @brief Execute optional cleanup implied by legacy flags.
+    @param kind Optional legacy command identifier (``c2r`` or ``msi``) used to scope cleanup.
     """
 
     human_logger = logging_ext.get_human_logger()
+
+    if kind == "c2r":
+        human_logger.info("Removing Click-to-Run scheduled tasks referenced by legacy scripts.")
+        tasks_services.delete_tasks(constants.C2R_CLEANUP_TASKS, dry_run=dry_run)
+
+    if not directives.skip_shortcut_detection:
+        human_logger.info("Removing legacy Office shortcuts from known Start Menu roots.")
+        fs_tools.remove_paths(_SHORTCUT_PATHS, dry_run=dry_run)
+    else:
+        human_logger.info("Skipping shortcut cleanup per legacy SkipSD flag.")
 
     if directives.delete_user_settings and not directives.keep_user_settings:
         human_logger.info("Deleting user settings directories requested by legacy flags.")
@@ -532,7 +543,7 @@ def _log_flag_effects(
         )
     if directives.skip_shortcut_detection:
         human_logger.info(
-            "Legacy SkipSD flag set; shortcut detection/cleanup is currently a no-op in native mode."
+            "Legacy SkipSD flag set; shortcut cleanup will be skipped in native mode."
         )
     if directives.offline:
         human_logger.info("Legacy offline flag set; Click-to-Run config will be marked offline.")
@@ -631,7 +642,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         if directives.reruns > 1:
                             human_logger.info("Legacy rerun pass %d/%d for Click-to-Run target.", attempt, directives.reruns)
                         uninstall_products(target, dry_run=dry_run, retries=args.retries)
-            _perform_optional_cleanup(directives, dry_run=dry_run)
+            _perform_optional_cleanup(directives, dry_run=dry_run, kind="c2r")
             exit_code = 0
         elif args.command == "msi":
             legacy = _parse_legacy_arguments("msi", getattr(args, "legacy_args", []) or [])
@@ -681,7 +692,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if directives.reruns > 1:
                         human_logger.info("Legacy rerun pass %d/%d for MSI targets.", attempt, directives.reruns)
                     uninstall_msi_products(products_to_use, dry_run=dry_run, retries=args.retries)
-            _perform_optional_cleanup(directives, dry_run=dry_run)
+            _perform_optional_cleanup(directives, dry_run=dry_run, kind="msi")
             exit_code = 0
         else:
             human_logger.info("No command supplied; nothing to do.")
@@ -714,4 +725,10 @@ _USER_SETTINGS_PATHS = (
 _VBA_PATHS = (
     r"%APPDATA%\\Microsoft\\VBA",
     r"%LOCALAPPDATA%\\Microsoft\\VBA",
+)
+_SHORTCUT_PATHS = (
+    r"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Microsoft Office",
+    r"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Microsoft Office Tools",
+    r"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Microsoft Office",
+    r"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Microsoft Office Tools",
 )
