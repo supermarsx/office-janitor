@@ -256,6 +256,11 @@ def parse_legacy_arguments(command: str, argv: Sequence[str]) -> LegacyInvocatio
             index += 1
             continue
 
+        if token.upper() == "ALL":
+            flags["all"] = True
+            index += 1
+            continue
+
         if command == "c2r":
             release_ids.append(token)
         else:
@@ -372,7 +377,7 @@ def select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, obj
         targets.append(dict(entry))
 
     if not targets and desired_release_ids:
-        targets.append({"release_ids": list(desired_release_ids)})
+        targets.append({"release_ids": list(invocation.release_ids)})
 
     return targets
 
