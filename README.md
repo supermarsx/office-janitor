@@ -45,6 +45,9 @@ The resulting executable will appear in `dist/OfficeJanitor.exe`.
   python office_janitor.py
   ```
 
+### OffScrub compatibility
+Legacy OffScrub VBS switches are mapped to native behaviours; see `docs/CLI_COMPATIBILITY.md` for the full matrix (e.g., `/PREVIEW`, `/QUIET`, `/NOREBOOT`, reruns, license/cache skips). Return codes preserve the reboot bit and honour `/RETERRORORSUCCESS` when requested.
+
 ### Running with the module path
 If the shim is unavailable, the same interface can be invoked via the package module:
 ```bash
