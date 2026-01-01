@@ -72,11 +72,16 @@ Exactly one mode can be chosen at a time. When no mode is provided the CLI falls
 - `--include visio,project,onenote` – extend the cleanup scope.
 - `--dry-run` – simulate all actions without mutating the system.
 - `--force` – bypass non-critical guardrails described in `safety.py`.
+- `--allow-unsupported-windows` – permit execution on Windows releases below the supported minimum.
 - `--plan OUT.json` – persist the generated plan to disk.
 - `--logdir DIR` – override the log directory (defaults described below).
 - `--backup DIR` – export registry/file backups to the specified directory.
+- `--timeout SEC` – set per-step timeout in seconds.
 - `--no-license` – skip SPP/OSPP license cleanup.
+- `--keep-license` – preserve Office licenses (alias of `--no-license`).
+- `--keep-templates` – preserve user templates like `normal.dotm`.
 - `--no-restore-point` – prevent automatic system restore point creation.
+- `--limited-user` – run detection and uninstall stages under a limited user token when possible.
 - `--json` – mirror structured progress events to stdout in addition to `events.jsonl`.
 - `--tui`, `--tui-compact`, `--tui-refresh N` – control the terminal UI.
 - `--no-color` – disable ANSI/VT colours when terminals misbehave.
