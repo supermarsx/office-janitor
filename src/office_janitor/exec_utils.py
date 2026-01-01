@@ -6,16 +6,16 @@ used across the project for PowerShell, command-line, and system utilities to
 ensure telemetry remains uniform while also protecting subprocesses from leaked
 virtual environment variables.
 """
+
 from __future__ import annotations
 
 import os
 import subprocess
 import time
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Mapping, MutableMapping, Sequence
 
 from . import logging_ext
-
 
 _SANITIZE_BLOCKLIST = {
     "PYTHONPATH",
@@ -72,7 +72,9 @@ def sanitize_environment(
     """
 
     if base_env is not None:
-        environment: MutableMapping[str, str] = {str(k): str(v) for k, v in base_env.items() if v is not None}
+        environment: MutableMapping[str, str] = {
+            str(k): str(v) for k, v in base_env.items() if v is not None
+        }
     elif inherit:
         environment = {str(k): str(v) for k, v in os.environ.items() if v is not None}
     else:
@@ -270,9 +272,7 @@ def run_command(
     machine_logger.info(f"{event}_result", extra=dict(result_meta))
 
     if completed.returncode != 0:
-        human_logger.warning(
-            "Command %s exited with %s", command_list[0], completed.returncode
-        )
+        human_logger.warning("Command %s exited with %s", command_list[0], completed.returncode)
 
     result = CommandResult(
         command=command_list,

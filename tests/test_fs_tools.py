@@ -7,15 +7,15 @@ directory resolution implemented in :mod:`office_janitor.fs_tools`.
 from __future__ import annotations
 
 import pathlib
-import types
 import sys
+import types
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import fs_tools
+from office_janitor import fs_tools  # noqa: E402
 
 
 class _NullLogger:

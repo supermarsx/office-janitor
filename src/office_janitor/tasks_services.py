@@ -5,11 +5,12 @@ Office tasks, stop/start related services, and poll service state with
 retry-aware logging. The helpers mirror OffScrub automation semantics while
 respecting dry-run and timeout safeguards.
 """
+
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
-from typing import Iterable, List, Sequence
 
 from . import exec_utils, logging_ext
 
@@ -24,7 +25,7 @@ def disable_tasks(task_names: Iterable[str], *, dry_run: bool = False) -> None:
 
     human_logger = logging_ext.get_human_logger()
 
-    tasks: List[str] = [name for name in (str(name).strip() for name in task_names) if name]
+    tasks: list[str] = [name for name in (str(name).strip() for name in task_names) if name]
     for task in tasks:
         result = exec_utils.run_command(
             ["schtasks.exe", "/Change", "/TN", task, "/Disable"],
@@ -114,7 +115,7 @@ def _record_reboot_recommendation(service: str) -> None:
     _PENDING_REBOOT_SERVICES.add(clean_name)
 
 
-def consume_reboot_recommendations() -> List[str]:
+def consume_reboot_recommendations() -> list[str]:
     """!
     @brief Return and clear the accumulated reboot recommendations.
     @details ``stop_services`` records any services that timed out while
@@ -129,7 +130,7 @@ def consume_reboot_recommendations() -> List[str]:
     return services
 
 
-def get_reboot_recommendations() -> List[str]:
+def get_reboot_recommendations() -> list[str]:
     """!
     @brief Return any recorded reboot recommendations without clearing them.
     """
@@ -179,8 +180,8 @@ def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> dict[st
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
-    services: List[str] = [name for name in (str(name).strip() for name in service_names) if name]
-    reboot_services: List[str] = []
+    services: list[str] = [name for name in (str(name).strip() for name in service_names) if name]
+    reboot_services: list[str] = []
 
     for service in services:
         stop_result = exec_utils.run_command(
@@ -214,9 +215,7 @@ def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> dict[st
         if stop_result.returncode == 0 and not stop_result.error:
             human_logger.info("Stopped service %s", service)
         else:
-            human_logger.debug(
-                "Service %s stop returned %s", service, stop_result.returncode
-            )
+            human_logger.debug("Service %s stop returned %s", service, stop_result.returncode)
 
         disable_result = exec_utils.run_command(
             ["sc.exe", "config", service, "start=", "disabled"],
@@ -237,9 +236,7 @@ def stop_services(service_names: Iterable[str], *, timeout: int = 30) -> dict[st
         if disable_result.returncode == 0 and not disable_result.error:
             human_logger.info("Configured service %s to be disabled", service)
         else:
-            human_logger.debug(
-                "Service %s disable returned %s", service, disable_result.returncode
-            )
+            human_logger.debug("Service %s disable returned %s", service, disable_result.returncode)
 
     unique_reboot_services = list(dict.fromkeys(reboot_services))
 
@@ -258,7 +255,7 @@ def start_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
 
     human_logger = logging_ext.get_human_logger()
 
-    services: List[str] = [name for name in (str(name).strip() for name in service_names) if name]
+    services: list[str] = [name for name in (str(name).strip() for name in service_names) if name]
     for service in services:
         result = exec_utils.run_command(
             ["sc.exe", "start", service],
@@ -279,9 +276,7 @@ def start_services(service_names: Iterable[str], *, timeout: int = 30) -> None:
         if result.returncode == 0 and not result.error:
             human_logger.info("Started service %s", service)
         else:
-            human_logger.debug(
-                "Service %s start returned %s", service, result.returncode
-            )
+            human_logger.debug("Service %s start returned %s", service, result.returncode)
 
 
 def delete_services(service_names: Sequence[str], *, dry_run: bool = False) -> None:
@@ -313,9 +308,7 @@ def delete_services(service_names: Sequence[str], *, dry_run: bool = False) -> N
         if result.returncode == 0 and not result.error:
             human_logger.info("Deleted service %s", service)
         else:
-            human_logger.debug(
-                "Service %s delete returned %s", service, result.returncode
-            )
+            human_logger.debug("Service %s delete returned %s", service, result.returncode)
 
 
 def query_service_status(

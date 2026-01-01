@@ -17,7 +17,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import safety
+from office_janitor import safety  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -600,9 +600,7 @@ class TestSafetyRuntimeEnvironment:
                 minimum_free_space_bytes=128,
             )
 
-    def test_runtime_guard_force_bypasses_free_space(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_runtime_guard_force_bypasses_free_space(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """!
         @brief Force flag allows execution despite low free space.
         """

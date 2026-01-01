@@ -6,15 +6,17 @@ that the requested product has been removed. Structured telemetry emitted via
 :mod:`office_janitor.command_runner` keeps the behaviour aligned with the
 reference OffScrub scripts while remaining fully Python-native.
 """
+
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import shlex
 import sys
-from typing import Callable, Iterable, List, Mapping, MutableMapping, Sequence, Tuple
+import time
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
 
 from . import command_runner, constants, logging_ext, registry_tools
 
@@ -91,14 +93,18 @@ def _normalise_product_code(raw: str) -> str:
     return f"{{{core.upper()}}}"
 
 
-def _default_handles_for_code(product_code: str) -> List[str]:
+def _default_handles_for_code(product_code: str) -> list[str]:
     """!
     @brief Construct registry handle strings for known uninstall roots.
     """
 
-    handles: List[str] = []
+    handles: list[str] = []
     metadata = constants.MSI_PRODUCT_MAP.get(product_code.upper())
-    registry_roots = metadata.get("registry_roots", constants.MSI_UNINSTALL_ROOTS) if metadata else constants.MSI_UNINSTALL_ROOTS
+    registry_roots = (
+        metadata.get("registry_roots", constants.MSI_UNINSTALL_ROOTS)
+        if metadata
+        else constants.MSI_UNINSTALL_ROOTS
+    )
     for hive, base in registry_roots:
         handles.append(f"{registry_tools.hive_name(hive)}\\{base}\\{product_code}")
     return handles
@@ -130,7 +136,7 @@ def _extract_setup_candidate(value: object) -> str:
     if not text or "setup.exe" not in text.lower():
         return ""
     cleaned_text = text.strip().strip('"').strip()
-    candidates: List[str] = []
+    candidates: list[str] = []
     if cleaned_text:
         candidates.append(cleaned_text)
     try:
@@ -152,12 +158,12 @@ def _extract_setup_candidate(value: object) -> str:
     return ""
 
 
-def _normalise_maintenance_paths(*sources: object) -> Tuple[str, ...]:
+def _normalise_maintenance_paths(*sources: object) -> tuple[str, ...]:
     """!
     @brief Normalise a collection of maintenance path hints into unique strings.
     """
 
-    collected: List[str] = []
+    collected: list[str] = []
     for source in sources:
         if not source:
             continue
@@ -206,10 +212,7 @@ def _normalise_product_entry(product: Mapping[str, object] | str) -> _MsiProduct
         mapping = {"product_code": str(product)}
 
     raw_code = str(
-        mapping.get("product_code")
-        or mapping.get("ProductCode")
-        or mapping.get("code")
-        or ""
+        mapping.get("product_code") or mapping.get("ProductCode") or mapping.get("code") or ""
     )
     product_code = _normalise_product_code(raw_code)
     if not product_code:
@@ -312,7 +315,7 @@ def _handle_busy_installer(
     attempt: int,
     attempts: int,
     input_func: Callable[[str], str] | None = None,
-) -> Tuple[bool, float]:
+) -> tuple[bool, float]:
     """!
     @brief Emit guidance and optionally prompt when Windows Installer is busy.
     @details ``msiexec`` returns ``1618`` when another installation is already
@@ -362,9 +365,9 @@ def _handle_busy_installer(
         )
     else:
         prompt = (
-            "Retry uninstall of {name} after waiting {delay:.0f}s once other installers are closed? "
+            f"Retry uninstall of {entry.display_name} after waiting {delay:.0f}s once other installers are closed? "
             "[Y/n]: "
-        ).format(name=entry.display_name, delay=delay)
+        )
         try:
             response = input_func(prompt)
         except EOFError:
@@ -414,7 +417,7 @@ def _handle_busy_installer(
     return True, delay
 
 
-def build_command(product_code: str, *, maintenance_executable: str | None = None) -> List[str]:
+def build_command(product_code: str, *, maintenance_executable: str | None = None) -> list[str]:
     """!
     @brief Compose the command used to uninstall ``product_code``.
     """
@@ -466,14 +469,18 @@ def _run_uninstall_command(
 
     for attempt in range(1, total_attempts + 1):
         if using_setup:
-            message = (
-                "Uninstalling MSI product %s (%s) via setup.exe [attempt %d/%d]"
-                % (entry.display_name, entry.product_code, attempt, total_attempts)
+            message = "Uninstalling MSI product %s (%s) via setup.exe [attempt %d/%d]" % (
+                entry.display_name,
+                entry.product_code,
+                attempt,
+                total_attempts,
             )
         else:
-            message = (
-                "Uninstalling MSI product %s (%s) [attempt %d/%d]"
-                % (entry.display_name, entry.product_code, attempt, total_attempts)
+            message = "Uninstalling MSI product %s (%s) [attempt %d/%d]" % (
+                entry.display_name,
+                entry.product_code,
+                attempt,
+                total_attempts,
             )
 
         result = command_runner.run_command(
@@ -580,7 +587,7 @@ def uninstall_products(
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
-    entries: List[_MsiProduct] = []
+    entries: list[_MsiProduct] = []
     for product in products:
         if not product:
             continue
@@ -590,7 +597,7 @@ def uninstall_products(
         human_logger.info("No MSI products supplied for uninstall; skipping.")
         return
 
-    failures: List[str] = []
+    failures: list[str] = []
     total_attempts = max(1, int(retries) + 1)
 
     for entry in entries:
@@ -637,9 +644,7 @@ def uninstall_products(
                 entry.product_code, maintenance_executable=entry.maintenance_executable
             )
             human_logger.warning(
-                (
-                    "msiexec uninstall of %s (%s) returned %d; attempting setup.exe fallback"
-                ),
+                ("msiexec uninstall of %s (%s) returned %d; attempting setup.exe fallback"),
                 entry.display_name,
                 entry.product_code,
                 result.returncode,
@@ -704,5 +709,5 @@ def uninstall_products(
 
     if failures:
         raise RuntimeError(
-            "Failed to uninstall MSI products: %s" % ", ".join(sorted(set(failures)))
+            "Failed to uninstall MSI products: {}".format(", ".join(sorted(set(failures))))
         )

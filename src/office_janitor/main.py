@@ -5,6 +5,7 @@
 administrative elevation, enabling Windows VT mode when available, and invoking
 logging setup so future sub-systems can emit structured telemetry.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -17,23 +18,25 @@ import pathlib
 import platform
 import sys
 from collections import deque
-from typing import Iterable, List, Mapping, Optional
+from collections.abc import Iterable, Mapping
 
 from . import (
-    constants,
     confirm,
+    constants,
     detect,
     elevation,
     exec_utils,
     fs_tools,
     logging_ext,
-    plan as plan_module,
     processes,
     safety,
     scrub,
-    ui,
     tui,
+    ui,
     version,
+)
+from . import (
+    plan as plan_module,
 )
 
 
@@ -113,30 +116,52 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="VER",
         help="Target a specific Office version (2003-2024/365).",
     )
-    modes.add_argument("--diagnose", action="store_true", help="Emit inventory and plan without changes.")
-    modes.add_argument("--cleanup-only", action="store_true", help="Skip uninstalls; clean residue and licensing.")
+    modes.add_argument(
+        "--diagnose", action="store_true", help="Emit inventory and plan without changes."
+    )
+    modes.add_argument(
+        "--cleanup-only", action="store_true", help="Skip uninstalls; clean residue and licensing."
+    )
 
-    parser.add_argument("--include", metavar="COMPONENTS", help="Additional suites/apps to include.")
+    parser.add_argument(
+        "--include", metavar="COMPONENTS", help="Additional suites/apps to include."
+    )
     parser.add_argument("--force", action="store_true", help="Relax certain guardrails when safe.")
     parser.add_argument(
         "--allow-unsupported-windows",
         action="store_true",
         help="Permit execution on Windows releases below the supported minimum.",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Simulate actions without modifying the system.")
-    parser.add_argument("--no-restore-point", action="store_true", help="Skip creating a restore point.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Simulate actions without modifying the system."
+    )
+    parser.add_argument(
+        "--no-restore-point", action="store_true", help="Skip creating a restore point."
+    )
     parser.add_argument("--no-license", action="store_true", help="Skip license cleanup steps.")
-    parser.add_argument("--keep-license", action="store_true", help="Preserve Office licenses (alias of --no-license).")
-    parser.add_argument("--keep-templates", action="store_true", help="Preserve user templates like normal.dotm.")
-    parser.add_argument("--plan", metavar="OUT", help="Write the computed action plan to a JSON file.")
+    parser.add_argument(
+        "--keep-license",
+        action="store_true",
+        help="Preserve Office licenses (alias of --no-license).",
+    )
+    parser.add_argument(
+        "--keep-templates", action="store_true", help="Preserve user templates like normal.dotm."
+    )
+    parser.add_argument(
+        "--plan", metavar="OUT", help="Write the computed action plan to a JSON file."
+    )
     parser.add_argument("--logdir", metavar="DIR", help="Directory for human/JSONL log output.")
     parser.add_argument("--backup", metavar="DIR", help="Destination for registry/file backups.")
     parser.add_argument("--timeout", metavar="SEC", type=int, help="Per-step timeout in seconds.")
-    parser.add_argument("--quiet", action="store_true", help="Minimal console output (errors only).")
+    parser.add_argument(
+        "--quiet", action="store_true", help="Minimal console output (errors only)."
+    )
     parser.add_argument("--json", action="store_true", help="Mirror structured events to stdout.")
     parser.add_argument("--tui", action="store_true", help="Force the interactive text UI mode.")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI color codes.")
-    parser.add_argument("--tui-compact", action="store_true", help="Use a compact TUI layout for small consoles.")
+    parser.add_argument(
+        "--tui-compact", action="store_true", help="Use a compact TUI layout for small consoles."
+    )
     parser.add_argument(
         "--tui-refresh",
         metavar="MS",
@@ -151,7 +176,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_log_directory(candidate: Optional[str]) -> pathlib.Path:
+def _resolve_log_directory(candidate: str | None) -> pathlib.Path:
     """!
     @brief Determine the log directory path using specification defaults when unspecified.
     """
@@ -174,19 +199,19 @@ def _bootstrap_logging(args: argparse.Namespace) -> tuple[logging.Logger, loggin
 
     logdir = _resolve_log_directory(getattr(args, "logdir", None))
     logdir.mkdir(parents=True, exist_ok=True)
-    setattr(args, "logdir", str(logdir))
+    args.logdir = str(logdir)
     human_logger, machine_logger = logging_ext.setup_logging(
         logdir,
         json_to_stdout=getattr(args, "json", False),
     )
-    setattr(args, "human_logger", human_logger)
-    setattr(args, "machine_logger", machine_logger)
+    args.human_logger = human_logger
+    args.machine_logger = machine_logger
     if getattr(args, "quiet", False):
         human_logger.setLevel(logging.ERROR)
     return human_logger, machine_logger
 
 
-def main(argv: Optional[Iterable[str]] = None) -> int:
+def main(argv: Iterable[str] | None = None) -> int:
     """!
     @brief Entry point invoked by the shim and PyInstaller bundle.
     @returns Process exit code integer.
@@ -203,7 +228,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     mode = _determine_mode(args)
     machine_log.info(
         "startup",
-        extra={"event": "startup", "data": {"mode": mode, "dry_run": bool(getattr(args, "dry_run", False))}},
+        extra={
+            "event": "startup",
+            "data": {"mode": mode, "dry_run": bool(getattr(args, "dry_run", False))},
+        },
     )
 
     app_state = _build_app_state(args, human_log, machine_log)
@@ -314,14 +342,18 @@ def _build_app_state(
     logging_ext.register_ui_event_sink(emitter=emit_event, queue=ui_events)
 
     def detector() -> dict:
-        logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
+        logdir_path = pathlib.Path(
+            getattr(args, "logdir", _resolve_log_directory(None))
+        ).expanduser()
         return _run_detection(
             machine_log,
             logdir_path,
             limited_user=bool(getattr(args, "limited_user", False)),
         )
 
-    def planner(inventory: Mapping[str, object], overrides: Optional[Mapping[str, object]] = None) -> list[dict]:
+    def planner(
+        inventory: Mapping[str, object], overrides: Mapping[str, object] | None = None
+    ) -> list[dict]:
         mode = _determine_mode(args)
         merged = dict(_collect_plan_options(args, mode))
         if overrides:
@@ -330,9 +362,7 @@ def _build_app_state(
         safety.perform_preflight_checks(generated_plan)
         return generated_plan
 
-    def executor(
-        plan_data: list[dict], overrides: Optional[Mapping[str, object]] = None
-    ) -> bool:
+    def executor(plan_data: list[dict], overrides: Mapping[str, object] | None = None) -> bool:
         dry_run = bool(getattr(args, "dry_run", False))
         if overrides and "dry_run" in overrides:
             dry_run = bool(overrides["dry_run"])
@@ -409,10 +439,10 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
         "diagnose": bool(getattr(args, "diagnose", False)),
         "cleanup_only": bool(getattr(args, "cleanup_only", False)),
         "auto_all": bool(getattr(args, "auto_all", False)),
-        "allow_unsupported_windows": bool(
-            getattr(args, "allow_unsupported_windows", False)
+        "allow_unsupported_windows": bool(getattr(args, "allow_unsupported_windows", False)),
+        "no_license": bool(
+            getattr(args, "no_license", False) or getattr(args, "keep_license", False)
         ),
-        "no_license": bool(getattr(args, "no_license", False) or getattr(args, "keep_license", False)),
         "keep_license": bool(getattr(args, "keep_license", False)),
         "keep_templates": bool(getattr(args, "keep_templates", False)),
         "timeout": getattr(args, "timeout", None),
@@ -480,7 +510,7 @@ def _run_detection(
 def _handle_plan_artifacts(
     args: argparse.Namespace,
     plan_data: Iterable[Mapping[str, object]],
-    inventory: Optional[Mapping[str, object]],
+    inventory: Mapping[str, object] | None,
     human_log: logging.Logger,
     mode: str,
 ) -> None:
@@ -493,7 +523,7 @@ def _handle_plan_artifacts(
     logdir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
-    resolved_backup: Optional[pathlib.Path] = None
+    resolved_backup: pathlib.Path | None = None
 
     backup_dir = getattr(args, "backup", None)
     if backup_dir:
@@ -517,7 +547,9 @@ def _handle_plan_artifacts(
         human_log.info("Wrote diagnostics inventory to %s", inventory_path)
 
     if plan_steps:
-        context_step = next((step for step in plan_steps if step.get("category") == "context"), None)
+        context_step = next(
+            (step for step in plan_steps if step.get("category") == "context"), None
+        )
         if context_step is not None:
             metadata = dict(context_step.get("metadata", {}))
             options = dict(metadata.get("options", {}))
@@ -544,7 +576,7 @@ def _handle_plan_artifacts(
     primary_plan_path.write_text(serialized_plan, encoding="utf-8")
     human_log.info("Wrote plan to %s", primary_plan_path)
 
-    additional_plan_targets: List[pathlib.Path] = []
+    additional_plan_targets: list[pathlib.Path] = []
     if getattr(args, "plan", None):
         additional_plan_targets.append(pathlib.Path(args.plan).expanduser().resolve())
     elif mode == "diagnose":

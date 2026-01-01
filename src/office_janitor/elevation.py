@@ -5,6 +5,7 @@ rights when required, as well as helpers to execute commands under a limited
 user context for parity with VBS flows that relaunch as the interactive user.
 All helpers rely on the standard library and log through :mod:`exec_utils`.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -12,7 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import Iterable, Mapping, MutableMapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from . import exec_utils, logging_ext
 
@@ -36,7 +37,11 @@ def current_username() -> str:
     @brief Return the current user name best-effort.
     """
 
-    for candidate in (os.getlogin, lambda: os.environ.get("USERNAME"), lambda: os.environ.get("USER")):
+    for candidate in (
+        os.getlogin,
+        lambda: os.environ.get("USERNAME"),
+        lambda: os.environ.get("USER"),
+    ):
         try:
             value = candidate()
         except Exception:

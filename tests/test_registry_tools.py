@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
-from typing import Iterable, List, Tuple
+from collections.abc import Iterable
 
 import pytest
 
@@ -21,7 +21,9 @@ if str(SRC_PATH) not in sys.path:
 from office_janitor import exec_utils, registry_tools  # noqa: E402
 
 
-def _command_result(command: Iterable[str], returncode: int = 0, *, skipped: bool = False) -> exec_utils.CommandResult:
+def _command_result(
+    command: Iterable[str], returncode: int = 0, *, skipped: bool = False
+) -> exec_utils.CommandResult:
     """!
     @brief Fabricate :class:`CommandResult` objects for command interception.
     """
@@ -42,7 +44,7 @@ class _Recorder:
     """
 
     def __init__(self) -> None:
-        self.messages: List[Tuple[str, dict]] = []
+        self.messages: list[tuple[str, dict]] = []
 
     def info(self, message: str, *args, **kwargs) -> None:  # noqa: D401 - logging compatibility
         payload = kwargs.copy()
@@ -58,7 +60,7 @@ def test_delete_keys_invokes_reg_when_available(monkeypatch) -> None:
     @brief Deletion should call ``reg delete`` when the binary exists.
     """
 
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "reg.exe")
 
@@ -84,7 +86,7 @@ def test_delete_keys_dry_run_skips_execution(monkeypatch) -> None:
 
     monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "reg.exe")
 
-    calls: List[bool] = []
+    calls: list[bool] = []
 
     def fake_run(command, *, event, dry_run=False, **kwargs):
         calls.append(dry_run)
@@ -177,7 +179,7 @@ def test_export_keys_invokes_reg_command(tmp_path, monkeypatch) -> None:
     """
 
     monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "C:/Windows/system32/reg.exe")
-    calls: List[List[str]] = []
+    calls: list[list[str]] = []
 
     def fake_run(command, *, event, dry_run=False, check=False, extra=None, **kwargs):
         calls.append([str(part) for part in command])
@@ -232,7 +234,9 @@ def test_iter_office_uninstall_entries_filters_non_office(monkeypatch) -> None:
     @brief Only Office-like entries should be returned from uninstall enumeration.
     """
 
-    roots: Iterable[Tuple[int, str]] = [(0x80000002, r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall")]
+    roots: Iterable[tuple[int, str]] = [
+        (0x80000002, r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
+    ]
 
     def fake_iter_subkeys(root: int, path: str, *, view: str | None = None):
         yield from ("{90160000-0011-0000-0000-0000000FF1CE}", "ContosoApp")
@@ -255,4 +259,3 @@ def test_iter_office_uninstall_entries_filters_non_office(monkeypatch) -> None:
     assert hive == 0x80000002
     assert path.endswith("{90160000-0011-0000-0000-0000000FF1CE}")
     assert values["ProductCode"] == "{90160000-0011-0000-0000-0000000FF1CE}"
-

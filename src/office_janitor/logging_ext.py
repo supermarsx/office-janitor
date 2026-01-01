@@ -5,6 +5,7 @@ rotating file handlers for human-readable text and JSONL telemetry output.
 Startup metadata sourced from :mod:`office_janitor.version` is recorded so
 automation can correlate log bundles.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -13,17 +14,12 @@ import logging
 import os
 import sys
 import uuid
+from collections import deque
+from collections.abc import Iterable, Mapping, MutableMapping, MutableSequence
 from logging import handlers
 from pathlib import Path
 from typing import (
     Callable,
-    Deque,
-    Dict,
-    Iterable,
-    Mapping,
-    MutableMapping,
-    MutableSequence,
-    Tuple,
 )
 
 from . import version
@@ -38,7 +34,7 @@ MACHINE_LOGGER_NAME = "office_janitor.machine"
 @brief Logger name for JSONL telemetry output.
 """
 
-_STANDARD_RECORD_KEYS: Dict[str, None] = {
+_STANDARD_RECORD_KEYS: dict[str, None] = {
     "name": None,
     "msg": None,
     "args": None,
@@ -65,12 +61,10 @@ _STANDARD_RECORD_KEYS: Dict[str, None] = {
 }
 
 _CURRENT_LOG_DIRECTORY: Path | None = None
-_RUN_METADATA: Dict[str, object] | None = None
+_RUN_METADATA: dict[str, object] | None = None
 _SESSION_ID: str | None = None
 _UI_EVENT_EMITTER: Callable[..., object] | None = None
-_UI_EVENT_QUEUE: (
-    MutableSequence[dict[str, object]] | Deque[dict[str, object]] | None
-) = None
+_UI_EVENT_QUEUE: MutableSequence[dict[str, object]] | deque[dict[str, object]] | None = None
 
 
 class _ChannelFilter(logging.Filter):
@@ -100,7 +94,7 @@ class _JsonLineFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:  # noqa: D401 - concise override
         moment = _dt.datetime.fromtimestamp(record.created, tz=_dt.timezone.utc)
-        payload: Dict[str, object] = {
+        payload: dict[str, object] = {
             "timestamp": moment.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
@@ -125,12 +119,12 @@ class _JsonLineFormatter(logging.Formatter):
             return json.dumps(sanitized, ensure_ascii=False)
 
 
-def _extract_extras(record: logging.LogRecord) -> Dict[str, object]:
+def _extract_extras(record: logging.LogRecord) -> dict[str, object]:
     """!
     @brief Collect non-standard attributes from a log record.
     """
 
-    extras: Dict[str, object] = {}
+    extras: dict[str, object] = {}
     for key, value in record.__dict__.items():
         if key in _STANDARD_RECORD_KEYS:
             continue
@@ -160,10 +154,24 @@ class _SizedTimedRotatingFileHandler(handlers.TimedRotatingFileHandler):
     :class:`logging.handlers.RotatingFileHandler`.
     """
 
-    def __init__(self, filename: str | os.PathLike[str], *, max_bytes: int = 0, backup_count: int = 0, **kwargs: object) -> None:
+    def __init__(
+        self,
+        filename: str | os.PathLike[str],
+        *,
+        max_bytes: int = 0,
+        backup_count: int = 0,
+        **kwargs: object,
+    ) -> None:
         when = kwargs.pop("when", "midnight")
         interval = kwargs.pop("interval", 1)
-        super().__init__(filename, when=when, interval=interval, backupCount=backup_count, encoding="utf-8", **kwargs)
+        super().__init__(
+            filename,
+            when=when,
+            interval=interval,
+            backupCount=backup_count,
+            encoding="utf-8",
+            **kwargs,
+        )
         self.maxBytes = max_bytes
 
     def shouldRollover(self, record: logging.LogRecord) -> int:  # noqa: D401 - stdlib compatibility
@@ -172,14 +180,16 @@ class _SizedTimedRotatingFileHandler(handlers.TimedRotatingFileHandler):
         if self.maxBytes > 0:
             if self.stream is None:
                 self.stream = self._open()
-            msg = "%s\n" % self.format(record)
+            msg = f"{self.format(record)}\n"
             self.stream.seek(0, os.SEEK_END)
             if self.stream.tell() + len(msg) >= self.maxBytes:
                 return 1
         return 0
 
 
-def _configure_logger(logger: logging.Logger, formatter: logging.Formatter, handlers_to_add: Iterable[logging.Handler]) -> None:
+def _configure_logger(
+    logger: logging.Logger, formatter: logging.Formatter, handlers_to_add: Iterable[logging.Handler]
+) -> None:
     """!
     @brief Reset a logger and attach the supplied handlers.
     """
@@ -200,7 +210,7 @@ def setup_logging(
     *,
     json_to_stdout: bool = False,
     level: int = logging.INFO,
-) -> Tuple[logging.Logger, logging.Logger]:
+) -> tuple[logging.Logger, logging.Logger]:
     """!
     @brief Set up human and machine loggers.
     @details The function returns a pair of ``logging.Logger`` objects for the
@@ -256,7 +266,7 @@ def setup_logging(
     return human_logger, machine_logger
 
 
-def get_loggers(json_stdout: bool, level: int) -> Tuple[logging.Logger, logging.Logger]:
+def get_loggers(json_stdout: bool, level: int) -> tuple[logging.Logger, logging.Logger]:
     """!
     @brief Retrieve configured loggers, provisioning defaults when necessary.
     @details Modules may request stdout mirroring for JSONL events dynamically.
@@ -306,7 +316,7 @@ def get_machine_logger() -> logging.Logger:
 def register_ui_event_sink(
     *,
     emitter: Callable[..., object] | None = None,
-    queue: MutableSequence[dict[str, object]] | Deque[dict[str, object]] | None = None,
+    queue: MutableSequence[dict[str, object]] | deque[dict[str, object]] | None = None,
 ) -> None:
     """!
     @brief Register callables used to relay UI events to interactive surfaces.
@@ -428,7 +438,10 @@ def _ensure_stdout_handler(machine_logger: logging.Logger) -> None:
     """
 
     for handler in machine_logger.handlers:
-        if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is sys.stdout:
+        if (
+            isinstance(handler, logging.StreamHandler)
+            and getattr(handler, "stream", None) is sys.stdout
+        ):
             return
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setFormatter(_JsonLineFormatter())
@@ -441,7 +454,10 @@ def _remove_stdout_handler(machine_logger: logging.Logger) -> None:
     """
 
     for handler in list(machine_logger.handlers):
-        if isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is sys.stdout:
+        if (
+            isinstance(handler, logging.StreamHandler)
+            and getattr(handler, "stream", None) is sys.stdout
+        ):
             machine_logger.removeHandler(handler)
             handler.close()
 
@@ -452,7 +468,7 @@ def build_event_extra(
     step_id: str | None = None,
     correlation: Mapping[str, object] | None = None,
     extra: Mapping[str, object] | None = None,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """!
     @brief Compose ``extra`` payloads with consistent contextual metadata.
     @details The helper is intended for machine loggers so downstream telemetry
@@ -461,7 +477,7 @@ def build_event_extra(
     automatically when available.
     """
 
-    payload: Dict[str, object] = {"event": event}
+    payload: dict[str, object] = {"event": event}
     if step_id is not None:
         payload["step_id"] = step_id
     if correlation:
@@ -471,24 +487,29 @@ def build_event_extra(
             payload[key] = value
 
     if _RUN_METADATA:
-        run_field = _merge_mapping(payload.get("run"), {
-            "run_id": _RUN_METADATA.get("run_id"),
-            "session_id": _RUN_METADATA.get("session_id"),
-            "timestamp": _RUN_METADATA.get("timestamp"),
-        })
+        run_field = _merge_mapping(
+            payload.get("run"),
+            {
+                "run_id": _RUN_METADATA.get("run_id"),
+                "session_id": _RUN_METADATA.get("session_id"),
+                "timestamp": _RUN_METADATA.get("timestamp"),
+            },
+        )
         payload["run"] = run_field
-        session_field = _merge_mapping(payload.get("session"), {"id": _RUN_METADATA.get("session_id")})
+        session_field = _merge_mapping(
+            payload.get("session"), {"id": _RUN_METADATA.get("session_id")}
+        )
         payload["session"] = session_field
 
     return payload
 
 
-def _merge_mapping(existing: object, defaults: Mapping[str, object | None]) -> Dict[str, object]:
+def _merge_mapping(existing: object, defaults: Mapping[str, object | None]) -> dict[str, object]:
     """!
     @brief Merge mapping ``defaults`` into ``existing`` with fallbacks.
     """
 
-    result: Dict[str, object] = {}
+    result: dict[str, object] = {}
     if isinstance(existing, MutableMapping):
         result.update(existing)
     for key, value in defaults.items():
@@ -496,4 +517,3 @@ def _merge_mapping(existing: object, defaults: Mapping[str, object | None]) -> D
             continue
         result.setdefault(key, value)
     return result
-

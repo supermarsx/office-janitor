@@ -4,6 +4,7 @@
 registry hives, and returns structured :class:`DetectedInstallation` records that
 contain uninstall handles, source type, and channel information.
 """
+
 from __future__ import annotations
 
 import csv
@@ -12,29 +13,26 @@ import logging
 import os
 import shlex
 import sys
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Tuple
+from typing import Any
 
-from . import constants, exec_utils, registry_tools, elevation, logging_ext
-
+from . import constants, elevation, exec_utils, logging_ext, registry_tools
 
 _LOGGER = logging.getLogger(__name__)
 
 
 _OFFICE_PROCESS_TARGETS = tuple(
     sorted(
-        {name.lower() for name in constants.DEFAULT_OFFICE_PROCESSES}
-        | {"mspub.exe", "teams.exe"}
+        {name.lower() for name in constants.DEFAULT_OFFICE_PROCESSES} | {"mspub.exe", "teams.exe"}
     )
 )
 """!
 @brief Known Office executables monitored during detection.
 """
 
-_SERVICE_TARGETS = tuple(
-    sorted({name.lower() for name in constants.KNOWN_SERVICES} | {"osppsvc"})
-)
+_SERVICE_TARGETS = tuple(sorted({name.lower() for name in constants.KNOWN_SERVICES} | {"osppsvc"}))
 """!
 @brief Services associated with Office provisioning and licensing.
 """
@@ -45,12 +43,12 @@ _TASK_PREFIXES = (r"\\Microsoft\\Office\\", r"\\Microsoft\\OfficeSoftwareProtect
 """
 
 _KNOWN_TASK_NAMES = {
-    task if task.startswith("\\") else f"\\{task}"
-    for task in constants.KNOWN_SCHEDULED_TASKS
+    task if task.startswith("\\") else f"\\{task}" for task in constants.KNOWN_SCHEDULED_TASKS
 }
 """!
 @brief Explicit scheduled task identifiers from the specification.
 """
+
 
 @dataclass(frozen=True)
 class DetectedInstallation:
@@ -65,20 +63,20 @@ class DetectedInstallation:
     product: str
     version: str
     architecture: str
-    uninstall_handles: Tuple[str, ...]
+    uninstall_handles: tuple[str, ...]
     channel: str
     product_code: str | None = None
-    release_ids: Tuple[str, ...] = ()
+    release_ids: tuple[str, ...] = ()
     properties: Mapping[str, object] | None = None
     display_icon: str | None = None
-    maintenance_paths: Tuple[str, ...] = ()
+    maintenance_paths: tuple[str, ...] = ()
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         """!
         @brief Convert the dataclass to a JSON-serialisable dictionary.
         """
 
-        payload: Dict[str, object] = {
+        payload: dict[str, object] = {
             "source": self.source,
             "product": self.product,
             "version": self.version,
@@ -127,7 +125,7 @@ def _extract_executable_candidate(value: object) -> str:
     if not text:
         return ""
     cleaned_text = text.strip().strip('"').strip()
-    candidates: List[str] = []
+    candidates: list[str] = []
     if cleaned_text:
         candidates.append(cleaned_text)
     try:
@@ -149,12 +147,12 @@ def _extract_executable_candidate(value: object) -> str:
     return ""
 
 
-def _collect_maintenance_paths(values: Mapping[str, object]) -> Tuple[str, ...]:
+def _collect_maintenance_paths(values: Mapping[str, object]) -> tuple[str, ...]:
     """!
     @brief Collect setup.exe maintenance candidates from registry values.
     """
 
-    candidates: List[str] = []
+    candidates: list[str] = []
     for key in ("DisplayIcon", "ModifyPath", "UninstallString"):
         candidate = _extract_executable_candidate(values.get(key))
         if candidate and candidate.lower().endswith("setup.exe"):
@@ -181,7 +179,7 @@ def _compose_handle(root: int, path: str) -> str:
     return f"{registry_tools.hive_name(root)}\\{path}"
 
 
-def _safe_read_values(root: int, path: str) -> Dict[str, Any]:
+def _safe_read_values(root: int, path: str) -> dict[str, Any]:
     """!
     @brief Read registry values while tolerating missing hives or permissions.
     @details Wraps :func:`registry_tools.read_values` so callers can safely probe
@@ -215,7 +213,7 @@ def _powershell_registry_path(root: int, path: str) -> str:
     return f"{hive}:\\{normalized}"
 
 
-def _powershell_read_values(root: int, path: str) -> Dict[str, Any]:
+def _powershell_read_values(root: int, path: str) -> dict[str, Any]:
     """!
     @brief Query registry values using ``powershell`` as a fallback.
     @details ``winreg`` is unavailable on some unit test hosts. This helper
@@ -247,7 +245,7 @@ def _powershell_read_values(root: int, path: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         return {}
 
-    filtered: Dict[str, Any] = {}
+    filtered: dict[str, Any] = {}
     for key, value in data.items():
         if str(key).startswith("PS"):
             continue
@@ -255,7 +253,7 @@ def _powershell_read_values(root: int, path: str) -> Dict[str, Any]:
     return filtered
 
 
-def _read_values_with_fallback(root: int, path: str) -> Dict[str, Any]:
+def _read_values_with_fallback(root: int, path: str) -> dict[str, Any]:
     """!
     @brief Read registry values with a PowerShell fallback when necessary.
     """
@@ -291,12 +289,12 @@ def _key_exists_with_fallback(root: int, path: str) -> bool:
     return result == "true"
 
 
-def _parse_languages(*candidates: object) -> Tuple[str, ...]:
+def _parse_languages(*candidates: object) -> tuple[str, ...]:
     """!
     @brief Normalise language identifiers from registry and subscription data.
     """
 
-    languages: List[str] = []
+    languages: list[str] = []
 
     def add_token(token: str) -> None:
         cleaned = token.strip()
@@ -348,7 +346,7 @@ def _infer_architecture(name: str, install_path: str | None = None) -> str:
 
 
 def _merge_fallback_metadata(
-    existing: Dict[str, Dict[str, Any]], additions: Mapping[str, Mapping[str, Any]]
+    existing: dict[str, dict[str, Any]], additions: Mapping[str, Mapping[str, Any]]
 ) -> None:
     """!
     @brief Merge fallback detection metadata keyed by product code.
@@ -367,12 +365,12 @@ def _merge_fallback_metadata(
         existing[key] = merged
 
 
-def _candidate_msi_handles(product_code: str) -> Tuple[str, ...]:
+def _candidate_msi_handles(product_code: str) -> tuple[str, ...]:
     """!
     @brief Determine candidate uninstall handles for an MSI product code.
     """
 
-    handles: List[str] = []
+    handles: list[str] = []
     for hive, base_key in constants.MSI_UNINSTALL_ROOTS:
         key_path = f"{base_key}\\{product_code}"
         if _key_exists_with_fallback(hive, key_path):
@@ -383,7 +381,7 @@ def _candidate_msi_handles(product_code: str) -> Tuple[str, ...]:
     return tuple(handles)
 
 
-def _read_subscription_values(release_id: str) -> Tuple[Dict[str, Any], str | None]:
+def _read_subscription_values(release_id: str) -> tuple[dict[str, Any], str | None]:
     """!
     @brief Read Click-to-Run subscription metadata for ``release_id``.
     """
@@ -396,12 +394,12 @@ def _read_subscription_values(release_id: str) -> Tuple[Dict[str, Any], str | No
     return {}, None
 
 
-def _normalize_release_ids(raw: object) -> Tuple[str, ...]:
+def _normalize_release_ids(raw: object) -> tuple[str, ...]:
     """!
     @brief Convert registry values into a canonical tuple of release identifiers.
     """
 
-    tokens: List[str] = []
+    tokens: list[str] = []
     if isinstance(raw, str):
         expanded = raw.replace(";", ",").replace("|", ",")
         tokens = [segment.strip() for segment in expanded.split(",") if segment.strip()]
@@ -412,7 +410,7 @@ def _normalize_release_ids(raw: object) -> Tuple[str, ...]:
                 tokens.append(text)
 
     seen: set[str] = set()
-    ordered: List[str] = []
+    ordered: list[str] = []
     for token in tokens:
         normalized = token
         if normalized in seen:
@@ -422,7 +420,7 @@ def _normalize_release_ids(raw: object) -> Tuple[str, ...]:
     return tuple(ordered)
 
 
-def _probe_msi_wmi() -> Dict[str, Dict[str, Any]]:
+def _probe_msi_wmi() -> dict[str, dict[str, Any]]:
     """!
     @brief Collect MSI product metadata via ``wmic`` when available.
     """
@@ -442,7 +440,7 @@ def _probe_msi_wmi() -> Dict[str, Dict[str, Any]]:
     except csv.Error:
         return {}
 
-    results: Dict[str, Dict[str, Any]] = {}
+    results: dict[str, dict[str, Any]] = {}
     for row in reader:
         product_code = str(row.get("IdentifyingNumber") or "").strip()
         name = str(row.get("Name") or "").strip()
@@ -462,7 +460,7 @@ def _probe_msi_wmi() -> Dict[str, Dict[str, Any]]:
     return results
 
 
-def _probe_msi_powershell() -> Dict[str, Dict[str, Any]]:
+def _probe_msi_powershell() -> dict[str, dict[str, Any]]:
     """!
     @brief Collect MSI product metadata via ``powershell`` CIM queries when available.
     """
@@ -485,7 +483,7 @@ def _probe_msi_powershell() -> Dict[str, Dict[str, Any]]:
         return {}
 
     records = payload if isinstance(payload, list) else [payload]
-    results: Dict[str, Dict[str, Any]] = {}
+    results: dict[str, dict[str, Any]] = {}
     for record in records:
         if not isinstance(record, Mapping):
             continue
@@ -505,21 +503,21 @@ def _probe_msi_powershell() -> Dict[str, Dict[str, Any]]:
     return results
 
 
-def detect_msi_installations() -> List[DetectedInstallation]:
+def detect_msi_installations() -> list[DetectedInstallation]:
     """!
     @brief Inspect the registry and return metadata for MSI-based Office installs.
     """
 
-    installations: List[DetectedInstallation] = []
+    installations: list[DetectedInstallation] = []
     seen_handles: set[str] = set()
     seen_codes: set[str] = set()
 
-    fallback_sources: Dict[str, Dict[str, Any]] = {}
+    fallback_sources: dict[str, dict[str, Any]] = {}
     _merge_fallback_metadata(fallback_sources, _probe_msi_wmi())
     _merge_fallback_metadata(fallback_sources, _probe_msi_powershell())
 
     for product_code, metadata in constants.MSI_PRODUCT_MAP.items():
-        registry_roots: Iterable[Tuple[int, str]] = metadata.get(
+        registry_roots: Iterable[tuple[int, str]] = metadata.get(
             "registry_roots", constants.MSI_UNINSTALL_ROOTS
         )
         for hive, base_key in registry_roots:
@@ -533,9 +531,7 @@ def detect_msi_installations() -> List[DetectedInstallation]:
                 continue
 
             fallback_meta = fallback_sources.pop(product_code.upper(), None)
-            display_name = str(
-                values.get("DisplayName") or metadata.get("product") or product_code
-            )
+            display_name = str(values.get("DisplayName") or metadata.get("product") or product_code)
             display_version = str(
                 values.get("DisplayVersion")
                 or metadata.get("version")
@@ -549,7 +545,9 @@ def detect_msi_installations() -> List[DetectedInstallation]:
             display_icon_value = str(values.get("DisplayIcon") or "").strip()
             maintenance_paths = _collect_maintenance_paths(values)
             raw_architecture = str(metadata.get("architecture", "")).strip()
-            architecture = raw_architecture or _infer_architecture(display_name, install_location or None)
+            architecture = raw_architecture or _infer_architecture(
+                display_name, install_location or None
+            )
             if not architecture:
                 architecture = "unknown"
             family = constants.resolve_msi_family(product_code) or str(metadata.get("family", ""))
@@ -559,7 +557,7 @@ def detect_msi_installations() -> List[DetectedInstallation]:
                 values.get("ProductLanguage"),
             )
 
-            properties: Dict[str, object] = {
+            properties: dict[str, object] = {
                 "display_name": display_name,
                 "display_version": display_version,
                 "supported_versions": list(metadata.get("supported_versions", ())),
@@ -605,7 +603,7 @@ def detect_msi_installations() -> List[DetectedInstallation]:
         install_location = str(metadata.get("install_location") or "")
         architecture = _infer_architecture(display_name, install_location or None) or "unknown"
         handles = _candidate_msi_handles(product_code)
-        properties: Dict[str, object] = {
+        properties: dict[str, object] = {
             "display_name": display_name,
             "display_version": version,
         }
@@ -633,12 +631,12 @@ def detect_msi_installations() -> List[DetectedInstallation]:
     return installations
 
 
-def detect_c2r_installations() -> List[DetectedInstallation]:
+def detect_c2r_installations() -> list[DetectedInstallation]:
     """!
     @brief Probe Click-to-Run configuration to describe installed suites.
     """
 
-    installations: List[DetectedInstallation] = []
+    installations: list[DetectedInstallation] = []
 
     for hive, config_path in constants.C2R_CONFIGURATION_KEYS:
         config_values = _read_values_with_fallback(hive, config_path)
@@ -670,7 +668,9 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
             or config_values.get("CDNBaseUrl")
         )
         global_channel = _friendly_channel(str(channel_identifier) if channel_identifier else None)
-        package_guid = str(config_values.get("PackageGUID") or config_values.get("PackageGuid") or "")
+        package_guid = str(
+            config_values.get("PackageGUID") or config_values.get("PackageGuid") or ""
+        )
         install_path = str(
             config_values.get("InstallPath")
             or config_values.get("ClientFolder")
@@ -688,7 +688,9 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
         for release_id in release_ids:
             product_metadata = constants.C2R_PRODUCT_RELEASES.get(release_id)
             product_name = (
-                str((product_metadata or {}).get("product", release_id)) if product_metadata else release_id
+                str((product_metadata or {}).get("product", release_id))
+                if product_metadata
+                else release_id
             )
             supported_versions = tuple(
                 str(v) for v in (product_metadata or {}).get("supported_versions", ())
@@ -702,7 +704,7 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
 
             uninstall_handles: set[str] = {base_handle}
             registry_paths = (product_metadata or {}).get("registry_paths", {})
-            release_roots: Iterable[Tuple[int, str]] = registry_paths.get(
+            release_roots: Iterable[tuple[int, str]] = registry_paths.get(
                 "product_release_ids", constants.C2R_PRODUCT_RELEASE_ROOTS
             )
             for rel_hive, rel_base in release_roots:
@@ -737,7 +739,7 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
             if architecture_choice == "unknown" and supported_architectures:
                 architecture_choice = supported_architectures[0]
 
-            properties: Dict[str, object] = {
+            properties: dict[str, object] = {
                 "release_id": release_id,
                 "version": version,
                 "supported_versions": list(supported_versions),
@@ -772,15 +774,21 @@ def detect_c2r_installations() -> List[DetectedInstallation]:
     return installations
 
 
-def gather_office_inventory(*, limited_user: bool | None = None) -> Dict[str, object]:
+def gather_office_inventory(*, limited_user: bool | None = None) -> dict[str, object]:
     """!
     @brief Aggregate MSI, C2R, and ancillary signals into an inventory payload.
     """
 
     run_under_limited = bool(limited_user)
     human_logger = logging_ext.get_human_logger()
-    if run_under_limited and elevation.is_admin() and not os.environ.get("OFFICE_JANITOR_DEELEVATED"):
-        human_logger.info("Detection requested under limited user context; attempting de-elevated probes.")
+    if (
+        run_under_limited
+        and elevation.is_admin()
+        and not os.environ.get("OFFICE_JANITOR_DEELEVATED")
+    ):
+        human_logger.info(
+            "Detection requested under limited user context; attempting de-elevated probes."
+        )
         result = elevation.run_as_limited_user(
             [sys.executable, "-m", "office_janitor.detect"],
             event="detect_deelevate",
@@ -792,9 +800,11 @@ def gather_office_inventory(*, limited_user: bool | None = None) -> Dict[str, ob
                 if isinstance(parsed, dict):
                     return parsed
             except json.JSONDecodeError:
-                human_logger.warning("Failed to parse limited-user detection output; falling back to current context.")
+                human_logger.warning(
+                    "Failed to parse limited-user detection output; falling back to current context."
+                )
 
-    inventory: Dict[str, object] = {
+    inventory: dict[str, object] = {
         "context": {
             "user": elevation.current_username(),
             "is_admin": elevation.is_admin(),
@@ -847,7 +857,7 @@ def gather_office_inventory(*, limited_user: bool | None = None) -> Dict[str, ob
         path_str = str(candidate)
         if path_str in seen_paths:
             continue
-        entry: Dict[str, object] = {
+        entry: dict[str, object] = {
             "path": path_str,
             "label": template.get("label", ""),
             "category": template.get("category", "residue"),
@@ -860,7 +870,7 @@ def gather_office_inventory(*, limited_user: bool | None = None) -> Dict[str, ob
     return inventory
 
 
-def reprobe(options: Mapping[str, object] | None = None) -> Dict[str, object]:
+def reprobe(options: Mapping[str, object] | None = None) -> dict[str, object]:
     """!
     @brief Re-run Office detection after a scrub pass to check for leftovers.
     @details The optional ``options`` mapping is accepted for parity with future
@@ -876,7 +886,7 @@ def reprobe(options: Mapping[str, object] | None = None) -> Dict[str, object]:
     return gather_office_inventory(limited_user=limited_user)
 
 
-def _run_command(arguments: Iterable[str]) -> Tuple[int, str]:
+def _run_command(arguments: Iterable[str]) -> tuple[int, str]:
     """!
     @brief Execute a subprocess returning ``(returncode, text_output)``.
     @details Failures caused by missing binaries or platform limitations are
@@ -888,13 +898,8 @@ def _run_command(arguments: Iterable[str]) -> Tuple[int, str]:
     if not command_list:
         return 1, ""
 
-    event = (
-        "detect_"
-        + command_list[0]
-        .lower()
-        .replace("/", "_")
-        .replace("\\", "_")
-        .replace(".", "_")
+    event = "detect_" + command_list[0].lower().replace("/", "_").replace("\\", "_").replace(
+        ".", "_"
     )
     result = exec_utils.run_command(command_list, event=event)
 
@@ -920,7 +925,7 @@ if __name__ == "__main__":  # pragma: no cover - manual execution
     raise SystemExit(main())
 
 
-def gather_running_office_processes() -> List[Dict[str, str]]:
+def gather_running_office_processes() -> list[dict[str, str]]:
     """!
     @brief Inspect running processes for Office executables via ``tasklist``.
     @details Output is filtered to the executables referenced in the
@@ -932,7 +937,7 @@ def gather_running_office_processes() -> List[Dict[str, str]]:
     if code != 0 and not output:
         return []
 
-    processes: List[Dict[str, str]] = []
+    processes: list[dict[str, str]] = []
     reader = csv.reader(line.strip("\ufeff") for line in output.splitlines() if line.strip())
 
     for row in reader:
@@ -944,7 +949,7 @@ def gather_running_office_processes() -> List[Dict[str, str]]:
         name = row[0].strip()
         if name.lower() not in _OFFICE_PROCESS_TARGETS:
             continue
-        entry: Dict[str, str] = {"name": name}
+        entry: dict[str, str] = {"name": name}
         if len(row) > 1:
             entry["pid"] = row[1].strip()
         if len(row) > 2:
@@ -958,7 +963,7 @@ def gather_running_office_processes() -> List[Dict[str, str]]:
     return processes
 
 
-def gather_office_services() -> List[Dict[str, str]]:
+def gather_office_services() -> list[dict[str, str]]:
     """!
     @brief Enumerate Office-related Windows services via ``sc query``.
     @details The collected state helps diagnose Click-to-Run agent activity and
@@ -969,7 +974,7 @@ def gather_office_services() -> List[Dict[str, str]]:
     if code != 0 and not output:
         return []
 
-    services: List[Dict[str, str]] = []
+    services: list[dict[str, str]] = []
     current_name: str | None = None
 
     for raw_line in output.splitlines():
@@ -985,7 +990,9 @@ def gather_office_services() -> List[Dict[str, str]]:
             _, _, value = line.partition(":")
             state_detail = value.strip()
             state_parts = state_detail.split()
-            state = state_parts[1] if len(state_parts) > 1 else state_parts[0] if state_parts else ""
+            state = (
+                state_parts[1] if len(state_parts) > 1 else state_parts[0] if state_parts else ""
+            )
             if current_name.lower() in _SERVICE_TARGETS:
                 services.append(
                     {
@@ -999,7 +1006,7 @@ def gather_office_services() -> List[Dict[str, str]]:
     return services
 
 
-def gather_office_tasks() -> List[Dict[str, str]]:
+def gather_office_tasks() -> list[dict[str, str]]:
     """!
     @brief Query scheduled tasks associated with Office maintenance.
     @details Uses ``schtasks`` to surface telemetry, licensing, and background
@@ -1010,7 +1017,7 @@ def gather_office_tasks() -> List[Dict[str, str]]:
     if code != 0 and not output:
         return []
 
-    tasks: List[Dict[str, str]] = []
+    tasks: list[dict[str, str]] = []
     reader = csv.reader(line.strip("\ufeff") for line in output.splitlines() if line.strip())
 
     for row in reader:
@@ -1021,7 +1028,7 @@ def gather_office_tasks() -> List[Dict[str, str]]:
             continue
         if not any(task_name.startswith(prefix) for prefix in _TASK_PREFIXES):
             continue
-        entry: Dict[str, str] = {"task": task_name}
+        entry: dict[str, str] = {"task": task_name}
         if len(row) > 1:
             entry["next_run_time"] = row[1].strip()
         if len(row) > 2:
@@ -1032,7 +1039,7 @@ def gather_office_tasks() -> List[Dict[str, str]]:
     return tasks
 
 
-def gather_activation_state() -> Dict[str, Any]:
+def gather_activation_state() -> dict[str, Any]:
     """!
     @brief Inspect activation metadata from the Office Software Protection Platform.
     @details Converts registry values to JSON-friendly primitives for inclusion
@@ -1052,7 +1059,7 @@ def gather_activation_state() -> Dict[str, Any]:
     if not values:
         return {}
 
-    serialised: Dict[str, Any] = {}
+    serialised: dict[str, Any] = {}
     for key, value in values.items():
         if isinstance(value, (str, int, float, bool)) or value is None:
             serialised[str(key)] = value
@@ -1062,14 +1069,14 @@ def gather_activation_state() -> Dict[str, Any]:
     return {"path": registry_path, "values": serialised}
 
 
-def gather_registry_residue() -> List[Dict[str, str]]:
+def gather_registry_residue() -> list[dict[str, str]]:
     """!
     @brief Identify registry hives that likely require cleanup.
     @details The returned list mirrors OffScrub residue heuristics so planners
     can schedule deletions alongside filesystem cleanup once uninstalls complete.
     """
 
-    entries: List[Dict[str, str]] = []
+    entries: list[dict[str, str]] = []
 
     for hive, path in constants.REGISTRY_RESIDUE_PATHS:
         if not _key_exists_with_fallback(hive, path):

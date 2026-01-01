@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, List
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import constants, plan
+from office_janitor import constants, plan  # noqa: E402
 
 
 class TestPlanBuilder:
@@ -33,7 +32,7 @@ class TestPlanBuilder:
         by licensing and cleanup actions, all linked with dependency metadata.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{91190000-0011-0000-0000-0000000FF1CE}",
@@ -69,7 +68,9 @@ class TestPlanBuilder:
         categories = [step["category"] for step in plan_steps]
         assert categories[:2] == ["context", "detect"]
 
-        c2r_indices = [index for index, category in enumerate(categories) if category == "c2r-uninstall"]
+        c2r_indices = [
+            index for index, category in enumerate(categories) if category == "c2r-uninstall"
+        ]
         assert c2r_indices and min(c2r_indices) == 2
         first_msi_index = categories.index("msi-uninstall")
         assert max(c2r_indices) < first_msi_index
@@ -117,8 +118,7 @@ class TestPlanBuilder:
             step
             for step in plan_steps
             if step["category"] == "c2r-uninstall"
-            and "O365ProPlusRetail"
-            in step["metadata"]["installation"].get("release_ids", [])
+            and "O365ProPlusRetail" in step["metadata"]["installation"].get("release_ids", [])
         )
         assert msi_step["metadata"]["version"] == "2019"
         assert detection_c2r_step["metadata"]["version"] == "365"
@@ -131,7 +131,7 @@ class TestPlanBuilder:
         uninstall sequence mirrors OffScrub automation.
         """
 
-        inventory: Dict[str, List[dict]] = {}
+        inventory: dict[str, list[dict]] = {}
         options = {"auto_all": True}
 
         plan_steps = plan.build_plan(inventory, options)
@@ -180,7 +180,7 @@ class TestPlanBuilder:
         @brief Detected Click-to-Run suites should not be duplicated when seeded.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "c2r": [
                 {
                     "product": "Microsoft 365 Apps for enterprise",
@@ -207,7 +207,7 @@ class TestPlanBuilder:
         @brief Optional components should be seeded when explicitly included.
         """
 
-        inventory: Dict[str, List[dict]] = {}
+        inventory: dict[str, list[dict]] = {}
         options = {"auto_all": True, "include": "Visio"}
 
         plan_steps = plan.build_plan(inventory, options)
@@ -228,7 +228,7 @@ class TestPlanBuilder:
         2016+, 2013, 2010, then 2007.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {"product_code": "{A}", "display_name": "Office 2007", "version": "2007"},
                 {"product_code": "{B}", "display_name": "Office 2013", "version": "2013"},
@@ -246,8 +246,12 @@ class TestPlanBuilder:
         plan_steps = plan.build_plan(inventory, {"auto_all": True})
 
         categories = [step["category"] for step in plan_steps]
-        c2r_indices = [index for index, category in enumerate(categories) if category == "c2r-uninstall"]
-        msi_indices = [index for index, category in enumerate(categories) if category == "msi-uninstall"]
+        c2r_indices = [
+            index for index, category in enumerate(categories) if category == "c2r-uninstall"
+        ]
+        msi_indices = [
+            index for index, category in enumerate(categories) if category == "msi-uninstall"
+        ]
 
         assert c2r_indices and msi_indices
         assert max(c2r_indices) < min(msi_indices)
@@ -267,7 +271,7 @@ class TestPlanBuilder:
         OffScrub 2016+ stage based on ``supported_versions`` metadata.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{C}",
@@ -311,7 +315,7 @@ class TestPlanBuilder:
         scheduled when `--target` is supplied.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
@@ -346,7 +350,7 @@ class TestPlanBuilder:
         scheduled for removal during targeted runs.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
@@ -378,7 +382,7 @@ class TestPlanBuilder:
         cleanup-only selections must take precedence to prevent uninstalls.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
@@ -411,7 +415,7 @@ class TestPlanBuilder:
         still respecting dry-run metadata.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
@@ -467,7 +471,7 @@ class TestPlanBuilder:
         @brief Planner emits task and service cleanup steps when inventory reports them.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "tasks": [
                 {"task": r"\\Microsoft\\Office\\TelemetryTask"},
                 {"name": r"\\Microsoft\\Office\\OtherTask"},
@@ -500,7 +504,7 @@ class TestPlanBuilder:
         diagnostics mode per the specification.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
@@ -521,7 +525,7 @@ class TestPlanBuilder:
         @brief Subsequent passes use distinct identifiers for uninstall steps.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
@@ -570,7 +574,7 @@ class TestPlanBuilder:
         @brief Include flags should be normalized and stored in metadata.
         """
 
-        inventory: Dict[str, List[dict]] = {}
+        inventory: dict[str, list[dict]] = {}
         options = {"auto_all": True, "include": "Visio,Project,unknown"}
 
         plan_steps = plan.build_plan(inventory, options)
@@ -588,7 +592,7 @@ class TestPlanBuilder:
         @brief :func:`plan.summarize_plan` aggregates categories and versions.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
@@ -614,7 +618,7 @@ class TestPlanBuilder:
         @brief Dry-run flag should reach every actionable step emitted by the planner.
         """
 
-        inventory: Dict[str, List[dict]] = {
+        inventory: dict[str, list[dict]] = {
             "msi": [
                 {
                     "product_code": "{91160000-0011-0000-0000-0000000FF1CE}",
@@ -641,10 +645,9 @@ class TestPlanBuilder:
         @brief Licensing cleanup is omitted when keep_license/no_license is set.
         """
 
-        inventory: Dict[str, List[dict]] = {"msi": [], "c2r": [], "filesystem": [], "registry": []}
+        inventory: dict[str, list[dict]] = {"msi": [], "c2r": [], "filesystem": [], "registry": []}
         options = {"auto_all": True, "keep_license": True}
 
         plan_steps = plan.build_plan(inventory, options)
         categories = {step["category"] for step in plan_steps}
         assert "licensing-cleanup" not in categories
-

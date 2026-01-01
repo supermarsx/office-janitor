@@ -4,12 +4,13 @@
 falls back to ``setup.exe`` when necessary, and verifies registry/file system
 state to confirm the Click-to-Run footprint has been removed.
 """
+
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Mapping, MutableMapping, Sequence
 
 from . import command_runner, constants, logging_ext, registry_tools, tasks_services
 
@@ -25,7 +26,9 @@ C2R_CLIENT_ARGS = (
 
 C2R_CLIENT_CANDIDATES = (
     Path(r"C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeC2RClient.exe"),
-    Path(r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeC2RClient.exe"),
+    Path(
+        r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeC2RClient.exe"
+    ),
 )
 """!
 @brief Default filesystem locations checked for ``OfficeC2RClient.exe``.
@@ -65,9 +68,7 @@ C2R_VERIFICATION_DELAY = 5.0
 """
 
 
-_C2R_RELEASE_LOOKUP = {
-    key.lower(): key for key in constants.C2R_PRODUCT_RELEASES.keys()
-}
+_C2R_RELEASE_LOOKUP = {key.lower(): key for key in constants.C2R_PRODUCT_RELEASES.keys()}
 """!
 @brief Case-insensitive mapping for Click-to-Run release identifiers.
 """
@@ -93,7 +94,7 @@ class _C2RTarget:
     setup_candidates: Sequence[Path]
 
 
-def _collect_release_ids(raw: object) -> List[str]:
+def _collect_release_ids(raw: object) -> list[str]:
     """!
     @brief Normalise release identifier metadata into a list of strings.
     """
@@ -102,12 +103,10 @@ def _collect_release_ids(raw: object) -> List[str]:
         return []
     if isinstance(raw, str):
         return [
-            _canonical_release_id(part)
-            for part in raw.replace(";", ",").split(",")
-            if part.strip()
+            _canonical_release_id(part) for part in raw.replace(";", ",").split(",") if part.strip()
         ]
     if isinstance(raw, Sequence):
-        items: List[str] = []
+        items: list[str] = []
         for value in raw:
             text = str(value).strip()
             if text:
@@ -153,9 +152,7 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
 
     release_metadata: MutableMapping[str, Mapping[str, object]] = {}
     for release_id in release_ids:
-        metadata = constants.C2R_PRODUCT_RELEASES.get(
-            _canonical_release_id(release_id)
-        )
+        metadata = constants.C2R_PRODUCT_RELEASES.get(_canonical_release_id(release_id))
         if metadata:
             release_metadata[release_id] = metadata
 
@@ -163,11 +160,7 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
         mapping.get("product")
         or property_map.get("product")
         or next(
-            (
-                str(meta.get("product"))
-                for meta in release_metadata.values()
-                if meta.get("product")
-            ),
+            (str(meta.get("product")) for meta in release_metadata.values() if meta.get("product")),
             None,
         )
         or (", ".join(release_ids) if release_ids else "Click-to-Run Suite")
@@ -178,7 +171,7 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
     if isinstance(raw_handles, Sequence) and not isinstance(raw_handles, (str, bytes)):
         uninstall_handles = [str(handle).strip() for handle in raw_handles if str(handle).strip()]
 
-    derived_handles: List[str] = []
+    derived_handles: list[str] = []
     if release_metadata:
         for release_id, metadata in release_metadata.items():
             registry_paths = metadata.get("registry_paths")
@@ -193,12 +186,12 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
                     suffix = release_id if category == "product_release_ids" else ""
                     location = f"{base}\\{suffix}" if suffix else base
                     derived_handles.append(
-                        f"{registry_tools.hive_name(hive)}\\{location.strip('\\')}"
+                        registry_tools.hive_name(hive) + "\\" + location.strip("\\")
                     )
     if derived_handles:
         uninstall_handles = list(dict.fromkeys([*uninstall_handles, *derived_handles]))
 
-    install_paths: List[Path] = []
+    install_paths: list[Path] = []
     for candidate in (
         mapping.get("install_path"),
         property_map.get("install_path"),
@@ -212,7 +205,7 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
             continue
         install_paths.append(path)
 
-    client_candidates: List[Path] = []
+    client_candidates: list[Path] = []
     raw_client = mapping.get("client_path") or property_map.get("client_path")
     if raw_client:
         client_candidates.append(Path(str(raw_client)))
@@ -227,7 +220,7 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
         client_candidates.append(base / "OfficeC2RClient.exe")
     client_candidates.extend(C2R_CLIENT_CANDIDATES)
 
-    setup_candidates: List[Path] = []
+    setup_candidates: list[Path] = []
     raw_setup = mapping.get("setup_path") or property_map.get("setup_path")
     if raw_setup:
         setup_candidates.append(Path(str(raw_setup)))
@@ -315,9 +308,7 @@ def _await_removal(target: _C2RTarget) -> bool:
             },
         )
         if not registry_present and not filesystem_present:
-            human_logger.info(
-                "Confirmed Click-to-Run removal for %s", target.display_name
-            )
+            human_logger.info("Confirmed Click-to-Run removal for %s", target.display_name)
             return True
         if attempt < C2R_VERIFICATION_ATTEMPTS:
             time.sleep(C2R_VERIFICATION_DELAY)
@@ -398,9 +389,10 @@ def uninstall_products(
         command = [str(client_path), *C2R_CLIENT_ARGS]
         result: command_runner.CommandResult | None = None
         for attempt in range(1, total_attempts + 1):
-            message = (
-                "Uninstalling Click-to-Run suite %s [attempt %d/%d]"
-                % (target.display_name, attempt, total_attempts)
+            message = "Uninstalling Click-to-Run suite %s [attempt %d/%d]" % (
+                target.display_name,
+                attempt,
+                total_attempts,
             )
             result = command_runner.run_command(
                 command,
@@ -420,9 +412,7 @@ def uninstall_products(
             if result.returncode == 0:
                 break
             if attempt < total_attempts:
-                human_logger.warning(
-                    "Retrying Click-to-Run uninstall via OfficeC2RClient.exe"
-                )
+                human_logger.warning("Retrying Click-to-Run uninstall via OfficeC2RClient.exe")
                 time.sleep(C2R_RETRY_DELAY)
         if result is not None and not (result.skipped or dry_run) and result.returncode != 0:
             machine_logger.error(

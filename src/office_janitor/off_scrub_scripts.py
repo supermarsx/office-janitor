@@ -8,15 +8,15 @@ helpers in this module write those stand-ins to disk on demand so that the rest
 of the uninstaller code can continue to drive ``cscript.exe`` with familiar
 arguments while remaining self-contained.
 """
+
 from __future__ import annotations
 
-import tempfile
 import sys
+import tempfile
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Mapping, Sequence, List
 
 from . import constants
-
 
 _SCRIPT_BODIES: Mapping[str, str] = {
     "OffScrub03.vbs": (
@@ -102,7 +102,7 @@ def build_offscrub_command(
     version: str | None = None,
     base_directory: Path | None = None,
     extra_args: Sequence[str] | None = None,
-) -> List[str]:
+) -> list[str]:
     """!
     @brief Build a command line for invoking an OffScrub helper.
     @param kind Either ``"msi"`` or ``"c2r"`` indicating the command template.
@@ -121,7 +121,7 @@ def build_offscrub_command(
     executable = sys.executable
     host_args = ["-m", "office_janitor.off_scrub_native"]
 
-    args: List[str] = []
+    args: list[str] = []
     script_path = None
 
     if kind == "msi":
@@ -141,7 +141,7 @@ def build_offscrub_command(
         raise KeyError(f"Unsupported OffScrub kind: {kind}")
 
     # Preserve the generated script path in the arguments for compatibility
-    final: List[str] = [executable, *host_args, *args, str(script_path)]
+    final: list[str] = [executable, *host_args, *args, str(script_path)]
     if extra_args:
         final.extend([str(part) for part in extra_args])
     return final
@@ -160,7 +160,9 @@ def ensure_offscrub_launcher(script_path: Path) -> Path:
     if not cmd_path.exists():
         # Keep the launcher simple and cross-platform friendly for CI: use
         # the same sys.executable invocation the `build_offscrub_command` uses.
-        launcher_content = f'"{sys.executable}" -m office_janitor.off_scrub_native "msi" "{script_path}"\n'
+        launcher_content = (
+            f'"{sys.executable}" -m office_janitor.off_scrub_native "msi" "{script_path}"\n'
+        )
         try:
             cmd_path.write_text(launcher_content, encoding="utf-8")
         except Exception:
@@ -169,14 +171,14 @@ def ensure_offscrub_launcher(script_path: Path) -> Path:
     return cmd_path
 
 
-def ensure_all_offscrub_shims(*, base_directory: Path | None = None) -> List[Path]:
+def ensure_all_offscrub_shims(*, base_directory: Path | None = None) -> list[Path]:
     """!
     @brief Materialise all known OffScrub shim scripts and return their paths.
     @param base_directory Optional directory where the scripts should be written.
     @returns List of filesystem paths for each generated script.
     """
 
-    paths: List[Path] = []
+    paths: list[Path] = []
     for name in _SCRIPT_BODIES.keys():
         p = ensure_offscrub_script(name, base_directory=base_directory)
         # Emit a launcher for compatibility (best-effort)

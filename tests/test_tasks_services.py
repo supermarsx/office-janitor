@@ -9,14 +9,14 @@ from __future__ import annotations
 import json
 import pathlib
 import sys
-from typing import List, Sequence
+from collections.abc import Sequence
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import exec_utils, logging_ext, tasks_services
+from office_janitor import exec_utils, logging_ext, tasks_services  # noqa: E402
 
 
 def _command_result(
@@ -51,7 +51,7 @@ def test_stop_services_timeout_requests_reboot(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         commands.append([str(part) for part in command])

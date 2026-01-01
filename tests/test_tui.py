@@ -1,6 +1,7 @@
 """!
 @brief Tests for the text-based user interface engine.
 """
+
 from __future__ import annotations
 
 from collections import deque
@@ -10,7 +11,12 @@ from src.office_janitor import tui
 
 
 def _make_app_state():
-    calls: dict[str, object] = {"detect": 0, "run": 0, "planner_overrides": None, "executor_overrides": None}
+    calls: dict[str, object] = {
+        "detect": 0,
+        "run": 0,
+        "planner_overrides": None,
+        "executor_overrides": None,
+    }
 
     def detector() -> dict[str, list[str]]:
         calls["detect"] = int(calls["detect"]) + 1

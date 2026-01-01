@@ -5,15 +5,15 @@ running destructive operations. The helpers provide structured logging, dry-run
 simulation, and defensive error handling so callers can safely request restore
 coverage when available.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import textwrap
-from typing import Sequence
+from collections.abc import Sequence
 
 from . import exec_utils, logging_ext
-
 
 _POWERSHELL_EXECUTABLE = "powershell.exe"
 _POWERSHELL_TIMEOUT_SECONDS = 180
@@ -92,9 +92,7 @@ def create_restore_point(
     stdout = (result.stdout or "").strip()
 
     if result.error == "timeout" or result.timed_out:
-        human_logger.warning(
-            "System restore point creation timed out after %s seconds.", timeout
-        )
+        human_logger.warning("System restore point creation timed out after %s seconds.", timeout)
         machine_logger.warning(
             "restore_point.timeout",
             extra={

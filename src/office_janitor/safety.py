@@ -7,11 +7,12 @@ constraints. The functions exported here are invoked by the CLI entry point
 and by destructive subsystems prior to mutating the host so that ``--dry-run``
 and ``--force`` semantics remain consistent.
 """
+
 from __future__ import annotations
 
 import os
 import shutil
-from typing import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from . import constants, fs_tools
 
@@ -34,6 +35,7 @@ DEFAULT_MINIMUM_FREE_SPACE_BYTES = 1 * 1024 * 1024 * 1024
 
 def _query_disk_usage(path: str) -> shutil._ntuple_diskusage:
     return shutil.disk_usage(path)
+
 
 REGISTRY_WHITELIST = (
     r"HKLM\\SOFTWARE\\MICROSOFT\\OFFICE",
@@ -76,7 +78,10 @@ def perform_preflight_checks(plan: Iterable[Mapping[str, object]]) -> None:
     unsupported = metadata.get("unsupported_targets", []) or []
 
     if unsupported:
-        raise ValueError("Unsupported Office versions requested: " + ", ".join(sorted({str(u) for u in unsupported})))
+        raise ValueError(
+            "Unsupported Office versions requested: "
+            + ", ".join(sorted({str(u) for u in unsupported}))
+        )
 
     if mode == "diagnose":
         _ensure_no_action_steps(plan_steps)
@@ -144,9 +149,7 @@ def evaluate_runtime_environment(
         force=force,
         allow_unsupported_windows=allow_unsupported_windows,
     )
-    _enforce_process_guard(
-        blocking_processes=blocking_processes, dry_run=dry_run, force=force
-    )
+    _enforce_process_guard(blocking_processes=blocking_processes, dry_run=dry_run, force=force)
     _enforce_restore_point_guard(
         require_restore_point=require_restore_point,
         restore_point_available=restore_point_available,
@@ -216,7 +219,9 @@ def _ensure_dry_run_consistency(plan_steps: Sequence[Mapping[str, object]], dry_
             raise ValueError("Plan step dry-run flag disagrees with global selection.")
 
 
-def _enforce_target_scope(plan_steps: Sequence[Mapping[str, object]], targets: Sequence[str]) -> None:
+def _enforce_target_scope(
+    plan_steps: Sequence[Mapping[str, object]], targets: Sequence[str]
+) -> None:
     if not targets:
         return
     allowed = {str(target) for target in targets}
@@ -249,10 +254,15 @@ def _enforce_registry_whitelist(plan_steps: Sequence[Mapping[str, object]]) -> N
 
 
 def _path_allowed(path: str) -> bool:
-    if fs_tools.is_path_whitelisted(path, whitelist=FILESYSTEM_WHITELIST, blacklist=FILESYSTEM_BLACKLIST):
+    if fs_tools.is_path_whitelisted(
+        path, whitelist=FILESYSTEM_WHITELIST, blacklist=FILESYSTEM_BLACKLIST
+    ):
         return True
     normalized = fs_tools.normalize_windows_path(path)
-    if any(normalized.startswith(fs_tools.normalize_windows_path(blocked)) for blocked in FILESYSTEM_BLACKLIST):
+    if any(
+        normalized.startswith(fs_tools.normalize_windows_path(blocked))
+        for blocked in FILESYSTEM_BLACKLIST
+    ):
         return False
     return False
 
@@ -287,11 +297,7 @@ def _enforce_template_guard(
         purge_flag = bool(metadata.get("purge_templates", False))
         paths = metadata.get("paths", []) or []
 
-        template_targets = [
-            str(path)
-            for path in paths
-            if _is_template_path(str(path))
-        ]
+        template_targets = [str(path) for path in paths if _is_template_path(str(path))]
         if not template_targets:
             continue
 
@@ -301,9 +307,7 @@ def _enforce_template_guard(
             )
 
         if not purge_flag and not global_force:
-            raise ValueError(
-                "Refusing to delete user templates without explicit purge request."
-            )
+            raise ValueError("Refusing to delete user templates without explicit purge request.")
 
 
 def _is_template_path(path: str) -> bool:
@@ -314,11 +318,15 @@ def _is_template_path(path: str) -> bool:
             return True
         if candidate.startswith("%APPDATA%\\"):
             suffix = candidate[len("%APPDATA%") :]
-            if fs_tools.match_environment_suffix(normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True):
+            if fs_tools.match_environment_suffix(
+                normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True
+            ):
                 return True
         if candidate.startswith("%LOCALAPPDATA%\\"):
             suffix = candidate[len("%LOCALAPPDATA%") :]
-            if fs_tools.match_environment_suffix(normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True):
+            if fs_tools.match_environment_suffix(
+                normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True
+            ):
                 return True
     return False
 
@@ -327,9 +335,7 @@ def _enforce_admin_guard(*, is_admin: bool, dry_run: bool) -> None:
     if dry_run:
         return
     if not is_admin:
-        raise PermissionError(
-            "Administrative rights are required for destructive operations."
-        )
+        raise PermissionError("Administrative rights are required for destructive operations.")
 
 
 def _enforce_os_guard(
@@ -341,9 +347,7 @@ def _enforce_os_guard(
 ) -> None:
     system = str(os_system).strip().lower()
     if system and system not in SUPPORTED_SYSTEMS:
-        raise RuntimeError(
-            f"Unsupported operating system '{os_system}'. Windows is required."
-        )
+        raise RuntimeError(f"Unsupported operating system '{os_system}'. Windows is required.")
 
     release_tuple = _parse_windows_release(os_release)
     if (
@@ -370,9 +374,7 @@ def _enforce_process_guard(
         return
 
     joined = ", ".join(active)
-    raise RuntimeError(
-        "The following Office processes must be closed before continuing: " + joined
-    )
+    raise RuntimeError("The following Office processes must be closed before continuing: " + joined)
 
 
 def _enforce_restore_point_guard(
@@ -442,13 +444,13 @@ def _enforce_free_space_guard(
 
 def _parse_windows_release(release: str) -> tuple[int, int]:
     parts: list[int] = []
-    for token in str(release).split('.'):
+    for token in str(release).split("."):
         if len(parts) >= 2:
             break
         token = token.strip()
         if not token:
             continue
-        digits = ''.join(ch for ch in token if ch.isdigit())
+        digits = "".join(ch for ch in token if ch.isdigit())
         if not digits:
             continue
         parts.append(int(digits))

@@ -6,28 +6,30 @@ steps, re-probing inventory, and continuing until no installations remain or a
 pass cap is reached. Cleanup actions are deferred until the final pass so they
 run once per scrub session.
 """
+
 from __future__ import annotations
 
 import datetime
 import time
+from collections.abc import Iterable, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Mapping, MutableMapping
 
 from . import (
-    c2r_uninstall,
-    off_scrub_native,
     constants,
     detect,
     fs_tools,
     licensing,
     logging_ext,
     msi_uninstall,
-    plan as plan_module,
+    off_scrub_native,
     processes,
     registry_tools,
     restore_point,
     tasks_services,
+)
+from . import (
+    plan as plan_module,
 )
 
 DEFAULT_MAX_PASSES = 3
@@ -259,6 +261,7 @@ class StepExecutor:
         if duration < 0:
             return None
         return round(duration, 6)
+
     def _dispatch(
         self,
         *,
@@ -334,9 +337,7 @@ class StepExecutor:
         return None
 
     @staticmethod
-    def _resolve_retry_count(
-        step: Mapping[str, object], metadata: Mapping[str, object]
-    ) -> int:
+    def _resolve_retry_count(step: Mapping[str, object], metadata: Mapping[str, object]) -> int:
         values = [
             step.get("retries"),
             metadata.get("retries"),
@@ -353,9 +354,7 @@ class StepExecutor:
         return 0
 
     @staticmethod
-    def _resolve_retry_delay(
-        step: Mapping[str, object], metadata: Mapping[str, object]
-    ) -> int:
+    def _resolve_retry_delay(step: Mapping[str, object], metadata: Mapping[str, object]) -> int:
         values = [
             step.get("retry_delay"),
             metadata.get("retry_delay"),
@@ -377,22 +376,14 @@ def _merge_reboot_details(details: MutableMapping[str, object], services: Iterab
     @brief Merge ``services`` into ``details`` reboot recommendation payload.
     """
 
-    normalized = [
-        text
-        for text in (str(service).strip() for service in services)
-        if text
-    ]
+    normalized = [text for text in (str(service).strip() for service in services) if text]
     if not normalized:
         return
 
     current = details.get("reboot_services")
     existing: list[str] = []
     if isinstance(current, Iterable) and not isinstance(current, (str, bytes)):
-        existing = [
-            str(item).strip()
-            for item in current
-            if str(item).strip()
-        ]
+        existing = [str(item).strip() for item in current if str(item).strip()]
 
     combined = list(dict.fromkeys([*existing, *normalized]))
     details["reboot_services"] = combined
@@ -462,9 +453,7 @@ def execute_plan(
     )
     if should_request_restore_point:
         try:
-            restore_point.create_restore_point(
-                "Office Janitor pre-cleanup", dry_run=global_dry_run
-            )
+            restore_point.create_restore_point("Office Janitor pre-cleanup", dry_run=global_dry_run)
         except Exception as exc:  # pragma: no cover - defensive logging
             human_logger.warning("Failed to create restore point: %s", exc)
 
@@ -752,9 +741,7 @@ def _execute_steps(
             log_directory = str(configured_logdir)
 
     selected_steps = [
-        step
-        for step in plan_steps
-        if step.get("category", "unknown") in selected_categories
+        step for step in plan_steps if step.get("category", "unknown") in selected_categories
     ]
 
     executor = StepExecutor(
@@ -793,16 +780,8 @@ def _log_summary(results: Iterable[StepResult], passes: int, dry_run: bool) -> N
     successes = sum(1 for item in result_list if item.status == "success")
     failures = sum(1 for item in result_list if item.status == "failed")
     skipped = total - successes - failures
-    backups_requested = sum(
-        1
-        for item in result_list
-        if bool(item.details.get("backup_requested"))
-    )
-    backups_performed = sum(
-        1
-        for item in result_list
-        if bool(item.details.get("backup_performed"))
-    )
+    backups_requested = sum(1 for item in result_list if bool(item.details.get("backup_requested")))
+    backups_performed = sum(1 for item in result_list if bool(item.details.get("backup_performed")))
 
     reboot_recommended = False
     reboot_services: list[str] = []
@@ -958,7 +937,9 @@ def _perform_registry_cleanup(
     step_logdir = _normalize_option_path(metadata.get("log_directory")) or default_logdir
 
     if step_backup is None and step_logdir is not None:
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("registry-backup-%Y%m%d-%H%M%S")
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+            "registry-backup-%Y%m%d-%H%M%S"
+        )
         step_backup = str(Path(step_logdir) / timestamp)
 
     backup_requested = bool(step_backup)
@@ -980,9 +961,7 @@ def _perform_registry_cleanup(
             registry_tools.export_keys(keys, step_backup)
             backup_performed = True
         else:
-            human_logger.warning(
-                "Proceeding without registry backup; no destination available."
-            )
+            human_logger.warning("Proceeding without registry backup; no destination available.")
 
     registry_tools.delete_keys(keys, dry_run=dry_run)
 
@@ -1064,4 +1043,3 @@ def _is_user_template_path(path: str) -> bool:
             ):
                 return True
     return False
-

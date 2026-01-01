@@ -8,7 +8,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import off_scrub_scripts, constants
+from office_janitor import constants, off_scrub_scripts  # noqa: E402
 
 
 def test_build_offscrub_command_msi_defaults(tmp_path):

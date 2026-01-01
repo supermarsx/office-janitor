@@ -10,7 +10,6 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, List
 
 import pytest
 
@@ -28,19 +27,27 @@ class _StubLogger:
     """
 
     def __init__(self) -> None:
-        self.records: List[tuple[str, str, Dict[str, object]]] = []
+        self.records: list[tuple[str, str, dict[str, object]]] = []
 
-    def _record(self, level: str, message: str, args: tuple[object, ...], kwargs: Dict[str, object]) -> None:
+    def _record(
+        self, level: str, message: str, args: tuple[object, ...], kwargs: dict[str, object]
+    ) -> None:
         text = message % args if args else message
         self.records.append((level, text, dict(kwargs)))
 
-    def info(self, message: str, *args: object, **kwargs: object) -> None:  # noqa: D401 - logging compatibility
+    def info(
+        self, message: str, *args: object, **kwargs: object
+    ) -> None:  # noqa: D401 - logging compatibility
         self._record("info", message, args, kwargs)
 
-    def warning(self, message: str, *args: object, **kwargs: object) -> None:  # noqa: D401 - logging compatibility
+    def warning(
+        self, message: str, *args: object, **kwargs: object
+    ) -> None:  # noqa: D401 - logging compatibility
         self._record("warning", message, args, kwargs)
 
-    def error(self, message: str, *args: object, **kwargs: object) -> None:  # noqa: D401 - logging compatibility
+    def error(
+        self, message: str, *args: object, **kwargs: object
+    ) -> None:  # noqa: D401 - logging compatibility
         self._record("error", message, args, kwargs)
 
 
@@ -75,9 +82,11 @@ def test_run_command_dry_run_logs_without_invocation(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(exec_utils.logging_ext, "get_human_logger", lambda: human_logger)
     monkeypatch.setattr(exec_utils.logging_ext, "get_machine_logger", lambda: machine_logger)
 
-    calls: List[List[str]] = []
+    calls: list[list[str]] = []
 
-    def fake_run(*args: object, **kwargs: object) -> None:  # pragma: no cover - should not be called
+    def fake_run(
+        *args: object, **kwargs: object
+    ) -> None:  # pragma: no cover - should not be called
         calls.append(list(args[0]))
         raise AssertionError("subprocess.run should not be invoked in dry-run mode")
 
@@ -94,9 +103,17 @@ def test_run_command_dry_run_logs_without_invocation(monkeypatch: pytest.MonkeyP
     assert result.returncode == 0
     assert not calls
     assert machine_logger.records[0][1] == "sample_plan"
-    assert machine_logger.records[0][2]["extra"]["command"] == ["powershell", "-Command", "Write-Host"]
+    assert machine_logger.records[0][2]["extra"]["command"] == [
+        "powershell",
+        "-Command",
+        "Write-Host",
+    ]
     assert machine_logger.records[1][1] == "sample_dry_run"
-    assert machine_logger.records[1][2]["extra"]["command"] == ["powershell", "-Command", "Write-Host"]
+    assert machine_logger.records[1][2]["extra"]["command"] == [
+        "powershell",
+        "-Command",
+        "Write-Host",
+    ]
     assert "[dry-run]" in human_logger.records[0][1]
 
 
@@ -111,7 +128,7 @@ def test_run_command_executes_with_sanitized_environment(monkeypatch: pytest.Mon
     monkeypatch.setattr(exec_utils.logging_ext, "get_human_logger", lambda: human_logger)
     monkeypatch.setattr(exec_utils.logging_ext, "get_machine_logger", lambda: machine_logger)
 
-    captured_env: Dict[str, str] = {}
+    captured_env: dict[str, str] = {}
 
     def fake_run(command, *, capture_output, text, timeout, check, env, cwd):
         captured_env.update(env)

@@ -7,14 +7,16 @@ while also exposing convenience predicates for Office-specific uninstall
 entries. All operations honour the dry-run and safety constraints enforced by
 ``office_janitor.safety``.
 """
+
 from __future__ import annotations
 
 import logging
 import re
 import shutil
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Tuple
+from typing import Any
 
 from . import exec_utils, safety
 
@@ -51,6 +53,7 @@ _OFFICE_KEYWORDS = (
     "outlook",
     "powerpoint",
 )
+
 
 class RegistryError(RuntimeError):
     """!
@@ -93,8 +96,12 @@ def _normalize_for_comparison(key: str) -> str:
     return canonical.upper()
 
 
-_ALLOWED_REGISTRY_PREFIXES = tuple(_normalize_registry_key(entry) for entry in safety.REGISTRY_WHITELIST)
-_BLOCKED_REGISTRY_PREFIXES = tuple(_normalize_registry_key(entry) for entry in safety.REGISTRY_BLACKLIST)
+_ALLOWED_REGISTRY_PREFIXES = tuple(
+    _normalize_registry_key(entry) for entry in safety.REGISTRY_WHITELIST
+)
+_BLOCKED_REGISTRY_PREFIXES = tuple(
+    _normalize_registry_key(entry) for entry in safety.REGISTRY_BLACKLIST
+)
 
 
 def _is_registry_path_allowed(key: str) -> bool:
@@ -108,12 +115,12 @@ def _is_registry_path_allowed(key: str) -> bool:
     return any(normalized.startswith(allowed) for allowed in _ALLOWED_REGISTRY_PREFIXES)
 
 
-def _validate_registry_keys(keys: Iterable[str]) -> List[str]:
+def _validate_registry_keys(keys: Iterable[str]) -> list[str]:
     """!
     @brief Ensure all keys fall within the allowed registry scope.
     """
 
-    canonical_keys: List[str] = []
+    canonical_keys: list[str] = []
     for key in keys:
         canonical = _normalize_registry_key(key)
         if not _is_registry_path_allowed(canonical):
@@ -134,7 +141,7 @@ def _iter_access_masks(access: int, view: str | None) -> Iterator[int]:
     if view not in {"auto", "native", "32bit", "64bit", "both"}:
         raise ValueError(f"Unsupported registry view: {view}")
 
-    masks: List[int] = []
+    masks: list[int] = []
     native_mask = access
     wow64_32 = getattr(winreg, "KEY_WOW64_32KEY", 0)
     wow64_64 = getattr(winreg, "KEY_WOW64_64KEY", 0)
@@ -155,7 +162,9 @@ def _iter_access_masks(access: int, view: str | None) -> Iterator[int]:
 
 
 @contextmanager
-def open_key(root: int, path: str, *, access: int | None = None, view: str | None = None) -> Iterator[Any]:
+def open_key(
+    root: int, path: str, *, access: int | None = None, view: str | None = None
+) -> Iterator[Any]:
     """!
     @brief Context manager that mirrors ``winreg.OpenKey`` with view handling.
     """
@@ -222,7 +231,7 @@ def iter_subkeys(root: int, path: str, *, view: str | None = None) -> Iterator[s
         raise FileNotFoundError(path)
 
 
-def iter_values(root: int, path: str, *, view: str | None = None) -> Iterator[Tuple[str, Any]]:
+def iter_values(root: int, path: str, *, view: str | None = None) -> Iterator[tuple[str, Any]]:
     """!
     @brief Yield value name/value pairs for ``root``/``path`` across WOW64 views.
     """
@@ -259,12 +268,12 @@ def iter_values(root: int, path: str, *, view: str | None = None) -> Iterator[Tu
         raise FileNotFoundError(path)
 
 
-def read_values(root: int, path: str, *, view: str | None = None) -> Dict[str, Any]:
+def read_values(root: int, path: str, *, view: str | None = None) -> dict[str, Any]:
     """!
     @brief Read all values beneath ``root``/``path`` into a dictionary.
     """
 
-    values: Dict[str, Any] = {}
+    values: dict[str, Any] = {}
     try:
         for name, value in iter_values(root, path, view=view):
             values.setdefault(name, value)
@@ -356,15 +365,15 @@ def looks_like_office_entry(values: Mapping[str, Any]) -> bool:
 
 
 def iter_office_uninstall_entries(
-    roots: Iterable[Tuple[int, str]],
+    roots: Iterable[tuple[int, str]],
     *,
     view: str | None = None,
-) -> Iterator[Tuple[int, str, Dict[str, Any]]]:
+) -> Iterator[tuple[int, str, dict[str, Any]]]:
     """!
     @brief Enumerate uninstall entries that resemble Office installations.
     """
 
-    seen_paths: set[Tuple[int, str]] = set()
+    seen_paths: set[tuple[int, str]] = set()
     for hive, base_path in roots:
         try:
             subkeys = list(iter_subkeys(hive, base_path, view=view))
@@ -415,7 +424,7 @@ def export_keys(
     *,
     dry_run: bool = False,
     logger: logging.Logger | None = None,
-) -> List[Path]:
+) -> list[Path]:
     """!
     @brief Export the provided registry keys to ``.reg`` files in ``destination``.
     @details On non-Windows systems the exports become placeholder files so unit
@@ -429,13 +438,18 @@ def export_keys(
 
     canonical_keys = _validate_registry_keys(keys)
     reg_executable = shutil.which("reg")
-    exported: List[Path] = []
+    exported: list[Path] = []
 
     for key in canonical_keys:
         export_path = _unique_export_path(dest_path, key)
         logger.info(
             "Preparing registry export",
-            extra={"action": "registry-export", "key": key, "path": str(export_path), "dry_run": dry_run},
+            extra={
+                "action": "registry-export",
+                "key": key,
+                "path": str(export_path),
+                "dry_run": dry_run,
+            },
         )
         if dry_run:
             exported.append(export_path)
@@ -505,4 +519,3 @@ __all__ = [
     "open_key",
     "read_values",
 ]
-

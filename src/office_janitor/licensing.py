@@ -5,12 +5,13 @@ APIs so the scrubber can remove product keys without shipping separate script
 files. The orchestration coordinates registry backups, subprocess invocation,
 and filesystem cleanup while respecting global safety constraints.
 """
+
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from string import Template
-from typing import Iterable, Mapping, Sequence
 
 from . import constants, exec_utils, fs_tools, logging_ext, registry_tools
 
@@ -305,9 +306,7 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
             )
             if not result.skipped:
                 if result.returncode != 0 or result.error:
-                    human_logger.error(
-                        "SPP cleanup failed with exit code %s", result.returncode
-                    )
+                    human_logger.error("SPP cleanup failed with exit code %s", result.returncode)
                     machine_logger.error(
                         "licensing_spp_failure",
                         extra={
@@ -351,9 +350,7 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
         )
         if not result.skipped:
             if result.returncode != 0 or result.error:
-                human_logger.error(
-                    "OSPP cleanup failed with exit code %s", result.returncode
-                )
+                human_logger.error("OSPP cleanup failed with exit code %s", result.returncode)
                 machine_logger.error(
                     "licensing_ospp_failure",
                     extra={
@@ -375,7 +372,9 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
             )
 
     if extra_paths:
-        human_logger.info("Cleaning licensing cache directories: %s", ", ".join(map(str, extra_paths)))
+        human_logger.info(
+            "Cleaning licensing cache directories: %s", ", ".join(map(str, extra_paths))
+        )
         fs_tools.remove_paths(extra_paths, dry_run=dry_run)
 
 
@@ -387,10 +386,7 @@ def _render_license_script(options: Mapping[str, object]) -> str:
     customisation.
     """
 
-    guid = str(
-        options.get("license_guid")
-        or constants.LICENSING_GUID_FILTERS["office_family"]
-    )
+    guid = str(options.get("license_guid") or constants.LICENSING_GUID_FILTERS["office_family"])
     spp_dll = str(options.get("spp_dll") or constants.LICENSE_DLLS["spp"])
     ospp_dll = str(options.get("ospp_dll") or constants.LICENSE_DLLS["ospp"])
     ospp_reg = str(options.get("ospp_reg_path") or constants.OSPP_REGISTRY_PATH)
@@ -429,4 +425,3 @@ __all__ = [
     "cleanup_licenses",
     "get_cleanoffice_embedded",
 ]
-

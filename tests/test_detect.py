@@ -10,7 +10,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
 
 import pytest
 
@@ -19,7 +18,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import constants, detect, main, registry_tools
+from office_janitor import constants, detect, main, registry_tools  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +35,7 @@ def msi_registry_layout(monkeypatch: pytest.MonkeyPatch) -> None:
     @brief Provide a fake registry layout for MSI product codes.
     """
 
-    known_values: Dict[Tuple[int, str], Dict[str, str]] = {}
+    known_values: dict[tuple[int, str], dict[str, str]] = {}
     for product_code in (
         "{90160000-0011-0000-0000-0000000FF1CE}",
         "{90160000-0011-0000-1000-0000000FF1CE}",
@@ -52,7 +51,7 @@ def msi_registry_layout(monkeypatch: pytest.MonkeyPatch) -> None:
                 "DisplayIcon": r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\Office Setup Controller\\setup.exe,0",
             }
 
-    def fake_read_values(root: int, path: str) -> Dict[str, str]:
+    def fake_read_values(root: int, path: str) -> dict[str, str]:
         return known_values.get((root, path), {})
 
     monkeypatch.setattr(detect.registry_tools, "read_values", fake_read_values)
@@ -68,7 +67,7 @@ def c2r_registry_layout(monkeypatch: pytest.MonkeyPatch) -> None:
     subscription_root, subscription_path = constants.C2R_SUBSCRIPTION_ROOTS[0]
     release_root, release_path = constants.C2R_PRODUCT_RELEASE_ROOTS[0]
 
-    known_values: Dict[Tuple[int, str], Dict[str, str]] = {
+    known_values: dict[tuple[int, str], dict[str, str]] = {
         (config_root, config_path): {
             "ProductReleaseIds": "O365ProPlusRetail,ProjectProRetail",
             "Platform": "x64",
@@ -77,13 +76,17 @@ def c2r_registry_layout(monkeypatch: pytest.MonkeyPatch) -> None:
             "PackageGUID": "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}",
             "InstallPath": r"C:\\Program Files\\Microsoft Office\\root",
         },
-        (subscription_root, f"{subscription_path}\\O365ProPlusRetail"): {"ChannelId": "Production::MEC"},
-        (subscription_root, f"{subscription_path}\\ProjectProRetail"): {"ChannelId": "Production::CC"},
+        (subscription_root, f"{subscription_path}\\O365ProPlusRetail"): {
+            "ChannelId": "Production::MEC"
+        },
+        (subscription_root, f"{subscription_path}\\ProjectProRetail"): {
+            "ChannelId": "Production::CC"
+        },
         (release_root, f"{release_path}\\O365ProPlusRetail"): {},
         (release_root, f"{release_path}\\ProjectProRetail"): {},
     }
 
-    def fake_read_values(root: int, path: str) -> Dict[str, str]:
+    def fake_read_values(root: int, path: str) -> dict[str, str]:
         return known_values.get((root, path), {})
 
     def fake_key_exists(root: int, path: str) -> bool:
@@ -100,9 +103,7 @@ class TestRegistryDetectionScenarios:
     release channels.
     """
 
-    def test_msi_detection_aggregates_known_product_codes(
-        self, msi_registry_layout: None
-    ) -> None:
+    def test_msi_detection_aggregates_known_product_codes(self, msi_registry_layout: None) -> None:
         """!
         @brief Validate MSI discovery for multiple generations and architectures.
         """
@@ -117,7 +118,9 @@ class TestRegistryDetectionScenarios:
         }
         assert expected_codes.issubset(codes)
         assert all(entry.channel == "MSI" for entry in installations)
-        assert {entry.architecture for entry in installations if entry.product_code in expected_codes} == {
+        assert {
+            entry.architecture for entry in installations if entry.product_code in expected_codes
+        } == {
             "x86",
             "x64",
         }
@@ -130,12 +133,8 @@ class TestRegistryDetectionScenarios:
         installations = detect.detect_msi_installations()
         target_code = "{90160000-0011-0000-0000-0000000FF1CE}"
         record = next(entry for entry in installations if entry.product_code == target_code)
-        expected_icon = (
-            r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\Office Setup Controller\\setup.exe,0"
-        )
-        expected_setup = (
-            r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\Office Setup Controller\\setup.exe"
-        )
+        expected_icon = r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\Office Setup Controller\\setup.exe,0"
+        expected_setup = r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\Office Setup Controller\\setup.exe"
         assert record.display_icon == expected_icon
         assert record.maintenance_paths == (expected_setup,)
         assert record.properties["display_icon"] == expected_icon
@@ -171,7 +170,9 @@ class TestRegistryDetectionScenarios:
             product="Microsoft Office Professional Plus 2016",
             version="2016",
             architecture="x64",
-            uninstall_handles=("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{90160000-0011-0000-1000-0000000FF1CE}",),
+            uninstall_handles=(
+                "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{90160000-0011-0000-1000-0000000FF1CE}",
+            ),
             channel="MSI",
             product_code="{90160000-0011-0000-1000-0000000FF1CE}",
             properties={"display_name": "ProPlus", "display_version": "16.0.10396.20017"},
@@ -197,7 +198,10 @@ class TestRegistryDetectionScenarios:
         valid_paths = {
             str(Path(constants.INSTALL_ROOT_TEMPLATES[0]["path"])),
             str(Path(constants.INSTALL_ROOT_TEMPLATES[2]["path"])),
-            *(str(Path(os.path.expandvars(template["path"]))) for template in constants.RESIDUE_PATH_TEMPLATES),
+            *(
+                str(Path(os.path.expandvars(template["path"])))
+                for template in constants.RESIDUE_PATH_TEMPLATES
+            ),
         }
 
         def fake_exists(self: Path) -> bool:  # type: ignore[override]

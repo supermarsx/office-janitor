@@ -5,15 +5,17 @@ processes. The module mirrors the behaviour from the legacy OffScrub
 scripts with structured logging, user prompting, and timeout-aware
 subprocess execution so automated runs stay safe.
 """
+
 from __future__ import annotations
 
 import fnmatch
-from typing import Callable, Iterable, List, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Callable
 
 from . import exec_utils, logging_ext
 
 
-def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> List[str]:
+def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> list[str]:
     """!
     @brief Enumerate running processes matching ``patterns``.
     @details Invokes ``tasklist`` once and filters results against wildcard
@@ -27,7 +29,7 @@ def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> List[s
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
-    expanded_patterns: List[str] = [
+    expanded_patterns: list[str] = [
         str(pattern).strip().lower() for pattern in patterns if str(pattern).strip()
     ]
     if not expanded_patterns:
@@ -58,9 +60,7 @@ def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> List[s
         return []
 
     if listing.returncode != 0 or listing.error:
-        human_logger.debug(
-            "tasklist exited with %s; skipping enumeration", listing.returncode
-        )
+        human_logger.debug("tasklist exited with %s; skipping enumeration", listing.returncode)
         machine_logger.info(
             "process_enumeration_failure",
             extra={
@@ -74,7 +74,7 @@ def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> List[s
         )
         return []
 
-    running: List[str] = []
+    running: list[str] = []
     for line in listing.stdout.splitlines():
         stripped = line.strip()
         if not stripped or stripped.lower().startswith("image name"):
@@ -83,7 +83,7 @@ def enumerate_processes(patterns: Iterable[str], *, timeout: int = 30) -> List[s
         if name not in running:
             running.append(name)
 
-    matched: List[str] = []
+    matched: list[str] = []
     for pattern in expanded_patterns:
         for name in running:
             if fnmatch.fnmatch(name, pattern) and name not in matched:
@@ -169,7 +169,7 @@ def terminate_office_processes(names: Iterable[str], *, timeout: int = 30) -> No
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
-    processes: List[str] = [str(name).strip() for name in names if str(name).strip()]
+    processes: list[str] = [str(name).strip() for name in names if str(name).strip()]
     if not processes:
         human_logger.debug("No Office processes supplied for termination.")
         return
@@ -184,9 +184,7 @@ def terminate_office_processes(names: Iterable[str], *, timeout: int = 30) -> No
         )
 
         if result.returncode == 127:
-            human_logger.debug(
-                "taskkill.exe is unavailable; skipping termination for %s", process
-            )
+            human_logger.debug("taskkill.exe is unavailable; skipping termination for %s", process)
             continue
 
         if result.timed_out:

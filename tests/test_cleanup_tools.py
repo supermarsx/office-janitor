@@ -3,22 +3,22 @@ from __future__ import annotations
 import pathlib
 import sys
 from collections import deque
-from typing import List, Sequence
+from collections.abc import Sequence
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import (
+from office_janitor import (  # noqa: E402
     constants,
+    exec_utils,
     fs_tools,
     licensing,
     logging_ext,
     processes,
     restore_point,
     tasks_services,
-    exec_utils,
 )
 
 
@@ -54,9 +54,9 @@ def test_cleanup_licenses_runs_commands(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    run_calls: List[List[str]] = []
-    removed: List[tuple[List[str], bool]] = []
-    exports: List[tuple[List[str], pathlib.Path]] = []
+    run_calls: list[list[str]] = []
+    removed: list[tuple[list[str], bool]] = []
+    exports: list[tuple[list[str], pathlib.Path]] = []
 
     def fake_run(command, *, event, **kwargs):
         run_calls.append([str(part) for part in command])
@@ -96,7 +96,7 @@ def test_cleanup_licenses_dry_run(monkeypatch, tmp_path) -> None:
 
     logging_ext.setup_logging(tmp_path)
     exported = False
-    dry_run_flags: List[bool] = []
+    dry_run_flags: list[bool] = []
 
     def fake_run(command, *, event, dry_run=False, **kwargs):
         dry_run_flags.append(dry_run)
@@ -182,8 +182,8 @@ def test_remove_paths_deletes_entries(monkeypatch, tmp_path) -> None:
     file_entry = tmp_path / "file.txt"
     file_entry.write_text("payload", encoding="utf-8")
 
-    calls: List[pathlib.Path] = []
-    attrib_calls: List[List[pathlib.Path]] = []
+    calls: list[pathlib.Path] = []
+    attrib_calls: list[list[pathlib.Path]] = []
 
     def fake_reset(path):
         calls.append(path)
@@ -229,7 +229,7 @@ def test_reset_acl_invokes_icacls(monkeypatch) -> None:
     @brief Ensure ``icacls`` is called with expected arguments.
     """
 
-    call_args: List[List[str]] = []
+    call_args: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         call_args.append([str(part) for part in command])
@@ -246,7 +246,7 @@ def test_make_paths_writable_invokes_attrib(monkeypatch, tmp_path) -> None:
     @brief Attribute clearing should call ``attrib.exe`` for directories and contents.
     """
 
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         commands.append([str(part) for part in command])
@@ -268,7 +268,7 @@ def test_terminate_office_processes_invokes_taskkill(monkeypatch, tmp_path) -> N
     """
 
     logging_ext.setup_logging(tmp_path)
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         commands.append([str(part) for part in command])
@@ -330,16 +330,12 @@ def test_prompt_user_to_close_declines(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
     answers = iter(["maybe", "n"])
 
-    result = processes.prompt_user_to_close(
-        ["WINWORD.EXE"], input_func=lambda _: next(answers)
-    )
+    result = processes.prompt_user_to_close(["WINWORD.EXE"], input_func=lambda _: next(answers))
 
     assert result is False
 
 
-def test_prompt_user_to_close_emits_outlook_warning(
-    monkeypatch, tmp_path
-) -> None:
+def test_prompt_user_to_close_emits_outlook_warning(monkeypatch, tmp_path) -> None:
     """!
     @brief Outlook processes should trigger a reassurance warning and UI event.
     """
@@ -349,9 +345,7 @@ def test_prompt_user_to_close_emits_outlook_warning(
     logging_ext.register_ui_event_sink(queue=event_queue)
 
     answers = iter(["n"])
-    processes.prompt_user_to_close(
-        ["OUTLOOK.EXE"], input_func=lambda _: next(answers)
-    )
+    processes.prompt_user_to_close(["OUTLOOK.EXE"], input_func=lambda _: next(answers))
 
     logging_ext.register_ui_event_sink()
 
@@ -379,8 +373,8 @@ def test_terminate_process_patterns_uses_enumerator(monkeypatch, tmp_path) -> No
     """
 
     logging_ext.setup_logging(tmp_path)
-    enumerated: List[List[str]] = []
-    killed: List[List[str]] = []
+    enumerated: list[list[str]] = []
+    killed: list[list[str]] = []
 
     def fake_enumerate(patterns, *, timeout):
         enumerated.append(list(patterns))
@@ -404,7 +398,7 @@ def test_disable_tasks_respects_dry_run(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    dry_run_flags: List[bool] = []
+    dry_run_flags: list[bool] = []
 
     def fake_run(command, *, event, dry_run=False, **kwargs):
         dry_run_flags.append(dry_run)
@@ -422,7 +416,7 @@ def test_disable_tasks_executes(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         commands.append([str(part) for part in command])
@@ -441,7 +435,7 @@ def test_delete_tasks_executes_delete(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         commands.append([str(part) for part in command])
@@ -460,9 +454,11 @@ def test_remove_tasks_aliases_delete(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    called: List[Sequence[str]] = []
+    called: list[Sequence[str]] = []
 
-    monkeypatch.setattr(tasks_services, "delete_tasks", lambda names, dry_run=False: called.append(list(names)))
+    monkeypatch.setattr(
+        tasks_services, "delete_tasks", lambda names, dry_run=False: called.append(list(names))
+    )
 
     tasks_services.remove_tasks(["Task"], dry_run=True)
 
@@ -475,7 +471,7 @@ def test_stop_services_invokes_sc(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         commands.append([str(part) for part in command])
@@ -499,7 +495,7 @@ def test_start_services_invokes_sc(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         commands.append([str(part) for part in command])
@@ -518,7 +514,7 @@ def test_delete_services_executes(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         commands.append([str(part) for part in command])
@@ -537,7 +533,7 @@ def test_query_service_status_retries_and_parses(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    attempts: List[List[str]] = []
+    attempts: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         attempts.append([str(part) for part in command])
@@ -570,7 +566,7 @@ def test_create_restore_point_uses_powershell(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    captured: List[List[str]] = []
+    captured: list[list[str]] = []
 
     def fake_run(command, *, event, **kwargs):
         captured.append([str(part) for part in command])
@@ -592,7 +588,7 @@ def test_create_restore_point_dry_run_skips_execution(monkeypatch, tmp_path) -> 
     """
 
     logging_ext.setup_logging(tmp_path)
-    calls: List[List[str]] = []
+    calls: list[list[str]] = []
 
     def fake_run(command, *, event, dry_run=False, **kwargs):
         calls.append((list(command), dry_run))

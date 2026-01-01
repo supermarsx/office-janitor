@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pathlib
 import sys
-from typing import List, Tuple
 
 import pytest
 
@@ -18,10 +17,12 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import c2r_uninstall, command_runner, logging_ext, msi_uninstall
+from office_janitor import c2r_uninstall, command_runner, logging_ext, msi_uninstall  # noqa: E402
 
 
-def _command_result(command: List[str], returncode: int = 0, *, skipped: bool = False) -> command_runner.CommandResult:
+def _command_result(
+    command: list[str], returncode: int = 0, *, skipped: bool = False
+) -> command_runner.CommandResult:
     """!
     @brief Convenience factory for :class:`CommandResult` instances.
     """
@@ -42,11 +43,11 @@ def test_msi_uninstall_builds_msiexec_command(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    executed: List[List[str]] = []
+    executed: list[list[str]] = []
     state = {"present": True}
 
     def fake_run_command(
-        command: List[str],
+        command: list[str],
         *,
         event: str,
         timeout: float | None = None,
@@ -59,7 +60,9 @@ def test_msi_uninstall_builds_msiexec_command(monkeypatch, tmp_path) -> None:
         return _command_result(command)
 
     monkeypatch.setattr(msi_uninstall.command_runner, "run_command", fake_run_command)
-    monkeypatch.setattr(msi_uninstall.registry_tools, "key_exists", lambda *_, **__: state["present"])
+    monkeypatch.setattr(
+        msi_uninstall.registry_tools, "key_exists", lambda *_, **__: state["present"]
+    )
     monkeypatch.setattr(msi_uninstall.time, "sleep", lambda *_: None)
 
     record = {
@@ -80,23 +83,21 @@ def test_msi_uninstall_builds_msiexec_command(monkeypatch, tmp_path) -> None:
     assert "/norestart" in command
 
 
-def test_msi_uninstall_falls_back_to_setup_when_msiexec_fails(
-    monkeypatch, tmp_path
-) -> None:
+def test_msi_uninstall_falls_back_to_setup_when_msiexec_fails(monkeypatch, tmp_path) -> None:
     """!
     @brief Setup-based maintenance executables should be attempted after ``msiexec`` failures.
     """
 
     logging_ext.setup_logging(tmp_path)
-    executed: List[Tuple[List[str], str, bool]] = []
-    probe_states: List[bool] = []
+    executed: list[tuple[list[str], str, bool]] = []
+    probe_states: list[bool] = []
     state = {"present": True}
 
     setup_path = tmp_path / "setup.exe"
     setup_path.write_text("dummy")
 
     def fake_run_command(
-        command: List[str],
+        command: list[str],
         *,
         event: str,
         timeout: float | None = None,
@@ -153,7 +154,7 @@ def test_msi_uninstall_dry_run(monkeypatch, tmp_path) -> None:
     called = False
 
     def fake_run_command(
-        command: List[str],
+        command: list[str],
         *,
         event: str,
         timeout: float | None = None,
@@ -190,7 +191,7 @@ def test_msi_uninstall_reports_failure(monkeypatch, tmp_path) -> None:
     logging_ext.setup_logging(tmp_path)
 
     def fake_run_command(
-        command: List[str],
+        command: list[str],
         *,
         event: str,
         timeout: float | None = None,
@@ -215,13 +216,13 @@ def test_msi_uninstall_prompts_and_retries_when_installer_busy(monkeypatch, tmp_
     """
 
     logging_ext.setup_logging(tmp_path)
-    executed: List[List[str]] = []
-    prompts: List[str] = []
-    sleeps: List[float] = []
+    executed: list[list[str]] = []
+    prompts: list[str] = []
+    sleeps: list[float] = []
     state = {"present": True, "attempt": 0}
 
     def fake_run_command(
-        command: List[str],
+        command: list[str],
         *,
         event: str,
         timeout: float | None = None,
@@ -241,7 +242,9 @@ def test_msi_uninstall_prompts_and_retries_when_installer_busy(monkeypatch, tmp_
         return "y"
 
     monkeypatch.setattr(msi_uninstall.command_runner, "run_command", fake_run_command)
-    monkeypatch.setattr(msi_uninstall.registry_tools, "key_exists", lambda *_, **__: state["present"])
+    monkeypatch.setattr(
+        msi_uninstall.registry_tools, "key_exists", lambda *_, **__: state["present"]
+    )
     monkeypatch.setattr(msi_uninstall.time, "sleep", lambda seconds: sleeps.append(seconds))
 
     record = {
@@ -259,17 +262,16 @@ def test_msi_uninstall_prompts_and_retries_when_installer_busy(monkeypatch, tmp_
     assert sleeps and sleeps[0] == pytest.approx(msi_uninstall.MSI_RETRY_DELAY)
 
 
-
 def test_msi_uninstall_cancels_when_busy_operator_declines(monkeypatch, tmp_path) -> None:
     """!
     @brief Operator refusal should surface busy failures without additional retries.
     """
 
     logging_ext.setup_logging(tmp_path)
-    executed: List[List[str]] = []
+    executed: list[list[str]] = []
 
     def fake_run_command(
-        command: List[str],
+        command: list[str],
         *,
         event: str,
         timeout: float | None = None,
@@ -282,6 +284,7 @@ def test_msi_uninstall_cancels_when_busy_operator_declines(monkeypatch, tmp_path
 
     monkeypatch.setattr(msi_uninstall.command_runner, "run_command", fake_run_command)
     monkeypatch.setattr(msi_uninstall.registry_tools, "key_exists", lambda *_, **__: True)
+
     def fail_sleep(*_, **__):
         raise AssertionError("sleep not expected")
 
@@ -298,17 +301,18 @@ def test_msi_uninstall_cancels_when_busy_operator_declines(monkeypatch, tmp_path
     assert "91160000-0011-0000-0000-0000000FF1CE" in str(excinfo.value)
     assert len(executed) == 1, "Should not retry when operator declines"
 
+
 def test_c2r_uninstall_prefers_client(monkeypatch, tmp_path) -> None:
     """!
     @brief OfficeC2RClient.exe should be preferred when available.
     """
 
     logging_ext.setup_logging(tmp_path)
-    executed: List[Tuple[List[str], dict]] = []
+    executed: list[tuple[list[str], dict]] = []
     state = {"present": True}
 
     def fake_run_command(
-        command: List[str],
+        command: list[str],
         *,
         event: str,
         timeout: float | None = None,
@@ -321,7 +325,9 @@ def test_c2r_uninstall_prefers_client(monkeypatch, tmp_path) -> None:
         return _command_result(command)
 
     monkeypatch.setattr(c2r_uninstall.command_runner, "run_command", fake_run_command)
-    monkeypatch.setattr(c2r_uninstall.tasks_services, "stop_services", lambda services, *, timeout=30: None)
+    monkeypatch.setattr(
+        c2r_uninstall.tasks_services, "stop_services", lambda services, *, timeout=30: None
+    )
     monkeypatch.setattr(c2r_uninstall, "_handles_present", lambda target: state["present"])
     monkeypatch.setattr(c2r_uninstall, "_install_paths_present", lambda target: state["present"])
     monkeypatch.setattr(c2r_uninstall.time, "sleep", lambda *_: None)
@@ -372,11 +378,11 @@ def test_c2r_uninstall_fallback_to_setup(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    executed: List[List[str]] = []
+    executed: list[list[str]] = []
     state = {"present": True}
 
     def fake_run_command(
-        command: List[str],
+        command: list[str],
         *,
         event: str,
         timeout: float | None = None,
@@ -389,7 +395,9 @@ def test_c2r_uninstall_fallback_to_setup(monkeypatch, tmp_path) -> None:
         return _command_result(command)
 
     monkeypatch.setattr(c2r_uninstall.command_runner, "run_command", fake_run_command)
-    monkeypatch.setattr(c2r_uninstall.tasks_services, "stop_services", lambda services, *, timeout=30: None)
+    monkeypatch.setattr(
+        c2r_uninstall.tasks_services, "stop_services", lambda services, *, timeout=30: None
+    )
     monkeypatch.setattr(c2r_uninstall, "_handles_present", lambda target: state["present"])
     monkeypatch.setattr(c2r_uninstall, "_install_paths_present", lambda target: state["present"])
     monkeypatch.setattr(c2r_uninstall.time, "sleep", lambda *_: None)
@@ -427,10 +435,10 @@ def test_c2r_uninstall_dry_run(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    executed: List[List[str]] = []
+    executed: list[list[str]] = []
 
     def fake_run_command(
-        command: List[str],
+        command: list[str],
         *,
         event: str,
         timeout: float | None = None,

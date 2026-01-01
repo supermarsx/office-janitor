@@ -3,13 +3,13 @@
 @details Exercises the CLI and TUI entry points to confirm argument handling,
 event emission, and execution wiring across the high-level flows.
 """
+
 from __future__ import annotations
 
+import argparse
 import json
 import pathlib
 import sys
-import argparse
-from typing import List
 
 import pytest
 
@@ -38,7 +38,7 @@ def test_main_auto_all_executes_scrub_pipeline(monkeypatch, tmp_path) -> None:
     inventory = {"msi": [], "c2r": [], "filesystem": []}
     monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: inventory)
 
-    recorded: List[tuple[str, object]] = []
+    recorded: list[tuple[str, object]] = []
 
     def fake_plan(inv, options):  # type: ignore[no-untyped-def]
         recorded.append(("plan", options))
@@ -58,12 +58,16 @@ def test_main_auto_all_executes_scrub_pipeline(monkeypatch, tmp_path) -> None:
         ]
 
     monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
-    monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: recorded.append(("safety", len(plan))))
-    
-    scrub_calls: List[bool] = []
-    monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(bool(dry_run)))
+    monkeypatch.setattr(
+        main.safety, "perform_preflight_checks", lambda plan: recorded.append(("safety", len(plan)))
+    )
 
-    guard_calls: List[tuple[dict, bool]] = []
+    scrub_calls: list[bool] = []
+    monkeypatch.setattr(
+        main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(bool(dry_run))
+    )
+
+    guard_calls: list[tuple[dict, bool]] = []
 
     def capture_guard(options, *, dry_run=False):  # type: ignore[no-untyped-def]
         guard_calls.append((dict(options), bool(dry_run)))
@@ -100,13 +104,19 @@ def test_main_requires_confirmation_before_execution(monkeypatch, tmp_path) -> N
     monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
     monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
 
-    guard_calls: List[tuple[dict, bool]] = []
-    monkeypatch.setattr(main, "_enforce_runtime_guards", lambda options, *, dry_run=False: guard_calls.append((dict(options), bool(dry_run))))
+    guard_calls: list[tuple[dict, bool]] = []
+    monkeypatch.setattr(
+        main,
+        "_enforce_runtime_guards",
+        lambda options, *, dry_run=False: guard_calls.append((dict(options), bool(dry_run))),
+    )
 
-    scrub_calls: List[bool] = []
-    monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(True))
+    scrub_calls: list[bool] = []
+    monkeypatch.setattr(
+        main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(True)
+    )
 
-    confirm_calls: List[dict] = []
+    confirm_calls: list[dict] = []
 
     def deny_confirmation(**kwargs):  # type: ignore[no-untyped-def]
         confirm_calls.append(dict(kwargs))
@@ -142,7 +152,9 @@ def test_limited_user_flag_passes_to_detection(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
     monkeypatch.setattr(main.confirm, "request_scrub_confirmation", lambda **kwargs: False)
 
-    exit_code = main.main(["--auto-all", "--limited-user", "--dry-run", "--logdir", str(tmp_path / "logs")])
+    exit_code = main.main(
+        ["--auto-all", "--limited-user", "--dry-run", "--logdir", str(tmp_path / "logs")]
+    )
 
     assert exit_code == 0
     assert captured.get("limited_user") is True
@@ -157,7 +169,9 @@ def test_main_diagnose_skips_execution(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
     monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
 
-    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: {"msi": [], "c2r": [], "filesystem": []})
+    monkeypatch.setattr(
+        main.detect, "gather_office_inventory", lambda: {"msi": [], "c2r": [], "filesystem": []}
+    )
 
     def fake_plan(inv, options):  # type: ignore[no-untyped-def]
         return [
@@ -177,10 +191,12 @@ def test_main_diagnose_skips_execution(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
     monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
 
-    scrub_calls: List[bool] = []
-    monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(True))
+    scrub_calls: list[bool] = []
+    monkeypatch.setattr(
+        main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(True)
+    )
 
-    guard_calls: List[tuple[dict, bool]] = []
+    guard_calls: list[tuple[dict, bool]] = []
 
     def capture_guard(options, *, dry_run=False):  # type: ignore[no-untyped-def]
         guard_calls.append((dict(options), bool(dry_run)))
@@ -207,7 +223,9 @@ def test_main_interactive_uses_cli(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         main,
         "_enforce_runtime_guards",
-        lambda options, *, dry_run=False: (_ for _ in ()).throw(AssertionError("Guard should not run")),
+        lambda options, *, dry_run=False: (_ for _ in ()).throw(
+            AssertionError("Guard should not run")
+        ),
     )
 
     captured = {}
@@ -216,7 +234,11 @@ def test_main_interactive_uses_cli(monkeypatch, tmp_path) -> None:
         captured["app_state"] = app_state
 
     monkeypatch.setattr(main.ui, "run_cli", fake_run_cli)
-    monkeypatch.setattr(main.tui, "run_tui", lambda app_state: (_ for _ in ()).throw(AssertionError("TUI not expected")))
+    monkeypatch.setattr(
+        main.tui,
+        "run_tui",
+        lambda app_state: (_ for _ in ()).throw(AssertionError("TUI not expected")),
+    )
 
     exit_code = main.main(["--logdir", str(tmp_path / "logs")])
 
@@ -231,11 +253,13 @@ def test_ui_plan_and_execute_skips_without_confirmation(monkeypatch) -> None:
 
     monkeypatch.setattr(ui.plan_module, "summarize_plan", lambda plan: {"total_steps": len(plan)})
 
-    executed: List[tuple[list, dict]] = []
+    executed: list[tuple[list, dict]] = []
 
     context = {
         "detector": lambda: {},
-        "planner": lambda inventory, overrides: [{"id": "step", "category": "noop", "metadata": {}}],
+        "planner": lambda inventory, overrides: [
+            {"id": "step", "category": "noop", "metadata": {}}
+        ],
         "executor": lambda plan, overrides: executed.append((plan, dict(overrides or {}))),
         "args": argparse.Namespace(dry_run=False, force=False),
         "human_logger": None,
@@ -261,7 +285,7 @@ def test_ui_plan_and_execute_runs_after_confirmation(monkeypatch) -> None:
 
     monkeypatch.setattr(ui.plan_module, "summarize_plan", lambda plan: {"total_steps": len(plan)})
 
-    executed: List[tuple[list, dict]] = []
+    executed: list[tuple[list, dict]] = []
 
     def record_executor(plan, overrides):  # type: ignore[no-untyped-def]
         executed.append((plan, dict(overrides or {})))
@@ -271,7 +295,9 @@ def test_ui_plan_and_execute_runs_after_confirmation(monkeypatch) -> None:
 
     context = {
         "detector": lambda: {},
-        "planner": lambda inventory, overrides: [{"id": "step", "category": "noop", "metadata": {}}],
+        "planner": lambda inventory, overrides: [
+            {"id": "step", "category": "noop", "metadata": {}}
+        ],
         "executor": record_executor,
         "args": argparse.Namespace(dry_run=False, force=False),
         "human_logger": None,
@@ -378,21 +404,29 @@ def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
     def fake_plan(inv, options):  # type: ignore[no-untyped-def]
         captured_options.update(options)
         return [
-            {"id": "context", "category": "context", "metadata": {"mode": options.get("mode"), "options": dict(options)}},
-            {"id": "filesystem", "category": "filesystem-cleanup", "metadata": {"paths": ["C:/Office"]}},
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {"mode": options.get("mode"), "options": dict(options)},
+            },
+            {
+                "id": "filesystem",
+                "category": "filesystem-cleanup",
+                "metadata": {"paths": ["C:/Office"]},
+            },
         ]
 
     monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
     monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
 
-    scrub_calls: List[bool] = []
+    scrub_calls: list[bool] = []
 
     def fake_execute(plan, dry_run=False):  # type: ignore[no-untyped-def]
         scrub_calls.append(bool(dry_run))
 
     monkeypatch.setattr(main.scrub, "execute_plan", fake_execute)
 
-    guard_calls: List[tuple[dict, bool]] = []
+    guard_calls: list[tuple[dict, bool]] = []
 
     def capture_guard(options, *, dry_run=False):  # type: ignore[no-untyped-def]
         guard_calls.append((dict(options), bool(dry_run)))
@@ -449,17 +483,31 @@ def test_ui_run_cli_detect_option(monkeypatch) -> None:
     @brief Menu option 1 should call the detector and exit cleanly.
     """
 
-    events: List[str] = []
+    events: list[str] = []
     inputs = iter(["1", "7"])
 
     def fake_input(prompt: str) -> str:
         return next(inputs)
 
     app_state = {
-        "args": type("Args", (), {"quiet": False, "dry_run": False, "no_restore_point": False, "logdir": "logs", "backup": None})(),
+        "args": type(
+            "Args",
+            (),
+            {
+                "quiet": False,
+                "dry_run": False,
+                "no_restore_point": False,
+                "logdir": "logs",
+                "backup": None,
+            },
+        )(),
         "detector": lambda: events.append("detect") or {"msi": [1], "c2r": [], "filesystem": []},
-        "planner": lambda inventory, overrides=None: (_ for _ in ()).throw(AssertionError("planner not expected")),
-        "executor": lambda plan, overrides=None: (_ for _ in ()).throw(AssertionError("executor not expected")),
+        "planner": lambda inventory, overrides=None: (_ for _ in ()).throw(
+            AssertionError("planner not expected")
+        ),
+        "executor": lambda plan, overrides=None: (_ for _ in ()).throw(
+            AssertionError("executor not expected")
+        ),
         "input": fake_input,
         "confirm": lambda **kwargs: True,
     }
@@ -474,7 +522,7 @@ def test_ui_run_cli_auto_all_executes(monkeypatch) -> None:
     @brief Menu option 2 should plan and execute using overrides.
     """
 
-    events: List[tuple[str, object]] = []
+    events: list[tuple[str, object]] = []
     inputs = iter(["2", "7"])
 
     def fake_input(prompt: str) -> str:
@@ -487,7 +535,17 @@ def test_ui_run_cli_auto_all_executes(monkeypatch) -> None:
     def fake_planner(inventory, overrides=None):
         events.append(("plan", overrides))
         return [
-            {"id": "context", "category": "context", "metadata": {"mode": overrides.get("mode") if overrides else "interactive", "dry_run": False, "target_versions": [], "unsupported_targets": [], "options": {}}},
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "mode": overrides.get("mode") if overrides else "interactive",
+                    "dry_run": False,
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                    "options": {},
+                },
+            },
             {"id": "registry-0", "category": "registry-cleanup", "metadata": {"keys": []}},
         ]
 
@@ -495,7 +553,17 @@ def test_ui_run_cli_auto_all_executes(monkeypatch) -> None:
         events.append(("execute", overrides))
 
     app_state = {
-        "args": type("Args", (), {"quiet": False, "dry_run": False, "no_restore_point": False, "logdir": "logs", "backup": None})(),
+        "args": type(
+            "Args",
+            (),
+            {
+                "quiet": False,
+                "dry_run": False,
+                "no_restore_point": False,
+                "logdir": "logs",
+                "backup": None,
+            },
+        )(),
         "detector": fake_detector,
         "planner": fake_planner,
         "executor": fake_executor,
@@ -520,7 +588,7 @@ def test_ui_run_cli_targeted_prompts(monkeypatch) -> None:
     @brief Menu option 3 should collect target versions and includes.
     """
 
-    events: List[tuple[str, object]] = []
+    events: list[tuple[str, object]] = []
     inputs = iter(["3", "2016,365", "visio,project", "7"])
 
     def fake_input(prompt: str) -> str:
@@ -550,7 +618,17 @@ def test_ui_run_cli_targeted_prompts(monkeypatch) -> None:
         events.append(("execute", overrides))
 
     app_state = {
-        "args": type("Args", (), {"quiet": False, "dry_run": False, "no_restore_point": False, "logdir": "logs", "backup": None})(),
+        "args": type(
+            "Args",
+            (),
+            {
+                "quiet": False,
+                "dry_run": False,
+                "no_restore_point": False,
+                "logdir": "logs",
+                "backup": None,
+            },
+        )(),
         "detector": fake_detector,
         "planner": fake_planner,
         "executor": fake_executor,
@@ -572,10 +650,21 @@ def test_ui_run_cli_respects_json_flag() -> None:
     @brief Menu should not launch when ``--json`` is requested.
     """
 
-    events: List[str] = []
+    events: list[str] = []
 
     app_state = {
-        "args": type("Args", (), {"quiet": False, "json": True, "dry_run": False, "no_restore_point": False, "logdir": "logs", "backup": None})(),
+        "args": type(
+            "Args",
+            (),
+            {
+                "quiet": False,
+                "json": True,
+                "dry_run": False,
+                "no_restore_point": False,
+                "logdir": "logs",
+                "backup": None,
+            },
+        )(),
         "detector": lambda: events.append("detect"),
         "planner": lambda inventory, overrides=None: events.append("plan"),
         "executor": lambda plan, overrides=None: events.append("execute"),
@@ -594,20 +683,22 @@ def test_tui_falls_back_without_ansi(monkeypatch) -> None:
 
     monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None: False)
 
-    invoked: List[str] = []
+    invoked: list[str] = []
 
     def fake_run_cli(app_state):  # type: ignore[no-untyped-def]
         invoked.append("cli")
 
     monkeypatch.setattr(ui, "run_cli", fake_run_cli)
 
-    tui_module.run_tui({
-        "args": type("Args", (), {"no_color": False, "quiet": False})(),
-        "detector": lambda: {},
-        "planner": lambda inventory, overrides=None: [],
-        "executor": lambda plan, overrides=None: None,
-        "confirm": lambda **kwargs: True,
-    })
+    tui_module.run_tui(
+        {
+            "args": type("Args", (), {"no_color": False, "quiet": False})(),
+            "detector": lambda: {},
+            "planner": lambda inventory, overrides=None: [],
+            "executor": lambda plan, overrides=None: None,
+            "confirm": lambda **kwargs: True,
+        }
+    )
 
     assert invoked == ["cli"]
 
@@ -621,26 +712,28 @@ def test_tui_commands_drive_backends(monkeypatch) -> None:
     monkeypatch.setattr(tui_module, "_spinner", lambda duration, message: None)
     monkeypatch.setattr(tui_module.OfficeJanitorTUI, "_drain_events", lambda self: False)
 
-    keys = iter([
-        "enter",  # detect
-        "tab",
-        "down",
-        "down",
-        "down",
-        "down",
-        "down",
-        "enter",  # focus plan tab
-        "enter",  # execute plan
-        "tab",
-        "down",
-        "enter",  # run execution
-        "quit",
-    ])
+    keys = iter(
+        [
+            "enter",  # detect
+            "tab",
+            "down",
+            "down",
+            "down",
+            "down",
+            "down",
+            "enter",  # focus plan tab
+            "enter",  # execute plan
+            "tab",
+            "down",
+            "enter",  # run execution
+            "quit",
+        ]
+    )
 
     def reader() -> str:
         return next(keys)
 
-    events: List[str] = []
+    events: list[str] = []
 
     def fake_detector():
         events.append("detect")
@@ -649,21 +742,33 @@ def test_tui_commands_drive_backends(monkeypatch) -> None:
     def fake_planner(inventory, overrides=None):
         events.append("plan")
         return [
-            {"id": "context", "category": "context", "metadata": {"mode": "interactive", "dry_run": False, "target_versions": [], "unsupported_targets": [], "options": {}}},
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "mode": "interactive",
+                    "dry_run": False,
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                    "options": {},
+                },
+            },
             {"id": "filesystem-0", "category": "filesystem-cleanup", "metadata": {"paths": []}},
         ]
 
     def fake_executor(plan, overrides=None):
         events.append("execute")
 
-    tui_module.run_tui({
-        "args": type("Args", (), {"no_color": False, "quiet": False})(),
-        "detector": fake_detector,
-        "planner": fake_planner,
-        "executor": fake_executor,
-        "key_reader": reader,
-        "confirm": lambda **kwargs: True,
-    })
+    tui_module.run_tui(
+        {
+            "args": type("Args", (), {"no_color": False, "quiet": False})(),
+            "detector": fake_detector,
+            "planner": fake_planner,
+            "executor": fake_executor,
+            "key_reader": reader,
+            "confirm": lambda **kwargs: True,
+        }
+    )
 
     assert events == ["detect", "plan", "execute"]
 
@@ -675,7 +780,7 @@ def test_tui_respects_quiet_flag(monkeypatch) -> None:
 
     monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None: True)
 
-    invoked: List[str] = []
+    invoked: list[str] = []
 
     def reader() -> str:
         invoked.append("reader")
@@ -709,7 +814,7 @@ def test_tui_auto_mode_invokes_overrides(monkeypatch) -> None:
     def reader() -> str:
         return next(keys)
 
-    events: List[tuple[str, object]] = []
+    events: list[tuple[str, object]] = []
 
     def fake_detector():
         events.append(("detect", None))
@@ -718,7 +823,11 @@ def test_tui_auto_mode_invokes_overrides(monkeypatch) -> None:
     def fake_planner(inventory, overrides=None):
         events.append(("plan", overrides))
         return [
-            {"id": "context", "category": "context", "metadata": {"mode": overrides.get("mode"), "options": dict(overrides)}}
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {"mode": overrides.get("mode"), "options": dict(overrides)},
+            }
         ]
 
     def fake_executor(plan, overrides=None):
@@ -765,7 +874,7 @@ def test_tui_targeted_collects_input(monkeypatch) -> None:
 
     monkeypatch.setattr(tui_module, "_read_input_line", lambda prompt: next(prompts))
 
-    events: List[tuple[str, object]] = []
+    events: list[tuple[str, object]] = []
 
     def fake_detector():
         events.append(("detect", None))
@@ -774,7 +883,11 @@ def test_tui_targeted_collects_input(monkeypatch) -> None:
     def fake_planner(inventory, overrides=None):
         events.append(("plan", overrides))
         return [
-            {"id": "context", "category": "context", "metadata": {"mode": overrides.get("mode"), "options": dict(overrides)}}
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {"mode": overrides.get("mode"), "options": dict(overrides)},
+            }
         ]
 
     def fake_executor(plan, overrides=None):
@@ -806,19 +919,31 @@ def test_main_diagnose_writes_default_artifacts(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
     monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
 
-    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: {"msi": ["Office"], "c2r": [], "filesystem": []})
+    monkeypatch.setattr(
+        main.detect,
+        "gather_office_inventory",
+        lambda: {"msi": ["Office"], "c2r": [], "filesystem": []},
+    )
 
     def fake_plan(inv, options):  # type: ignore[no-untyped-def]
         return [
-            {"id": "context", "category": "context", "metadata": {"mode": options.get("mode"), "options": dict(options)}},
-            {"id": "filesystem", "category": "filesystem-cleanup", "metadata": {"paths": ["C:/Office"]}},
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {"mode": options.get("mode"), "options": dict(options)},
+            },
+            {
+                "id": "filesystem",
+                "category": "filesystem-cleanup",
+                "metadata": {"paths": ["C:/Office"]},
+            },
         ]
 
     monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
     monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
     monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: None)
 
-    guard_calls: List[tuple[dict, bool]] = []
+    guard_calls: list[tuple[dict, bool]] = []
 
     def capture_guard(options, *, dry_run=False):  # type: ignore[no-untyped-def]
         guard_calls.append((dict(options), bool(dry_run)))
@@ -837,4 +962,3 @@ def test_main_diagnose_writes_default_artifacts(monkeypatch, tmp_path) -> None:
     inventory_data = json.loads(inventory_path.read_text(encoding="utf-8"))
     assert inventory_data["msi"] == ["Office"]
     assert guard_calls == []
-

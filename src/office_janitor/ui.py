@@ -4,14 +4,15 @@
 bridges menu actions to the detector/planner/executor callables exposed via the
 ``app_state`` mapping assembled in :mod:`office_janitor.main`.
 """
+
 from __future__ import annotations
 
 import textwrap
-from typing import Callable, Mapping, MutableMapping
+from collections.abc import Mapping, MutableMapping
+from typing import Callable
 
-from . import confirm, plan as plan_module
-from . import version
-
+from . import confirm, version
+from . import plan as plan_module
 
 _DEFAULT_MENU_LABELS = [
     "Detect & show installed Office",
@@ -93,12 +94,22 @@ def run_cli(app_state: Mapping[str, object]) -> None:
         _print_menu(menu)
         selection = input_func("Select an option (1-7): ").strip()
         if not selection.isdigit():
-            _notify(context, "ui.invalid", f"Menu selection {selection!r} is not a number.", level="warning")
+            _notify(
+                context,
+                "ui.invalid",
+                f"Menu selection {selection!r} is not a number.",
+                level="warning",
+            )
             print("Please enter a number between 1 and 7.")
             continue
         index = int(selection) - 1
         if index < 0 or index >= len(menu):
-            _notify(context, "ui.invalid", f"Menu selection {selection!r} outside valid range.", level="warning")
+            _notify(
+                context,
+                "ui.invalid",
+                f"Menu selection {selection!r} outside valid range.",
+                level="warning",
+            )
             print("Please choose a valid menu entry.")
             continue
         label, handler = menu[index]
@@ -168,12 +179,19 @@ def _menu_targeted(context: MutableMapping[str, object]) -> None:
     includes_raw = input_func(
         "Optional: include additional components (visio,project,onenote): "
     ).strip()
-    overrides: dict[str, object] = {"mode": "target:" + ",".join(targets) if targets else "interactive"}
+    overrides: dict[str, object] = {
+        "mode": "target:" + ",".join(targets) if targets else "interactive"
+    }
     if targets:
         joined = ",".join(targets)
         overrides["target"] = joined
     else:
-        _notify(context, "targeted.cancel", "Targeted scrub aborted (no versions provided).", level="warning")
+        _notify(
+            context,
+            "targeted.cancel",
+            "Targeted scrub aborted (no versions provided).",
+            level="warning",
+        )
         print("No target versions entered; aborting targeted scrub.")
         return
     if includes_raw:
@@ -228,12 +246,12 @@ def _menu_settings(context: MutableMapping[str, object]) -> None:
         selection = input_func("Choose a setting to modify (1-8): ").strip()
         if selection == "1":
             value = not bool(getattr(args, "dry_run", False))
-            setattr(args, "dry_run", value)
+            args.dry_run = value
             _notify(context, "settings.dry_run", f"Dry-run set to {value}.", value=value)
         elif selection == "2":
             current = not bool(getattr(args, "no_restore_point", False))
             new_value = not current
-            setattr(args, "no_restore_point", not new_value)
+            args.no_restore_point = not new_value
             _notify(
                 context,
                 "settings.restore_point",
@@ -243,7 +261,7 @@ def _menu_settings(context: MutableMapping[str, object]) -> None:
         elif selection == "3":
             current = not bool(getattr(args, "no_license", False))
             new_value = not current
-            setattr(args, "no_license", not new_value)
+            args.no_license = not new_value
             _notify(
                 context,
                 "settings.license",
@@ -252,11 +270,11 @@ def _menu_settings(context: MutableMapping[str, object]) -> None:
             )
         elif selection == "4":
             value = not bool(getattr(args, "keep_templates", False))
-            setattr(args, "keep_templates", value)
+            args.keep_templates = value
             _notify(context, "settings.templates", f"Keep templates set to {value}.", value=value)
         elif selection == "5":
             path_value = input_func("Enter log directory (blank for default): ").strip()
-            setattr(args, "logdir", path_value or None)
+            args.logdir = path_value or None
             _notify(
                 context,
                 "settings.logdir",
@@ -265,7 +283,7 @@ def _menu_settings(context: MutableMapping[str, object]) -> None:
             )
         elif selection == "6":
             path_value = input_func("Enter backup directory (blank to disable): ").strip()
-            setattr(args, "backup", path_value or None)
+            args.backup = path_value or None
             _notify(
                 context,
                 "settings.backup",
@@ -286,7 +304,7 @@ def _menu_settings(context: MutableMapping[str, object]) -> None:
                     )
                     print("Timeout must be an integer number of seconds.")
                     continue
-                setattr(args, "timeout", timeout_val)
+                args.timeout = timeout_val
                 _notify(
                     context,
                     "settings.timeout",
@@ -294,7 +312,7 @@ def _menu_settings(context: MutableMapping[str, object]) -> None:
                     value=timeout_val,
                 )
             else:
-                setattr(args, "timeout", None)
+                args.timeout = None
                 _notify(context, "settings.timeout", "Timeout reset to default.", value=None)
         elif selection == "8":
             _notify(context, "settings.exit", "Returning to main menu from settings.")
@@ -363,7 +381,9 @@ def _plan_and_execute(
     _notify(context, "execution.complete", f"Execution finished for {label} mode.")
 
 
-def _ensure_plan(context: MutableMapping[str, object], overrides: Mapping[str, object]) -> list[dict]:
+def _ensure_plan(
+    context: MutableMapping[str, object], overrides: Mapping[str, object]
+) -> list[dict]:
     planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = context[
         "planner"
     ]  # type: ignore[assignment]

@@ -6,6 +6,7 @@
  be exercised on non-Windows hosts while still modelling the Windows-centric
  workflow used by the real scrubber.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -14,8 +15,9 @@ import os
 import re
 import shutil
 import stat
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Sequence
+from typing import Callable
 
 try:  # pragma: no cover - platform specific module availability
     import winreg
@@ -151,12 +153,16 @@ def is_path_whitelisted(
         entry_upper = entry_text.upper()
         if entry_upper.startswith("%APPDATA%\\"):
             suffix = entry_upper[len("%APPDATA%") :]
-            if match_environment_suffix(normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True):
+            if match_environment_suffix(
+                normalized, "\\APPDATA\\ROAMING" + suffix, require_users=True
+            ):
                 return True
             continue
         if entry_upper.startswith("%LOCALAPPDATA%\\"):
             suffix = entry_upper[len("%LOCALAPPDATA%") :]
-            if match_environment_suffix(normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True):
+            if match_environment_suffix(
+                normalized, "\\APPDATA\\LOCAL" + suffix, require_users=True
+            ):
                 return True
             continue
 
@@ -261,7 +267,9 @@ def discover_paths(
     return discovered
 
 
-def _handle_readonly(function, path: str, exc_info) -> None:  # pragma: no cover - defensive callback
+def _handle_readonly(
+    function, path: str, exc_info
+) -> None:  # pragma: no cover - defensive callback
     """!
     @brief Clear read-only attributes before retrying removal.
     """
@@ -583,7 +591,9 @@ def make_paths_writable(paths: Sequence[Path | str], *, dry_run: bool = False) -
                 continue
 
             if result.returncode == 127:
-                human_logger.debug("attrib.exe unavailable; skipping attribute reset for %s", target)
+                human_logger.debug(
+                    "attrib.exe unavailable; skipping attribute reset for %s", target
+                )
                 break
 
             if result.returncode not in {0, 1} or result.error:
@@ -624,7 +634,9 @@ def _derive_backup_destination(root: Path, source: Path) -> Path:
     return destination
 
 
-def backup_path(path: Path | str, destination_root: Path | str, *, dry_run: bool = False) -> Path | None:
+def backup_path(
+    path: Path | str, destination_root: Path | str, *, dry_run: bool = False
+) -> Path | None:
     """!
     @brief Copy ``path`` into ``destination_root`` while preserving metadata.
     """
@@ -696,7 +708,9 @@ def get_default_log_directory(
 
     system = platform or os.name
     if system == "nt":
-        program_data = _lookup_env("PROGRAMDATA", environment) or _ENVIRONMENT_DEFAULTS["PROGRAMDATA"]
+        program_data = (
+            _lookup_env("PROGRAMDATA", environment) or _ENVIRONMENT_DEFAULTS["PROGRAMDATA"]
+        )
         return Path(program_data) / "OfficeJanitor" / "logs"
 
     xdg_state = environment.get("XDG_STATE_HOME")
@@ -722,7 +736,9 @@ def get_default_backup_directory(
 
     system = platform or os.name
     if system == "nt":
-        program_data = _lookup_env("PROGRAMDATA", environment) or _ENVIRONMENT_DEFAULTS["PROGRAMDATA"]
+        program_data = (
+            _lookup_env("PROGRAMDATA", environment) or _ENVIRONMENT_DEFAULTS["PROGRAMDATA"]
+        )
         return Path(program_data) / "OfficeJanitor" / "backups"
 
     xdg_state = environment.get("XDG_STATE_HOME")
@@ -747,4 +763,3 @@ __all__ = [
     "remove_paths",
     "reset_acl",
 ]
-

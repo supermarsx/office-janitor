@@ -4,15 +4,15 @@
 implementations ask the same question prior to running a scrub that modifies
 the system.
 """
+
 from __future__ import annotations
 
+import sys
 from typing import Callable
 
-import sys
-
-
 CONFIRM_PROMPT = (
-    "This will remove Microsoft Office and related licensing artifacts from this machine. Continue? (Y/n)"
+    "This will remove Microsoft Office and related licensing artifacts "
+    "from this machine. Continue? (Y/n)"
 )
 
 
@@ -61,4 +61,3 @@ def request_scrub_confirmation(
 
 
 __all__ = ["CONFIRM_PROMPT", "request_scrub_confirmation"]
-

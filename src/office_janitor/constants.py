@@ -5,9 +5,10 @@ metadata, uninstall command templates, and supported targets so detection and
 scrub modules operate from a consistent catalogue of Microsoft Office
 artifacts.
 """
+
 from __future__ import annotations
 
-from typing import Dict, Iterable, Mapping, Tuple
+from collections.abc import Iterable, Mapping
 
 try:  # pragma: no cover - Windows registry handles are optional on test hosts.
     import winreg
@@ -27,7 +28,7 @@ else:  # pragma: no cover - exercised implicitly in non-Windows CI.
     HKU = 0x80000003
 
 
-REGISTRY_ROOTS: Dict[str, int] = {
+REGISTRY_ROOTS: dict[str, int] = {
     "HKLM": HKLM,
     "HKCU": HKCU,
     "HKCR": HKCR,
@@ -83,12 +84,12 @@ OFFICE_PROCESS_PATTERNS = (
 @brief Wildcard process filters used to mirror OffScrub cleanup loops.
 """
 
-MSI_UNINSTALL_ROOTS: Tuple[Tuple[int, str], ...] = (
+MSI_UNINSTALL_ROOTS: tuple[tuple[int, str], ...] = (
     (HKLM, r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
     (HKLM, r"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
 )
 
-OFFSCRUB_UNINSTALL_SEQUENCE: Tuple[str, ...] = (
+OFFSCRUB_UNINSTALL_SEQUENCE: tuple[str, ...] = (
     "c2r",
     "2016",
     "2013",
@@ -135,9 +136,9 @@ C2R_UNINSTALL_VERSION_GROUPS: Mapping[str, str] = {
 _VERSION_MAJOR_KEYS = ("11.0", "12.0", "14.0", "15.0", "16.0")
 
 
-def _normalize_registry_entries(entries: Iterable[Tuple[int, str]]) -> Tuple[Tuple[int, str], ...]:
-    normalized: list[Tuple[int, str]] = []
-    seen: set[Tuple[int, str]] = set()
+def _normalize_registry_entries(entries: Iterable[tuple[int, str]]) -> tuple[tuple[int, str], ...]:
+    normalized: list[tuple[int, str]] = []
+    seen: set[tuple[int, str]] = set()
     for hive, path in entries:
         canonical = path.replace("/", "\\").strip("\\")
         while "\\\\" in canonical:
@@ -150,7 +151,7 @@ def _normalize_registry_entries(entries: Iterable[Tuple[int, str]]) -> Tuple[Tup
     return tuple(normalized)
 
 
-def _registry_entry_depth(entry: Tuple[int, str]) -> int:
+def _registry_entry_depth(entry: tuple[int, str]) -> int:
     _, path = entry
     path = path.strip("\\")
     if not path:
@@ -159,14 +160,14 @@ def _registry_entry_depth(entry: Tuple[int, str]) -> int:
 
 
 def _sort_registry_entries_deepest_first(
-    entries: Iterable[Tuple[int, str]]
-) -> Tuple[Tuple[int, str], ...]:
+    entries: Iterable[tuple[int, str]],
+) -> tuple[tuple[int, str], ...]:
     indexed = list(enumerate(entries))
     indexed.sort(key=lambda item: (-_registry_entry_depth(item[1]), item[0]))
     return tuple(entry for _, entry in indexed)
 
 
-_REGISTRY_RESIDUE_BASE: list[Tuple[int, str]] = [
+_REGISTRY_RESIDUE_BASE: list[tuple[int, str]] = [
     (HKLM, r"SOFTWARE\Microsoft\Office"),
     (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Office"),
     (HKCU, r"SOFTWARE\Microsoft\Office"),
@@ -217,8 +218,12 @@ for major in _VERSION_MAJOR_KEYS:
     _REGISTRY_RESIDUE_BASE.append((HKCU, rf"SOFTWARE\Microsoft\Office\{major}"))
     _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\Microsoft\Office\{major}"))
     _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Microsoft\Office\{major}"))
-    _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Office\{major}"))
-    _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Cloud\Office\{major}"))
+    _REGISTRY_RESIDUE_BASE.append(
+        (HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Office\{major}")
+    )
+    _REGISTRY_RESIDUE_BASE.append(
+        (HKLM, rf"SOFTWARE\WOW6432Node\Policies\Microsoft\Cloud\Office\{major}")
+    )
 
 # COM/CLSIDs tied to Office components (e.g., MAPI search handlers)
 _OFFICE_COM_CLSIDS = (
@@ -294,13 +299,13 @@ RESIDUE_PATH_TEMPLATES = (
 """
 
 
-def _merge_roots(*roots: Tuple[int, str]) -> Tuple[Tuple[int, str], ...]:
+def _merge_roots(*roots: tuple[int, str]) -> tuple[tuple[int, str], ...]:
     """!
     @brief Provide a helper that returns a deduplicated tuple of uninstall roots.
     """
 
-    seen: set[Tuple[int, str]] = set()
-    ordered: list[Tuple[int, str]] = []
+    seen: set[tuple[int, str]] = set()
+    ordered: list[tuple[int, str]] = []
     for hive, path in roots:
         entry = (hive, path)
         if entry in seen:
@@ -315,12 +320,12 @@ OFFSCRUB_EXECUTABLE = "cscript.exe"
 @brief Host executable used by OffScrub VBS helpers.
 """
 
-OFFSCRUB_HOST_ARGS: Tuple[str, ...] = ("//NoLogo",)
+OFFSCRUB_HOST_ARGS: tuple[str, ...] = ("//NoLogo",)
 """!
 @brief Common arguments prepended to every OffScrub invocation.
 """
 
-MSI_OFFSCRUB_SCRIPT_MAP: Dict[str, str] = {
+MSI_OFFSCRUB_SCRIPT_MAP: dict[str, str] = {
     "2003": "OffScrub03.vbs",
     "2007": "OffScrub07.vbs",
     "2010": "OffScrub10.vbs",
@@ -340,7 +345,7 @@ MSI_OFFSCRUB_DEFAULT_SCRIPT = "OffScrub_O16msi.vbs"
 @brief Default MSI OffScrub helper when no specific version matches.
 """
 
-MSI_OFFSCRUB_ARGS: Tuple[str, ...] = (
+MSI_OFFSCRUB_ARGS: tuple[str, ...] = (
     "ALL",
     "/OSE",
     "/NOCANCEL",
@@ -359,12 +364,12 @@ C2R_OFFSCRUB_SCRIPT = "OffScrubC2R.vbs"
 @brief Click-to-Run OffScrub helper name mirrored from OfficeScrubber.
 """
 
-C2R_OFFSCRUB_ARGS: Tuple[str, ...] = ("ALL", "/OFFLINE")
+C2R_OFFSCRUB_ARGS: tuple[str, ...] = ("ALL", "/OFFLINE")
 """!
 @brief Arguments passed to the Click-to-Run OffScrub helper.
 """
 
-UNINSTALL_COMMAND_TEMPLATES: Dict[str, Dict[str, object]] = {
+UNINSTALL_COMMAND_TEMPLATES: dict[str, dict[str, object]] = {
     "msi": {
         "executable": OFFSCRUB_EXECUTABLE,
         "host_args": OFFSCRUB_HOST_ARGS,
@@ -384,7 +389,7 @@ UNINSTALL_COMMAND_TEMPLATES: Dict[str, Dict[str, object]] = {
 """
 
 
-MSI_PRODUCT_MAP: Dict[str, Dict[str, object]] = {
+MSI_PRODUCT_MAP: dict[str, dict[str, object]] = {
     # Office 2010 (14.x) Professional Plus
     "{90140000-0011-0000-0000-0000000FF1CE}": {
         "product": "Microsoft Office Professional Plus 2010",
@@ -491,29 +496,29 @@ def known_msi_codes() -> Iterable[str]:
     return MSI_PRODUCT_MAP.keys()
 
 
-C2R_CONFIGURATION_KEYS: Tuple[Tuple[int, str], ...] = (
+C2R_CONFIGURATION_KEYS: tuple[tuple[int, str], ...] = (
     (HKLM, r"SOFTWARE\\Microsoft\\Office\\ClickToRun\\Configuration"),
     (HKLM, r"SOFTWARE\\Microsoft\\Office\\15.0\\ClickToRun\\Configuration"),
     (HKLM, r"SOFTWARE\\WOW6432Node\\Microsoft\\Office\\15.0\\ClickToRun\\Configuration"),
     (HKCU, r"SOFTWARE\\Microsoft\\Office\\ClickToRun\\Configuration"),
 )
 
-C2R_PRODUCT_RELEASE_ROOTS: Tuple[Tuple[int, str], ...] = (
+C2R_PRODUCT_RELEASE_ROOTS: tuple[tuple[int, str], ...] = (
     (HKLM, r"SOFTWARE\\Microsoft\\Office\\ClickToRun\\ProductReleaseIDs"),
     (HKLM, r"SOFTWARE\\Microsoft\\Office\\15.0\\ClickToRun\\ProductReleaseIDs"),
 )
 
-C2R_SUBSCRIPTION_ROOTS: Tuple[Tuple[int, str], ...] = (
+C2R_SUBSCRIPTION_ROOTS: tuple[tuple[int, str], ...] = (
     (HKLM, r"SOFTWARE\\Microsoft\\Office\\ClickToRun\\Configuration\\Subscriptions"),
     (HKCU, r"SOFTWARE\\Microsoft\\Office\\ClickToRun\\Configuration\\Subscriptions"),
 )
 
-C2R_COM_REGISTRY_PATHS: Tuple[Tuple[int, str], ...] = (
+C2R_COM_REGISTRY_PATHS: tuple[tuple[int, str], ...] = (
     (HKLM, r"SOFTWARE\\Microsoft\\Office\\ClickToRun\\COM Compatibility\\Applications"),
     (HKCU, r"SOFTWARE\\Microsoft\\Office\\ClickToRun\\COM Compatibility\\Applications"),
 )
 
-C2R_PLATFORM_ALIASES: Dict[str, str] = {
+C2R_PLATFORM_ALIASES: dict[str, str] = {
     "x86": "x86",
     "x64": "x64",
     "amd64": "x64",
@@ -521,7 +526,7 @@ C2R_PLATFORM_ALIASES: Dict[str, str] = {
     "neutral": "neutral",
 }
 
-C2R_CHANNEL_ALIASES: Dict[str, str] = {
+C2R_CHANNEL_ALIASES: dict[str, str] = {
     "Production::CC": "Current Channel",
     "Production::Current": "Current Channel",
     "Production::MEC": "Monthly Enterprise Channel",
@@ -537,7 +542,7 @@ C2R_CHANNEL_ALIASES: Dict[str, str] = {
     "http://officecdn.microsoft.com/pr/5440fd1f-7ecb-4221-8110-14e4edeeb5d0": "Semi-Annual Preview",
 }
 
-C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
+C2R_PRODUCT_RELEASES: Mapping[str, dict[str, object]] = {
     # Microsoft 365 Apps / Office 2016+ suites
     "O365ProPlusRetail": {
         "product": "Microsoft 365 Apps for enterprise",
@@ -665,7 +670,7 @@ C2R_PRODUCT_RELEASES: Mapping[str, Dict[str, object]] = {
 }
 
 
-DEFAULT_AUTO_ALL_C2R_RELEASES: Mapping[str, Dict[str, object]] = {
+DEFAULT_AUTO_ALL_C2R_RELEASES: Mapping[str, dict[str, object]] = {
     "O365ProPlusRetail": {
         "product": "Microsoft 365 Apps for enterprise",
         "description": "Uninstall Microsoft 365 Apps for enterprise (Click-to-Run)",
@@ -753,7 +758,7 @@ components such as Project and Visio are included so planners can respect
 """
 
 
-_MSI_FAMILY_LOOKUP: Dict[str, str] = {}
+_MSI_FAMILY_LOOKUP: dict[str, str] = {}
 for _code, _metadata in MSI_PRODUCT_MAP.items():
     _family = str(_metadata.get("family", ""))
     if not _family:
@@ -763,7 +768,9 @@ for _code, _metadata in MSI_PRODUCT_MAP.items():
     _without_braces = _canonical.strip("{}")
     if _without_braces:
         _MSI_FAMILY_LOOKUP[_without_braces] = _family
-    _condensed = _without_braces.replace("-", "") if _without_braces else _canonical.replace("-", "")
+    _condensed = (
+        _without_braces.replace("-", "") if _without_braces else _canonical.replace("-", "")
+    )
     if _condensed:
         _MSI_FAMILY_LOOKUP[_condensed] = _family
         _MSI_FAMILY_LOOKUP[f"{{{_condensed}}}"] = _family
@@ -862,7 +869,7 @@ def is_supported_component(name: str | None) -> bool:
     return resolve_supported_component(name) is not None
 
 
-def iter_supported_components() -> Tuple[str, ...]:
+def iter_supported_components() -> tuple[str, ...]:
     """!
     @brief Iterate the optional component identifiers recognised by the scrubber.
     """

@@ -3,10 +3,10 @@
 @details The version module centralizes version and build identifiers so that
 the command-line interface and user interfaces present consistent information.
 """
+
 from __future__ import annotations
 
 from importlib import resources
-from typing import Dict
 
 __all__ = ["__version__", "__build__", "build_info"]
 
@@ -31,7 +31,7 @@ __version__ = _load_version()
 __build__ = "dev"
 
 
-def build_info() -> Dict[str, str]:
+def build_info() -> dict[str, str]:
     """!
     @brief Provide a mapping with the current version metadata.
     @returns Dictionary containing ``version`` and ``build`` keys.

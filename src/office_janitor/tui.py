@@ -7,6 +7,7 @@ progress events and handles keyboard commands.  The layout follows a header,
 navigation column, and tabbed content panes so that additional widgets can be
 rendered predictably across platforms.
 """
+
 from __future__ import annotations
 
 import os
@@ -14,12 +15,12 @@ import platform
 import sys
 import time
 from collections import deque
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
-from typing import Callable, Deque, Dict, List, Mapping, MutableMapping, Optional
+from typing import Callable
 
+from . import constants, version
 from . import plan as plan_module
-from . import constants
-from . import version
 
 
 @dataclass
@@ -30,7 +31,7 @@ class NavigationItem:
 
     name: str
     label: str
-    action: Optional[Callable[[], None]] = None
+    action: Callable[[], None] | None = None
     quit_on_activate: bool = False
 
 
@@ -42,7 +43,7 @@ class PaneContext:
 
     name: str
     cursor: int = 0
-    lines: List[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
 
 
 class OfficeJanitorTUI:
@@ -57,32 +58,36 @@ class OfficeJanitorTUI:
         self.detector: Callable[[], Mapping[str, object]] = self.app_state[
             "detector"
         ]  # type: ignore[assignment]
-        self.planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = self.app_state[
+        self.planner: Callable[
+            [Mapping[str, object], Mapping[str, object] | None], list[dict]
+        ] = self.app_state[
             "planner"
         ]  # type: ignore[assignment]
-        self.executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = self.app_state[
+        self.executor: Callable[
+            [list[dict], Mapping[str, object] | None], bool | None
+        ] = self.app_state[
             "executor"
         ]  # type: ignore[assignment]
         confirm_callable = self.app_state.get("confirm")
-        self._confirm_requestor: Optional[Callable[..., bool]] = (
+        self._confirm_requestor: Callable[..., bool] | None = (
             confirm_callable if callable(confirm_callable) else None
         )
         queue_obj = self.app_state.get("event_queue")
         if isinstance(queue_obj, deque):
-            self.event_queue: Deque[dict[str, object]] = queue_obj
+            self.event_queue: deque[dict[str, object]] = queue_obj
         else:
             self.event_queue = deque()
             self.app_state["event_queue"] = self.event_queue
         self.emit_event = self.app_state.get("emit_event")
-        self.last_inventory: Optional[Mapping[str, object]] = None
-        self.last_plan: Optional[list[dict]] = None
-        self.status_lines: List[str] = []
+        self.last_inventory: Mapping[str, object] | None = None
+        self.last_plan: list[dict] | None = None
+        self.status_lines: list[str] = []
         self.progress_message = "Ready"
-        self.log_lines: List[str] = []
+        self.log_lines: list[str] = []
         self.ansi_supported = _supports_ansi() and not bool(
             getattr(self.app_state.get("args"), "no_color", False)
         )
-        self._key_reader: Optional[Callable[[], str]] = self.app_state.get(
+        self._key_reader: Callable[[], str] | None = self.app_state.get(
             "key_reader"
         )  # type: ignore[assignment]
         args = self.app_state.get("args")
@@ -92,9 +97,11 @@ class OfficeJanitorTUI:
         except Exception:
             refresh_value = 0.12
         self.refresh_interval = 0.05 if refresh_value <= 0 else refresh_value
-        self.compact_layout = bool(getattr(args, "tui_compact", False)) if args is not None else False
+        self.compact_layout = (
+            bool(getattr(args, "tui_compact", False)) if args is not None else False
+        )
         self._running = True
-        self.navigation: List[NavigationItem] = [
+        self.navigation: list[NavigationItem] = [
             NavigationItem("detect", "Detect inventory", action=self._handle_detect),
             NavigationItem("auto", "Auto scrub everything", action=self._handle_auto_all),
             NavigationItem("targeted", "Targeted scrub", action=self._prepare_targeted),
@@ -109,26 +116,26 @@ class OfficeJanitorTUI:
         self.focus_area = "nav"
         self.nav_index = 0
         self.active_tab = self.navigation[0].name
-        self.panes: Dict[str, PaneContext] = {
+        self.panes: dict[str, PaneContext] = {
             item.name: PaneContext(item.name) for item in self.navigation
         }
-        self.plan_overrides: Dict[str, bool] = {
+        self.plan_overrides: dict[str, bool] = {
             "include_visio": False,
             "include_project": False,
             "include_onenote": False,
         }
-        self.target_overrides: Dict[str, bool] = {
+        self.target_overrides: dict[str, bool] = {
             str(version): False for version in constants.SUPPORTED_TARGETS
         }
-        self.list_filters: Dict[str, str] = {}
+        self.list_filters: dict[str, str] = {}
         args_defaults = {
             "dry_run": bool(getattr(args, "dry_run", False)),
             "create_restore_point": not bool(getattr(args, "no_restore_point", False)),
             "license_cleanup": not bool(getattr(args, "no_license", False)),
             "keep_templates": bool(getattr(args, "keep_templates", False)),
         }
-        self.settings_overrides: Dict[str, bool] = dict(args_defaults)
-        self.last_overrides: Dict[str, object] | None = None
+        self.settings_overrides: dict[str, bool] = dict(args_defaults)
+        self.last_overrides: dict[str, object] | None = None
 
     def _prompt_confirmation_input(self, label: str, prompt: str) -> str:
         """!
@@ -177,9 +184,7 @@ class OfficeJanitorTUI:
         self._render()
         return "n"
 
-    def _confirm_execution(
-        self, label: str, overrides: MutableMapping[str, object]
-    ) -> bool:
+    def _confirm_execution(self, label: str, overrides: MutableMapping[str, object]) -> bool:
         """!
         @brief Coordinate scrub confirmation for interactive executions.
         """
@@ -204,11 +209,7 @@ class OfficeJanitorTUI:
             dry_run=dry_run,
             force=force_override,
             input_func=lambda prompt: self._prompt_confirmation_input(label, prompt),
-            interactive=(
-                True
-                if interactive_override is None
-                else bool(interactive_override)
-            ),
+            interactive=(True if interactive_override is None else bool(interactive_override)),
         )
 
         if not proceed:
@@ -364,8 +365,8 @@ class OfficeJanitorTUI:
             self._ensure_pane_lines(pane)
             return
 
-    def _ensure_pane_lines(self, pane: PaneContext) -> List[tuple[str, str]]:
-        entries: List[tuple[str, str]] = []
+    def _ensure_pane_lines(self, pane: PaneContext) -> list[tuple[str, str]]:
+        entries: list[tuple[str, str]] = []
         if pane.name == "plan":
             entries = [
                 (
@@ -415,14 +416,12 @@ class OfficeJanitorTUI:
             self.list_filters.pop(pane_name, None)
 
     def _filter_entries(
-        self, pane: PaneContext, entries: List[tuple[str, str]]
-    ) -> List[tuple[str, str]]:
+        self, pane: PaneContext, entries: list[tuple[str, str]]
+    ) -> list[tuple[str, str]]:
         filter_text = self._get_pane_filter(pane.name)
         if filter_text:
             lowered = filter_text.lower()
-            filtered = [
-                entry for entry in entries if lowered in entry[1].lower()
-            ]
+            filtered = [entry for entry in entries if lowered in entry[1].lower()]
         else:
             filtered = list(entries)
 
@@ -442,9 +441,7 @@ class OfficeJanitorTUI:
             self.progress_message = f"Filter {label}"
             self._render()
             try:
-                response = _read_input_line(
-                    f"Filter {label} (empty to clear): "
-                )
+                response = _read_input_line(f"Filter {label} (empty to clear): ")
             except (EOFError, KeyboardInterrupt):
                 response = ""
             except Exception:
@@ -519,8 +516,8 @@ class OfficeJanitorTUI:
         header += f" — {node}"
         return header[:width]
 
-    def _render_navigation(self, width: int) -> List[str]:
-        lines: List[str] = ["Navigation:"]
+    def _render_navigation(self, width: int) -> list[str]:
+        lines: list[str] = ["Navigation:"]
         for index, item in enumerate(self.navigation):
             prefix = "➤" if index == self.nav_index else " "
             if not self.ansi_supported or index != self.nav_index:
@@ -533,7 +530,7 @@ class OfficeJanitorTUI:
         lines.extend(self.status_lines[-(12 if self.compact_layout else 18) :])
         return lines
 
-    def _render_content(self, width: int) -> List[str]:
+    def _render_content(self, width: int) -> list[str]:
         if self.active_tab == "detect":
             return self._render_inventory_pane(width)
         if self.active_tab == "plan":
@@ -561,7 +558,7 @@ class OfficeJanitorTUI:
         )
         return help_text
 
-    def _render_inventory_pane(self, width: int) -> List[str]:
+    def _render_inventory_pane(self, width: int) -> list[str]:
         lines = ["Inventory summary:"]
         if self.last_inventory is None:
             lines.append("No inventory collected yet.")
@@ -580,7 +577,7 @@ class OfficeJanitorTUI:
             pane.lines = []
         return [line[:width] for line in lines]
 
-    def _render_plan_pane(self, width: int) -> List[str]:
+    def _render_plan_pane(self, width: int) -> list[str]:
         lines = ["Plan options:"]
         pane = self.panes["plan"]
         entries = self._ensure_pane_lines(pane)
@@ -598,7 +595,7 @@ class OfficeJanitorTUI:
         lines.extend(summary)
         return [line[:width] for line in lines]
 
-    def _render_targeted_pane(self, width: int) -> List[str]:
+    def _render_targeted_pane(self, width: int) -> list[str]:
         lines = ["Targeted scrub targets:"]
         pane = self.panes["targeted"]
         entries = self._ensure_pane_lines(pane)
@@ -617,7 +614,7 @@ class OfficeJanitorTUI:
             lines.append("Inventory not captured yet; selecting targets will prompt detection.")
         return [line[:width] for line in lines]
 
-    def _render_auto_pane(self, width: int) -> List[str]:
+    def _render_auto_pane(self, width: int) -> list[str]:
         lines = [
             "Auto scrub:",
             "Run a full detection and removal pass for all detected Office versions.",
@@ -625,7 +622,7 @@ class OfficeJanitorTUI:
         ]
         return [line[:width] for line in lines]
 
-    def _render_cleanup_pane(self, width: int) -> List[str]:
+    def _render_cleanup_pane(self, width: int) -> list[str]:
         lines = [
             "Cleanup only:",
             "Removes residue such as licenses and scheduled tasks without uninstalling suites.",
@@ -633,7 +630,7 @@ class OfficeJanitorTUI:
         ]
         return [line[:width] for line in lines]
 
-    def _render_diagnostics_pane(self, width: int) -> List[str]:
+    def _render_diagnostics_pane(self, width: int) -> list[str]:
         lines = [
             "Diagnostics only:",
             "Exports inventory and action plans without running uninstall steps.",
@@ -641,7 +638,7 @@ class OfficeJanitorTUI:
         ]
         return [line[:width] for line in lines]
 
-    def _render_run_pane(self, width: int) -> List[str]:
+    def _render_run_pane(self, width: int) -> list[str]:
         lines = ["Execution progress:"]
         pane = self.panes["run"]
         entries = self._ensure_pane_lines(pane)
@@ -651,12 +648,10 @@ class OfficeJanitorTUI:
         if entries:
             lines.extend(text for _, text in entries)
         else:
-            lines.append(
-                "No matching progress messages." if active_filter else "No progress yet."
-            )
+            lines.append("No matching progress messages." if active_filter else "No progress yet.")
         return [line[:width] for line in lines]
 
-    def _render_logs_pane(self, width: int) -> List[str]:
+    def _render_logs_pane(self, width: int) -> list[str]:
         lines = ["Log tail:"]
         if not self.log_lines:
             lines.append("No log entries yet.")
@@ -673,7 +668,7 @@ class OfficeJanitorTUI:
                 lines.append("No matching log entries.")
         return [line[:width] for line in lines]
 
-    def _render_settings_pane(self, width: int) -> List[str]:
+    def _render_settings_pane(self, width: int) -> list[str]:
         lines = ["Settings toggles:"]
         pane = self.panes["settings"]
         entries = self._ensure_pane_lines(pane)
@@ -696,7 +691,11 @@ class OfficeJanitorTUI:
 
     def _toggle_plan_option(self, index: int) -> None:
         pane = self.panes.get("plan")
-        keys = list(pane.lines) if pane is not None and pane.lines else list(self.plan_overrides.keys())
+        keys = (
+            list(pane.lines)
+            if pane is not None and pane.lines
+            else list(self.plan_overrides.keys())
+        )
         if not keys:
             return
         safe_index = max(0, min(index, len(keys) - 1))
@@ -731,26 +730,22 @@ class OfficeJanitorTUI:
         safe_index = max(0, min(index, len(keys) - 1))
         key = keys[safe_index]
         self.settings_overrides[key] = not self.settings_overrides[key]
-        self._append_status(
-            f"Setting '{key}' toggled to {self.settings_overrides[key]}"
-        )
+        self._append_status(f"Setting '{key}' toggled to {self.settings_overrides[key]}")
 
-    def _collect_settings_overrides(self) -> Dict[str, object]:
-        overrides: Dict[str, object] = {}
+    def _collect_settings_overrides(self) -> dict[str, object]:
+        overrides: dict[str, object] = {}
         toggles = self.settings_overrides
         overrides["dry_run"] = bool(toggles.get("dry_run", False))
-        overrides["create_restore_point"] = bool(
-            toggles.get("create_restore_point", False)
-        )
+        overrides["create_restore_point"] = bool(toggles.get("create_restore_point", False))
         overrides["keep_templates"] = bool(toggles.get("keep_templates", False))
         license_cleanup = bool(toggles.get("license_cleanup", True))
         overrides["license_cleanup"] = license_cleanup
         overrides["no_license"] = not license_cleanup
         return overrides
 
-    def _collect_plan_overrides(self) -> Dict[str, object]:
-        overrides: Dict[str, object] = {}
-        include_components: List[str] = []
+    def _collect_plan_overrides(self) -> dict[str, object]:
+        overrides: dict[str, object] = {}
+        include_components: list[str] = []
         for key, enabled in self.plan_overrides.items():
             if not enabled:
                 continue
@@ -761,22 +756,16 @@ class OfficeJanitorTUI:
             overrides["include"] = ",".join(include_components)
         return overrides
 
-    def _combine_overrides(
-        self, extra: Mapping[str, object] | None = None
-    ) -> Dict[str, object]:
-        combined: Dict[str, object] = {}
+    def _combine_overrides(self, extra: Mapping[str, object] | None = None) -> dict[str, object]:
+        combined: dict[str, object] = {}
         combined.update(self._collect_settings_overrides())
         combined.update(self._collect_plan_overrides())
         if extra:
             combined.update({key: extra[key] for key in extra})
         return combined
 
-    def _selected_targets(self) -> List[str]:
-        return [
-            version
-            for version, enabled in self.target_overrides.items()
-            if enabled
-        ]
+    def _selected_targets(self) -> list[str]:
+        return [version for version, enabled in self.target_overrides.items() if enabled]
 
     def _ensure_inventory(self) -> bool:
         if self.last_inventory is not None:
@@ -787,9 +776,7 @@ class OfficeJanitorTUI:
     def _prepare_targeted(self) -> None:
         self._ensure_inventory()
         self.progress_message = "Configure targeted scrub"
-        self._append_status(
-            "Targeted scrub ready: toggle versions with Space, F10 to run."
-        )
+        self._append_status("Targeted scrub ready: toggle versions with Space, F10 to run.")
 
     def _plan_and_optionally_execute(
         self,
@@ -1001,9 +988,7 @@ class OfficeJanitorTUI:
 
         selected = self._selected_targets()
         if not selected:
-            self._append_status(
-                "Select at least one Office version before running targeted scrub."
-            )
+            self._append_status("Select at least one Office version before running targeted scrub.")
             self.progress_message = "Target selection required"
             return
 
@@ -1023,9 +1008,7 @@ class OfficeJanitorTUI:
         if len(self.status_lines) > limit:
             self.status_lines[:] = self.status_lines[-limit:]
 
-    def _notify(
-        self, event: str, message: str, *, level: str = "info", **payload: object
-    ) -> None:
+    def _notify(self, event: str, message: str, *, level: str = "info", **payload: object) -> None:
         human_logger = self.human_logger
         if human_logger is not None:
             log_func = getattr(human_logger, level, human_logger.info)
@@ -1106,7 +1089,7 @@ def run_tui(app_state: Mapping[str, object]) -> None:
     OfficeJanitorTUI(app_state).run()
 
 
-def _supports_ansi(stream: Optional[object] = None) -> bool:
+def _supports_ansi(stream: object | None = None) -> bool:
     """!
     @brief Determine whether the current stdout supports ANSI escape sequences.
     """
@@ -1195,8 +1178,8 @@ def _divider(width: int) -> str:
     return "-" * width
 
 
-def _format_inventory(inventory: Mapping[str, object]) -> List[str]:
-    lines: List[str] = []
+def _format_inventory(inventory: Mapping[str, object]) -> list[str]:
+    lines: list[str] = []
     for key, value in inventory.items():
         lines.extend(_flatten_inventory_entry(str(key), value))
     if not lines:
@@ -1204,11 +1187,11 @@ def _format_inventory(inventory: Mapping[str, object]) -> List[str]:
     return lines
 
 
-def _flatten_inventory_entry(prefix: str, value: object) -> List[str]:
+def _flatten_inventory_entry(prefix: str, value: object) -> list[str]:
     if isinstance(value, Mapping):
         if not value:
             return [f"{prefix}: (empty)"]
-        lines: List[str] = []
+        lines: list[str] = []
         for subkey, subvalue in value.items():
             nested_prefix = f"{prefix}.{subkey}"
             lines.extend(_flatten_inventory_entry(nested_prefix, subvalue))
@@ -1225,9 +1208,7 @@ def _stringify_inventory_value(value: object) -> str:
     if isinstance(value, Mapping):
         if not value:
             return "{}"
-        parts = [
-            f"{key}={_stringify_inventory_value(subvalue)}" for key, subvalue in value.items()
-        ]
+        parts = [f"{key}={_stringify_inventory_value(subvalue)}" for key, subvalue in value.items()]
         return ", ".join(parts)
     if isinstance(value, (list, tuple, set)):
         if not value:
@@ -1247,12 +1228,12 @@ def _summarize_inventory(inventory: Mapping[str, object]) -> dict[str, int]:
     return summary
 
 
-def _format_plan(plan_data: Optional[list[dict]]) -> List[str]:
+def _format_plan(plan_data: list[dict] | None) -> list[str]:
     if not plan_data:
         return ["Plan not created"]
 
     summary = plan_module.summarize_plan(plan_data)
-    lines: List[str] = [
+    lines: list[str] = [
         f"Steps: {summary.get('total_steps', 0)} (actionable {summary.get('actionable_steps', 0)})",
     ]
 
@@ -1328,6 +1309,4 @@ def _default_key_reader() -> str:
             return first
         return ""
     except Exception:
-        return _read_input_line(
-            "Command (arrows navigate, enter selects, q to quit): "
-        ).strip()
+        return _read_input_line("Command (arrows navigate, enter selects, q to quit): ").strip()

@@ -1,6 +1,7 @@
 """!
 @brief Tests for :mod:`office_janitor.logging_ext`.
 """
+
 from __future__ import annotations
 
 import io
@@ -17,7 +18,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import logging_ext
+from office_janitor import logging_ext  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -93,10 +94,12 @@ def test_setup_logging_creates_files_and_formats(tmp_path) -> None:
     assert metadata["logdir"].endswith(str(tmp_path))
 
     assert any(
-        isinstance(handler, logging.handlers.TimedRotatingFileHandler) for handler in human_logger.handlers
+        isinstance(handler, logging.handlers.TimedRotatingFileHandler)
+        for handler in human_logger.handlers
     )
     assert any(
-        isinstance(handler, logging.handlers.TimedRotatingFileHandler) for handler in machine_logger.handlers
+        isinstance(handler, logging.handlers.TimedRotatingFileHandler)
+        for handler in machine_logger.handlers
     )
 
 
@@ -160,13 +163,15 @@ def test_get_loggers_adds_stdout_when_requested(tmp_path) -> None:
     logging_ext.setup_logging(tmp_path, json_to_stdout=False)
     _, machine = logging_ext.get_loggers(json_stdout=True, level=logging.INFO)
     assert any(
-        isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is sys.stdout
+        isinstance(handler, logging.StreamHandler)
+        and getattr(handler, "stream", None) is sys.stdout
         for handler in machine.handlers
     )
 
     _, machine = logging_ext.get_loggers(json_stdout=False, level=logging.INFO)
     assert not any(
-        isinstance(handler, logging.StreamHandler) and getattr(handler, "stream", None) is sys.stdout
+        isinstance(handler, logging.StreamHandler)
+        and getattr(handler, "stream", None) is sys.stdout
         for handler in machine.handlers
     )
 

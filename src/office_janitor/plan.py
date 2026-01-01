@@ -4,9 +4,10 @@
 user-selected options into an ordered sequence of steps for uninstall, cleanup,
 and backups, matching the workflow outlined in the specification.
 """
+
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Mapping, MutableMapping, Sequence
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 
 from . import constants
 
@@ -39,11 +40,11 @@ _MSI_MAJOR_VERSION_HINTS = {
 
 
 def build_plan(
-    inventory: Dict[str, Sequence[dict]],
-    options: Dict[str, object],
+    inventory: dict[str, Sequence[dict]],
+    options: dict[str, object],
     *,
     pass_index: int = 1,
-) -> List[dict]:
+) -> list[dict]:
     """!
     @brief Produce an ordered plan of actions using the current inventory and CLI options.
     @details ``pass_index`` allows the scrubber to regenerate uninstall steps for
@@ -77,7 +78,7 @@ def build_plan(
 
     inventory_summary = _summarize_inventory(detected_inventory, detected_versions)
 
-    plan: List[dict] = []
+    plan: list[dict] = []
     context_metadata = {
         "mode": mode,
         "dry_run": dry_run,
@@ -124,7 +125,7 @@ def build_plan(
 
     include_uninstalls = (not diagnose_mode) and mode not in {"cleanup-only"}
 
-    uninstall_steps: List[str] = []
+    uninstall_steps: list[str] = []
     prerequisites = [detect_step_id]
 
     if include_uninstalls:
@@ -144,9 +145,7 @@ def build_plan(
                 {
                     "id": uninstall_id,
                     "category": "c2r-uninstall",
-                    "description": record.get(
-                        "description", "Uninstall Click-to-Run packages"
-                    ),
+                    "description": record.get("description", "Uninstall Click-to-Run packages"),
                     "depends_on": prerequisites,
                     "metadata": {
                         "installation": record,
@@ -174,7 +173,8 @@ def build_plan(
                     "id": uninstall_id,
                     "category": "msi-uninstall",
                     "description": record.get(
-                        "display_name", f"Uninstall MSI product {record.get('product_code', 'unknown')}"
+                        "display_name",
+                        f"Uninstall MSI product {record.get('product_code', 'unknown')}",
                     ),
                     "depends_on": prerequisites,
                     "metadata": {
@@ -186,7 +186,7 @@ def build_plan(
             )
             uninstall_steps.append(uninstall_id)
 
-    cleanup_dependencies: List[str] = uninstall_steps or [detect_step_id]
+    cleanup_dependencies: list[str] = uninstall_steps or [detect_step_id]
     licensing_step_id = ""
 
     if (not diagnose_mode) and not (
@@ -224,7 +224,9 @@ def build_plan(
         )
         cleanup_dependencies = [task_step_id]
 
-    service_names = [] if diagnose_mode else _collect_service_names(planning_inventory.get("services", []))
+    service_names = (
+        [] if diagnose_mode else _collect_service_names(planning_inventory.get("services", []))
+    )
     if service_names:
         service_step_id = f"services-{pass_index}-0"
         plan.append(
@@ -241,7 +243,9 @@ def build_plan(
         )
         cleanup_dependencies = [service_step_id]
 
-    filesystem_entries = [] if diagnose_mode else _collect_paths(planning_inventory.get("filesystem", []))
+    filesystem_entries = (
+        [] if diagnose_mode else _collect_paths(planning_inventory.get("filesystem", []))
+    )
     if filesystem_entries:
         plan.append(
             {
@@ -259,7 +263,9 @@ def build_plan(
             }
         )
 
-    registry_entries = [] if diagnose_mode else _collect_registry_paths(planning_inventory.get("registry", []))
+    registry_entries = (
+        [] if diagnose_mode else _collect_registry_paths(planning_inventory.get("registry", []))
+    )
     if registry_entries:
         plan.append(
             {
@@ -282,7 +288,7 @@ def build_plan(
     return plan
 
 
-def _normalize_options(options: Mapping[str, object]) -> Dict[str, object]:
+def _normalize_options(options: Mapping[str, object]) -> dict[str, object]:
     if hasattr(options, "__dict__"):
         return dict(vars(options))
     return dict(options)
@@ -305,16 +311,16 @@ def _resolve_mode(options: Mapping[str, object]) -> str:
         return f"target:{target}"
 
     if explicit_lower.startswith("target:") and len(explicit) > len("target:"):
-        return f"target:{explicit.split(":", 1)[1]}"
+        return f"target:{explicit.split(':', 1)[1]}"
     if explicit:
         return explicit_lower or explicit
 
     return "interactive"
 
 
-def _resolve_targets(mode: str, options: Mapping[str, object]) -> tuple[List[str], List[str]]:
-    raw_targets: List[str] = []
-    unsupported: List[str] = []
+def _resolve_targets(mode: str, options: Mapping[str, object]) -> tuple[list[str], list[str]]:
+    raw_targets: list[str] = []
+    unsupported: list[str] = []
 
     if mode.startswith("target:"):
         selected = mode.split(":", 1)[1]
@@ -333,7 +339,7 @@ def _resolve_targets(mode: str, options: Mapping[str, object]) -> tuple[List[str
             raw_targets.extend(str(item) for item in additional)
 
     seen: set[str] = set()
-    ordered_targets: List[str] = []
+    ordered_targets: list[str] = []
     for candidate in raw_targets:
         candidate_norm = candidate.strip()
         if candidate_norm and candidate_norm not in seen:
@@ -348,19 +354,19 @@ def _resolve_targets(mode: str, options: Mapping[str, object]) -> tuple[List[str
     return valid_targets, unsupported
 
 
-def _resolve_components(include_option: object) -> tuple[List[str], List[str]]:
+def _resolve_components(include_option: object) -> tuple[list[str], list[str]]:
     if not include_option:
         return [], []
 
-    raw_components: List[str] = []
+    raw_components: list[str] = []
     if isinstance(include_option, str):
         raw_components = [item.strip() for item in include_option.split(",") if item.strip()]
     elif isinstance(include_option, Iterable):
         raw_components = [str(item).strip() for item in include_option if str(item).strip()]
 
     seen: set[str] = set()
-    resolved: List[str] = []
-    unsupported: List[str] = []
+    resolved: list[str] = []
+    unsupported: list[str] = []
     for candidate in raw_components:
         lower = candidate.lower()
         if lower in seen:
@@ -379,7 +385,7 @@ def _augment_auto_all_c2r_inventory(
 ) -> None:
     bucket = inventory.get("c2r")
     if bucket is None:
-        records: List[dict] = []
+        records: list[dict] = []
     elif isinstance(bucket, list):
         records = bucket
     else:
@@ -415,11 +421,9 @@ def _build_seeded_c2r_entry(
     release_id: str,
     metadata: Mapping[str, object],
     base_metadata: Mapping[str, object],
-) -> Dict[str, object]:
+) -> dict[str, object]:
     product_name = str(metadata.get("product") or base_metadata.get("product") or release_id)
-    description = str(
-        metadata.get("description") or f"Uninstall {product_name}"
-    )
+    description = str(metadata.get("description") or f"Uninstall {product_name}")
 
     supported_versions_source = metadata.get("supported_versions") or base_metadata.get(
         "supported_versions", ()
@@ -431,7 +435,7 @@ def _build_seeded_c2r_entry(
     else:
         supported_versions_iter = []
 
-    supported_versions: List[str] = []
+    supported_versions: list[str] = []
     for item in supported_versions_iter:
         text = str(item).strip()
         if text:
@@ -458,7 +462,7 @@ def _build_seeded_c2r_entry(
     else:
         architectures_iter = []
 
-    supported_architectures: List[str] = []
+    supported_architectures: list[str] = []
     for item in architectures_iter:
         text = str(item).strip()
         if text:
@@ -471,7 +475,7 @@ def _build_seeded_c2r_entry(
     family = str(metadata.get("family") or base_metadata.get("family") or "").strip()
     channel = str(metadata.get("channel") or base_metadata.get("channel") or "unknown")
 
-    properties: Dict[str, object] = {
+    properties: dict[str, object] = {
         "release_id": release_id,
         "version": default_version,
         "supported_versions": supported_versions,
@@ -483,7 +487,7 @@ def _build_seeded_c2r_entry(
     if channel and channel != "unknown":
         properties["channel"] = channel
 
-    tags: List[str] = []
+    tags: list[str] = []
     raw_tags = metadata.get("tags")
     if isinstance(raw_tags, Iterable) and not isinstance(raw_tags, (str, bytes)):
         for tag in raw_tags:
@@ -493,7 +497,7 @@ def _build_seeded_c2r_entry(
     if default_version and default_version not in tags:
         tags.append(default_version)
 
-    seeded: Dict[str, object] = {
+    seeded: dict[str, object] = {
         "source": "C2R",
         "product": product_name,
         "description": description,
@@ -510,7 +514,7 @@ def _build_seeded_c2r_entry(
     return seeded
 
 
-def _discover_versions(inventory: Mapping[str, Sequence[dict]]) -> List[str]:
+def _discover_versions(inventory: Mapping[str, Sequence[dict]]) -> list[str]:
     versions: set[str] = set()
     for key in ("msi", "c2r"):
         for record in inventory.get(key, []):
@@ -520,11 +524,11 @@ def _discover_versions(inventory: Mapping[str, Sequence[dict]]) -> List[str]:
     return sorted(versions)
 
 
-def _filter_records_by_target(records: Sequence[dict], targets: Sequence[str]) -> List[dict]:
+def _filter_records_by_target(records: Sequence[dict], targets: Sequence[str]) -> list[dict]:
     if not targets:
         return list(records)
     target_set = {str(target) for target in targets}
-    filtered: List[dict] = []
+    filtered: list[dict] = []
     for record in records:
         version = _infer_version(record)
         if version and version in target_set:
@@ -574,8 +578,8 @@ def _infer_version(record: Mapping[str, object]) -> str:
     return ""
 
 
-def _collect_paths(entries: Sequence[Mapping[str, object]]) -> List[str]:
-    paths: List[str] = []
+def _collect_paths(entries: Sequence[Mapping[str, object]]) -> list[str]:
+    paths: list[str] = []
     for entry in entries:
         candidate = entry.get("path")
         if isinstance(candidate, str) and candidate:
@@ -583,8 +587,8 @@ def _collect_paths(entries: Sequence[Mapping[str, object]]) -> List[str]:
     return paths
 
 
-def _collect_registry_paths(entries: Sequence[Mapping[str, object]]) -> List[str]:
-    keys: List[str] = []
+def _collect_registry_paths(entries: Sequence[Mapping[str, object]]) -> list[str]:
+    keys: list[str] = []
     for entry in entries:
         for field in ("key", "path"):
             candidate = entry.get(field)
@@ -594,8 +598,8 @@ def _collect_registry_paths(entries: Sequence[Mapping[str, object]]) -> List[str
     return keys
 
 
-def _collect_task_names(entries: Sequence[Mapping[str, object]]) -> List[str]:
-    tasks: List[str] = []
+def _collect_task_names(entries: Sequence[Mapping[str, object]]) -> list[str]:
+    tasks: list[str] = []
     for entry in entries:
         candidate = entry.get("task") or entry.get("name")
         if isinstance(candidate, str) and candidate:
@@ -603,8 +607,8 @@ def _collect_task_names(entries: Sequence[Mapping[str, object]]) -> List[str]:
     return tasks
 
 
-def _collect_service_names(entries: Sequence[Mapping[str, object]]) -> List[str]:
-    services: List[str] = []
+def _collect_service_names(entries: Sequence[Mapping[str, object]]) -> list[str]:
+    services: list[str] = []
     for entry in entries:
         candidate = entry.get("name") or entry.get("service")
         if isinstance(candidate, str) and candidate:
@@ -614,8 +618,8 @@ def _collect_service_names(entries: Sequence[Mapping[str, object]]) -> List[str]
 
 def _summarize_inventory(
     inventory: Mapping[str, Sequence[Mapping[str, object]]], discovered_versions: Sequence[str]
-) -> Dict[str, object]:
-    counts: Dict[str, int] = {}
+) -> dict[str, object]:
+    counts: dict[str, int] = {}
     total_entries = 0
     for key, items in inventory.items():
         try:
@@ -656,8 +660,8 @@ def _resolve_msi_priority_group(record: Mapping[str, object]) -> str:
     return ""
 
 
-def _collect_msi_version_candidates(record: Mapping[str, object]) -> List[str]:
-    candidates: List[str] = []
+def _collect_msi_version_candidates(record: Mapping[str, object]) -> list[str]:
+    candidates: list[str] = []
 
     def _add(value: object) -> None:
         if not value:
@@ -694,7 +698,7 @@ def _c2r_uninstall_priority(version: str) -> int:
     return _OFFSCRUB_PRIORITY.get(group, 0)
 
 
-def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> Dict[str, object]:
+def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> dict[str, object]:
     """!
     @brief Build a lightweight summary structure for UI and telemetry surfaces.
     @details Aggregates category counts, uninstall targets, and request metadata so
@@ -703,7 +707,7 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> Dict[str, obje
     excluded from the actionable step count.
     """
 
-    summary: Dict[str, object] = {
+    summary: dict[str, object] = {
         "total_steps": len(plan_steps),
         "actionable_steps": 0,
         "categories": {},
@@ -719,9 +723,9 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> Dict[str, obje
     }
 
     context_metadata: MutableMapping[str, object] | None = None
-    categories: Dict[str, int] = {}
+    categories: dict[str, int] = {}
     uninstall_versions: set[str] = set()
-    cleanup_categories: List[str] = []
+    cleanup_categories: list[str] = []
 
     for step in plan_steps:
         category = str(step.get("category", ""))
@@ -755,7 +759,7 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> Dict[str, obje
     return summary
 
 
-def _sort_versions(versions: Iterable[str]) -> List[str]:
+def _sort_versions(versions: Iterable[str]) -> list[str]:
     order_map = {value: index for index, value in enumerate(_SUPPORTED_TARGETS)}
 
     def _sort_key(value: str) -> tuple[int, str]:

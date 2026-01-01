@@ -10,7 +10,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import constants
+from office_janitor import constants  # noqa: E402
 
 
 class TestConstantsModule:
@@ -72,9 +72,7 @@ class TestConstantsModule:
 
         msi_template = constants.UNINSTALL_COMMAND_TEMPLATES["msi"]
         assert msi_template["executable"] == constants.OFFSCRUB_EXECUTABLE
-        assert constants.MSI_OFFSCRUB_DEFAULT_SCRIPT in set(
-            msi_template["script_map"].values()
-        )
+        assert constants.MSI_OFFSCRUB_DEFAULT_SCRIPT in set(msi_template["script_map"].values())
 
         c2r_template = constants.UNINSTALL_COMMAND_TEMPLATES["c2r"]
         assert c2r_template["script"] == constants.C2R_OFFSCRUB_SCRIPT

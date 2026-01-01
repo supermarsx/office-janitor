@@ -4,15 +4,16 @@
 target selection, and optional cleanup steps so :mod:`off_scrub_native` can
 focus on orchestration.
 """
+
 from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, List, Mapping, MutableMapping, Sequence
 
-from . import constants, detect, fs_tools, logging_ext, registry_tools, tasks_services
+from . import constants, fs_tools, logging_ext, registry_tools, tasks_services
 
 _GUID_PATTERN = re.compile(
     r"{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}}?"
@@ -64,10 +65,10 @@ class LegacyInvocation:
 
     script_path: Path | None
     version_group: str | None
-    product_codes: List[str]
-    release_ids: List[str]
+    product_codes: list[str]
+    release_ids: list[str]
     flags: MutableMapping[str, object]
-    unknown: List[str]
+    unknown: list[str]
     log_directory: Path | None = None
 
 
@@ -107,7 +108,9 @@ def normalize_guid_token(token: str) -> str:
     return cleaned
 
 
-def infer_version_group_from_script(script_path: Path | None, default: str | None = None) -> str | None:
+def infer_version_group_from_script(
+    script_path: Path | None, default: str | None = None
+) -> str | None:
     """!
     @brief Infer an OffScrub version group from the script filename.
     """
@@ -125,9 +128,9 @@ def parse_legacy_arguments(command: str, argv: Sequence[str]) -> LegacyInvocatio
 
     script_path: Path | None = None
     flags: MutableMapping[str, object] = {}
-    unknown: List[str] = []
-    product_codes: List[str] = []
-    release_ids: List[str] = []
+    unknown: list[str] = []
+    product_codes: list[str] = []
+    release_ids: list[str] = []
     log_directory: Path | None = None
     tokens = [str(part).strip() for part in argv if str(part).strip()]
     index = 0
@@ -298,7 +301,9 @@ def derive_execution_directives(legacy: LegacyInvocation, *, dry_run: bool) -> E
         offline=bool(legacy.flags.get("offline")),
         quiet=bool(legacy.flags.get("quiet")),
         no_reboot=bool(legacy.flags.get("no_reboot")),
-        delete_user_settings=bool(legacy.flags.get("delete_user_settings") and not legacy.flags.get("keep_user_settings")),
+        delete_user_settings=bool(
+            legacy.flags.get("delete_user_settings") and not legacy.flags.get("keep_user_settings")
+        ),
         keep_user_settings=bool(legacy.flags.get("keep_user_settings")),
         clear_addin_registry=bool(legacy.flags.get("clear_addin_registry")),
         remove_vba=bool(legacy.flags.get("remove_vba")),
@@ -322,12 +327,14 @@ def _infer_c2r_group(entry: Mapping[str, object]) -> str | None:
     return None
 
 
-def select_msi_targets(invocation: LegacyInvocation, inventory: Mapping[str, object]) -> List[Mapping[str, object]]:
+def select_msi_targets(
+    invocation: LegacyInvocation, inventory: Mapping[str, object]
+) -> list[Mapping[str, object]]:
     """!
     @brief Filter MSI inventory entries based on legacy invocation hints.
     """
 
-    products: List[Mapping[str, object]] = []
+    products: list[Mapping[str, object]] = []
     desired_codes = {code.upper() for code in invocation.product_codes}
     version_group = invocation.version_group
     msi_entries = inventory.get("msi", []) if isinstance(inventory, Mapping) else []
@@ -339,7 +346,9 @@ def select_msi_targets(invocation: LegacyInvocation, inventory: Mapping[str, obj
         if desired_codes and product_code not in desired_codes:
             continue
         properties = entry.get("properties", {})
-        supported_versions = set(str(ver) for ver in properties.get("supported_versions", []) if str(ver))
+        supported_versions = set(
+            str(ver) for ver in properties.get("supported_versions", []) if str(ver)
+        )
         if version_group and supported_versions and version_group not in supported_versions:
             continue
         products.append(dict(entry))
@@ -350,12 +359,14 @@ def select_msi_targets(invocation: LegacyInvocation, inventory: Mapping[str, obj
     return products
 
 
-def select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, object]) -> List[Mapping[str, object]]:
+def select_c2r_targets(
+    invocation: LegacyInvocation, inventory: Mapping[str, object]
+) -> list[Mapping[str, object]]:
     """!
     @brief Filter Click-to-Run inventory entries based on legacy invocation hints.
     """
 
-    targets: List[Mapping[str, object]] = []
+    targets: list[Mapping[str, object]] = []
     available = inventory.get("c2r", []) if isinstance(inventory, Mapping) else []
     desired_release_ids = {rid.lower() for rid in invocation.release_ids if rid}
     allow_all = bool(invocation.flags.get("all") or desired_release_ids)
@@ -363,15 +374,16 @@ def select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, obj
     for entry in available:
         if not isinstance(entry, Mapping):
             continue
-        releases = [
-            str(rid)
-            for rid in entry.get("release_ids", [])
-            if str(rid).strip()
-        ]
+        releases = [str(rid) for rid in entry.get("release_ids", []) if str(rid).strip()]
         if desired_release_ids and not any(rid.lower() in desired_release_ids for rid in releases):
             continue
         group = _infer_c2r_group(entry)
-        if invocation.version_group and invocation.version_group != "c2r" and group and group != invocation.version_group:
+        if (
+            invocation.version_group
+            and invocation.version_group != "c2r"
+            and group
+            and group != invocation.version_group
+        ):
             continue
         if not allow_all and invocation.version_group is None:
             continue
@@ -384,12 +396,12 @@ def select_c2r_targets(invocation: LegacyInvocation, inventory: Mapping[str, obj
     return targets
 
 
-def format_registry_keys(entries: Iterable[object]) -> List[str]:
+def format_registry_keys(entries: Iterable[object]) -> list[str]:
     """!
     @brief Convert registry entry tuples or strings into canonical ``HK**\\path`` text.
     """
 
-    formatted: List[str] = []
+    formatted: list[str] = []
     for entry in entries:
         if isinstance(entry, str):
             formatted.append(entry)
@@ -398,11 +410,13 @@ def format_registry_keys(entries: Iterable[object]) -> List[str]:
             hive, path = entry
             name = _HIVE_NAMES.get(hive)
             if name:
-                formatted.append(f"{name}\\{str(path).strip('\\\\')}")
+                formatted.append(name + "\\" + str(path).strip("\\"))
     return formatted
 
 
-def perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool, kind: str | None = None) -> None:
+def perform_optional_cleanup(
+    directives: ExecutionDirectives, *, dry_run: bool, kind: str | None = None
+) -> None:
     """!
     @brief Execute optional cleanup implied by legacy flags.
     @param kind Optional legacy command identifier (``c2r`` or ``msi``) used to scope cleanup.
@@ -420,7 +434,9 @@ def perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool, 
         except registry_tools.RegistryError as exc:  # pragma: no cover - defensive
             human_logger.warning("Click-to-Run COM registry cleanup skipped: %s", exc)
         if directives.keep_license:
-            human_logger.info("Skipping Click-to-Run cache cleanup because keep-license was requested.")
+            human_logger.info(
+                "Skipping Click-to-Run cache cleanup because keep-license was requested."
+            )
         else:
             c2r_residue = [
                 str(Path(os.path.expandvars(entry["path"])))
@@ -428,7 +444,9 @@ def perform_optional_cleanup(directives: ExecutionDirectives, *, dry_run: bool, 
                 if entry.get("category") == "c2r_cache"
             ]
             if c2r_residue:
-                human_logger.info("Removing Click-to-Run cache directories referenced by legacy scripts.")
+                human_logger.info(
+                    "Removing Click-to-Run cache directories referenced by legacy scripts."
+                )
                 fs_tools.remove_paths(c2r_residue, dry_run=dry_run)
 
     if not directives.skip_shortcut_detection:

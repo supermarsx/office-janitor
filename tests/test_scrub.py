@@ -7,17 +7,15 @@ against the new OffScrub-based uninstall helpers.
 from __future__ import annotations
 
 import json
-import logging
 import pathlib
 import sys
-from typing import List
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import logging_ext, scrub
+from office_janitor import logging_ext, scrub  # noqa: E402
 
 
 def _context(dry_run: bool = False, options: dict | None = None, pass_index: int = 1) -> dict:
@@ -68,7 +66,7 @@ def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    events: List[str] = []
+    events: list[str] = []
 
     monkeypatch.setattr(
         scrub.restore_point,
@@ -107,7 +105,9 @@ def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         scrub.msi_uninstall,
         "uninstall_products",
-        lambda products, dry_run=False: events.append(f"msi:{products[0]['product_code']}:{dry_run}"),
+        lambda products, dry_run=False: events.append(
+            f"msi:{products[0]['product_code']}:{dry_run}"
+        ),
     )
 
     monkeypatch.setattr(
@@ -244,12 +244,16 @@ def test_execute_plan_dry_run_skips_mutations(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         scrub.tasks_services,
         "stop_services",
-        lambda services, timeout=30: (_ for _ in ()).throw(AssertionError("stop services should not run")),
+        lambda services, timeout=30: (_ for _ in ()).throw(
+            AssertionError("stop services should not run")
+        ),
     )
     monkeypatch.setattr(
         scrub.tasks_services,
         "disable_tasks",
-        lambda tasks, dry_run=False: (_ for _ in ()).throw(AssertionError("disable tasks should not run")),
+        lambda tasks, dry_run=False: (_ for _ in ()).throw(
+            AssertionError("disable tasks should not run")
+        ),
     )
     monkeypatch.setattr(
         scrub.tasks_services,
@@ -262,7 +266,7 @@ def test_execute_plan_dry_run_skips_mutations(monkeypatch, tmp_path) -> None:
         lambda services, dry_run=False: recorded.append(f"delete_services:{dry_run}"),
     )
 
-    recorded: List[str] = []
+    recorded: list[str] = []
 
     monkeypatch.setattr(
         scrub.msi_uninstall,
@@ -285,8 +289,18 @@ def test_execute_plan_dry_run_skips_mutations(monkeypatch, tmp_path) -> None:
         lambda paths, dry_run=False: recorded.append(f"filesystem:{dry_run}"),
     )
 
-    monkeypatch.setattr(scrub.detect, "reprobe", lambda options: (_ for _ in ()).throw(AssertionError("reprobe should not run")))
-    monkeypatch.setattr(scrub.plan_module, "build_plan", lambda inventory, options, pass_index=1: (_ for _ in ()).throw(AssertionError("replan should not run")))
+    monkeypatch.setattr(
+        scrub.detect,
+        "reprobe",
+        lambda options: (_ for _ in ()).throw(AssertionError("reprobe should not run")),
+    )
+    monkeypatch.setattr(
+        scrub.plan_module,
+        "build_plan",
+        lambda inventory, options, pass_index=1: (_ for _ in ()).throw(
+            AssertionError("replan should not run")
+        ),
+    )
 
     plan = [
         _context(True, {}, 1),
@@ -341,7 +355,7 @@ def test_execute_plan_repeats_until_clean(monkeypatch, tmp_path) -> None:
     """
 
     logging_ext.setup_logging(tmp_path)
-    events: List[str] = []
+    events: list[str] = []
 
     monkeypatch.setattr(
         scrub.restore_point,
@@ -355,7 +369,9 @@ def test_execute_plan_repeats_until_clean(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         scrub.msi_uninstall,
         "uninstall_products",
-        lambda products, dry_run=False: events.append(f"msi:{products[0]['product_code']}:{dry_run}"),
+        lambda products, dry_run=False: events.append(
+            f"msi:{products[0]['product_code']}:{dry_run}"
+        ),
     )
     monkeypatch.setattr(
         scrub.c2r_uninstall,
@@ -369,7 +385,12 @@ def test_execute_plan_repeats_until_clean(monkeypatch, tmp_path) -> None:
     )
 
     inventories = [
-        {"msi": [{"product_code": "{LEFTOVER}", "version": "2016"}], "c2r": [], "filesystem": [], "registry": []},
+        {
+            "msi": [{"product_code": "{LEFTOVER}", "version": "2016"}],
+            "c2r": [],
+            "filesystem": [],
+            "registry": [],
+        },
         {"msi": [], "c2r": [], "filesystem": [], "registry": []},
     ]
 

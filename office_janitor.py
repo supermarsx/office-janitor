@@ -3,6 +3,7 @@
 @details This module ensures the package in ``src/`` is importable before
 transferring control to :func:`office_janitor.main.main`.
 """
+
 from __future__ import annotations
 
 import os
@@ -58,7 +59,9 @@ try:
 
     _prepend_src_to_sys_path()
     _package_main = importlib.import_module("office_janitor.main")
-    ensure_admin_and_relaunch_if_needed = getattr(_package_main, "ensure_admin_and_relaunch_if_needed", None)
+    ensure_admin_and_relaunch_if_needed = getattr(
+        _package_main, "ensure_admin_and_relaunch_if_needed", None
+    )
     enable_vt_mode_if_possible = getattr(_package_main, "enable_vt_mode_if_possible", None)
     build_arg_parser = getattr(_package_main, "build_arg_parser", None)
     _determine_mode = getattr(_package_main, "_determine_mode", None)
