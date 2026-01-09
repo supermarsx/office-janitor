@@ -327,8 +327,8 @@ def run_command(
             "result": _build_result_payload(
                 return_code=exc.returncode if hasattr(exc, "returncode") else 1,
                 duration=duration,
-                stdout=exc.stdout or "",
-                stderr=exc.stderr or "",
+                stdout=str(exc.stdout or ""),
+                stderr=str(exc.stderr or ""),
                 error="timeout",
                 timed_out=True,
             ),
@@ -337,8 +337,8 @@ def run_command(
         return CommandResult(
             command=command_list,
             returncode=1,
-            stdout=exc.stdout or "",
-            stderr=exc.stderr or "",
+            stdout=str(exc.stdout or ""),
+            stderr=str(exc.stderr or ""),
             duration=duration,
             timed_out=True,
             error="timeout",
@@ -385,8 +385,8 @@ def run_command(
         "result": _build_result_payload(
             return_code=completed.returncode,
             duration=duration,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            stdout=str(completed.stdout),
+            stderr=str(completed.stderr),
             error=None,
             timed_out=False,
         ),

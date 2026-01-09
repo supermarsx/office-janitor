@@ -64,7 +64,7 @@ def build_plan(
         key: list(value) if not isinstance(value, list) else list(value)
         for key, value in inventory.items()
     }
-    planning_inventory = {
+    planning_inventory: MutableMapping[str, list[dict]] = {
         key: list(value) if not isinstance(value, list) else list(value)
         for key, value in detected_inventory.items()
     }
@@ -622,10 +622,7 @@ def _summarize_inventory(
     counts: dict[str, int] = {}
     total_entries = 0
     for key, items in inventory.items():
-        try:
-            count = len(items)  # type: ignore[arg-type]
-        except TypeError:
-            count = len(list(items))
+        count = len(items)
         counts[key] = count
         total_entries += count
     return {

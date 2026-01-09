@@ -19,9 +19,7 @@ from collections import deque
 from collections.abc import Iterable, Mapping, MutableMapping, MutableSequence
 from logging import handlers
 from pathlib import Path
-from typing import (
-    Callable,
-)
+from typing import Any, Callable
 
 from . import version
 
@@ -194,7 +192,7 @@ class _SizedTimedRotatingFileHandler(handlers.TimedRotatingFileHandler):
         *,
         max_bytes: int = 0,
         backup_count: int = 0,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> None:
         when = str(kwargs.pop("when", "midnight"))
         try:
