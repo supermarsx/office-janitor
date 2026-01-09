@@ -60,7 +60,9 @@ def run_cli(app_state: Mapping[str, object]) -> None:
     planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = app_state[
         "planner"
     ]  # type: ignore[assignment]
-    executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = app_state["executor"]  # type: ignore[assignment]
+    executor: Callable[
+        [list[dict], Mapping[str, object] | None], bool | None
+    ] = app_state["executor"]  # type: ignore[assignment]
 
     menu: list[tuple[str, MenuHandler]] = [
         (_DEFAULT_MENU_LABELS[0], _menu_detect),
@@ -395,7 +397,7 @@ def _ensure_plan(
         context["inventory"] = inventory
     plan_steps = planner(inventory, overrides)
     context["plan"] = plan_steps
-    print("Plan contains %d step(s)." % len(plan_steps))
+    print(f"Plan contains {len(plan_steps)} step(s).")
     return plan_steps
 
 

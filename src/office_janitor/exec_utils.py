@@ -233,9 +233,19 @@ def run_command(
             human_logger.info("Dry-run: would execute %s", " ".join(command_list))
         dry_meta: MutableMapping[str, object] = {
             "event": f"{event}_dry_run",
-            "args": _build_args_payload(command_list, timeout=effective_timeout, cwd=cwd, extra=extra),
+            "args": _build_args_payload(
+                command_list,
+                timeout=effective_timeout,
+                cwd=cwd,
+                extra=extra,
+            ),
             "result": _build_result_payload(
-                return_code=0, duration=0.0, stdout="", stderr="", error=None, timed_out=False
+                return_code=0,
+                duration=0.0,
+                stdout="",
+                stderr="",
+                error=None,
+                timed_out=False,
             ),
         }
         machine_logger.info(f"{event}_dry_run", extra=dict(dry_meta))
@@ -274,7 +284,12 @@ def run_command(
         human_logger.error("Command not found: %s", command_list[0])
         failure_meta: MutableMapping[str, object] = {
             "event": f"{event}_missing",
-            "args": _build_args_payload(command_list, timeout=effective_timeout, cwd=cwd, extra=extra),
+            "args": _build_args_payload(
+                command_list,
+                timeout=effective_timeout,
+                cwd=cwd,
+                extra=extra,
+            ),
             "result": _build_result_payload(
                 return_code=127,
                 duration=duration,
@@ -298,7 +313,12 @@ def run_command(
         human_logger.error("Command timed out after %.1fs: %s", duration, command_list[0])
         failure_meta = {
             "event": f"{event}_timeout",
-            "args": _build_args_payload(command_list, timeout=effective_timeout, cwd=cwd, extra=extra),
+            "args": _build_args_payload(
+                command_list,
+                timeout=effective_timeout,
+                cwd=cwd,
+                extra=extra,
+            ),
             "result": _build_result_payload(
                 return_code=exc.returncode if hasattr(exc, "returncode") else 1,
                 duration=duration,
@@ -323,7 +343,12 @@ def run_command(
         human_logger.error("Failed to execute %s: %s", command_list[0], exc)
         failure_meta = {
             "event": f"{event}_error",
-            "args": _build_args_payload(command_list, timeout=effective_timeout, cwd=cwd, extra=extra),
+            "args": _build_args_payload(
+                command_list,
+                timeout=effective_timeout,
+                cwd=cwd,
+                extra=extra,
+            ),
             "result": _build_result_payload(
                 return_code=1,
                 duration=duration,
@@ -346,7 +371,12 @@ def run_command(
     duration = time.monotonic() - start
     result_meta: MutableMapping[str, object] = {
         "event": f"{event}_result",
-        "args": _build_args_payload(command_list, timeout=effective_timeout, cwd=cwd, extra=extra),
+        "args": _build_args_payload(
+            command_list,
+            timeout=effective_timeout,
+            cwd=cwd,
+            extra=extra,
+        ),
         "result": _build_result_payload(
             return_code=completed.returncode,
             duration=duration,

@@ -33,11 +33,13 @@ _SCRIPT_BODIES: Mapping[str, str] = {
     ),
     "OffScrub_O15msi.vbs": (
         "' OffScrub_O15msi.vbs compatibility shim\n"
-        "' Native Python flow: python -m office_janitor.off_scrub_native msi OffScrub_O15msi.vbs ALL\n"
+        "' Native Python flow: python -m office_janitor.off_scrub_native msi "
+        "OffScrub_O15msi.vbs ALL\n"
     ),
     "OffScrub_O16msi.vbs": (
         "' OffScrub_O16msi.vbs compatibility shim\n"
-        "' Native Python flow: python -m office_janitor.off_scrub_native msi OffScrub_O16msi.vbs ALL\n"
+        "' Native Python flow: python -m office_janitor.off_scrub_native msi "
+        "OffScrub_O16msi.vbs ALL\n"
     ),
     "OffScrubC2R.vbs": (
         "' OffScrubC2R.vbs compatibility shim\n"

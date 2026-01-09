@@ -184,19 +184,23 @@ _REGISTRY_RESIDUE_BASE: list[tuple[int, str]] = [
     (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\Updates"),
     (
         HKLM,
-        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\0ff1ce15-a989-479d-af46-f275c6370663",
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"
+        r"\0ff1ce15-a989-479d-af46-f275c6370663",
     ),
     (
         HKLM,
-        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\Policies\0ff1ce15-a989-479d-af46-f275c6370663",
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\Policies"
+        r"\0ff1ce15-a989-479d-af46-f275c6370663",
     ),
     (
         HKU,
-        r"S-1-5-20\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\0ff1ce15-a989-479d-af46-f275c6370663",
+        r"S-1-5-20\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform"
+        r"\0ff1ce15-a989-479d-af46-f275c6370663",
     ),
     (
         HKU,
-        r"S-1-5-20\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\Policies\0ff1ce15-a989-479d-af46-f275c6370663",
+        r"S-1-5-20\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\Policies"
+        r"\0ff1ce15-a989-479d-af46-f275c6370663",
     ),
     (
         HKLM,
@@ -536,10 +540,18 @@ C2R_CHANNEL_ALIASES: dict[str, str] = {
     "Production::InsiderFast": "Insider Fast",
     "Production::FirstReleaseCurrent": "Current Channel (Preview)",
     "Production::FirstReleaseDeferred": "Semi-Annual Preview",
-    "http://officecdn.microsoft.com/pr/492350f6-3a04-4b59-8b34-4c547755c2a0": "Current Channel",
-    "http://officecdn.microsoft.com/pr/55336b82-a18d-4dd6-b5f6-9e5095c314a6": "Monthly Enterprise Channel",
-    "http://officecdn.microsoft.com/pr/7ffbc6bf-bc32-4f92-8982-f9dd17fd3114": "Semi-Annual Enterprise Channel",
-    "http://officecdn.microsoft.com/pr/5440fd1f-7ecb-4221-8110-14e4edeeb5d0": "Semi-Annual Preview",
+    (
+        "http://officecdn.microsoft.com/pr/492350f6-3a04-4b59-8b34-4c547755c2a0"
+    ): "Current Channel",
+    (
+        "http://officecdn.microsoft.com/pr/55336b82-a18d-4dd6-b5f6-9e5095c314a6"
+    ): "Monthly Enterprise Channel",
+    (
+        "http://officecdn.microsoft.com/pr/7ffbc6bf-bc32-4f92-8982-f9dd17fd3114"
+    ): "Semi-Annual Enterprise Channel",
+    (
+        "http://officecdn.microsoft.com/pr/5440fd1f-7ecb-4221-8110-14e4edeeb5d0"
+    ): "Semi-Annual Preview",
 }
 
 C2R_PRODUCT_RELEASES: Mapping[str, dict[str, object]] = {
@@ -937,7 +949,8 @@ USER_TEMPLATE_PATHS = (
     r"%LOCALAPPDATA%\\Microsoft\\Office\\Licenses",
 )
 """!
-@brief Directories containing user templates and licensing state that require explicit purge consent.
+@brief Directories containing user templates and licensing state that require explicit
+purge consent.
 """
 
 INSTALL_ROOT_TEMPLATES = (

@@ -468,7 +468,8 @@ def _probe_msi_powershell() -> dict[str, dict[str, Any]]:
     script = (
         "$ErrorActionPreference='SilentlyContinue';"
         "$items=Get-CimInstance -ClassName Win32_Product -ErrorAction SilentlyContinue | "
-        "Where-Object { $_.Name -and ( $_.Name -like '*Office*' -or $_.Name -like '*Visio*' -or $_.Name -like '*Project*' ) } | "
+        "Where-Object { $_.Name -and ( "
+        "$_.Name -like '*Office*' -or $_.Name -like '*Visio*' -or $_.Name -like '*Project*' ) } | "
         "Select-Object IdentifyingNumber,Name,Version,InstallLocation;"
         "if($items){$items|ConvertTo-Json -Compress}else{''}"
     )
@@ -801,7 +802,8 @@ def gather_office_inventory(*, limited_user: bool | None = None) -> dict[str, ob
                     return parsed
             except json.JSONDecodeError:
                 human_logger.warning(
-                    "Failed to parse limited-user detection output; falling back to current context."
+                    "Failed to parse limited-user detection output; falling back to current "
+                    "context."
                 )
 
     inventory: dict[str, object] = {

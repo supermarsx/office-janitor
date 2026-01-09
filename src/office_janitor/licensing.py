@@ -18,10 +18,32 @@ from . import constants, exec_utils, fs_tools, logging_ext, registry_tools
 LICENSE_SCRIPT_TEMPLATE = Template(
     r"""
 function UninstallLicenses($$DllPath, $$FilterGuid) {
-    $$TB = [AppDomain]::CurrentDomain.DefineDynamicAssembly(4, 1).DefineDynamicModule(2).DefineType(0)
-    [void]$$TB.DefinePInvokeMethod('SLOpen', $$DllPath, 22, 1, [int], @([IntPtr].MakeByRefType()), 1, 3)
-    [void]$$TB.DefinePInvokeMethod('SLGetSLIDList', $$DllPath, 22, 1, [int], @([IntPtr], [int], [Guid].MakeByRefType(), [int], [int].MakeByRefType(), [IntPtr].MakeByRefType()), 1, 3).SetImplementationFlags(128)
-    [void]$$TB.DefinePInvokeMethod('SLUninstallLicense', $$DllPath, 22, 1, [int], @([IntPtr], [IntPtr]), 1, 3)
+    $$assembly = [AppDomain]::CurrentDomain.DefineDynamicAssembly(4, 1)
+    $$module = $$assembly.DefineDynamicModule(2)
+    $$TB = $$module.DefineType(0)
+    [void]$$TB.DefinePInvokeMethod(
+        'SLOpen', $$DllPath, 22, 1, [int], @([IntPtr].MakeByRefType()), 1, 3
+    )
+    [void]$$TB.DefinePInvokeMethod(
+        'SLGetSLIDList',
+        $$DllPath,
+        22,
+        1,
+        [int],
+        @(
+            [IntPtr],
+            [int],
+            [Guid].MakeByRefType(),
+            [int],
+            [int].MakeByRefType(),
+            [IntPtr].MakeByRefType()
+        ),
+        1,
+        3
+    ).SetImplementationFlags(128)
+    [void]$$TB.DefinePInvokeMethod(
+        'SLUninstallLicense', $$DllPath, 22, 1, [int], @([IntPtr], [IntPtr]), 1, 3
+    )
 
     $$SPPC = $$TB.CreateType()
     $$Handle = 0
@@ -30,7 +52,9 @@ function UninstallLicenses($$DllPath, $$FilterGuid) {
     $$ppReturnIds = 0
     $$removed = 0
 
-    if (-not $$SPPC::SLGetSLIDList($$Handle, 0, [ref]$$FilterGuid, 6, [ref]$$pnReturnIds, [ref]$$ppReturnIds)) {
+    if (-not $$SPPC::SLGetSLIDList(
+        $$Handle, 0, [ref]$$FilterGuid, 6, [ref]$$pnReturnIds, [ref]$$ppReturnIds
+    )) {
         if ($$pnReturnIds -gt 0) {
             foreach ($$i in 0..($$pnReturnIds - 1)) {
                 [void]$$SPPC::SLUninstallLicense($$Handle, [Int64]$$ppReturnIds + ([Int64]16 * $$i))
@@ -199,7 +223,8 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
     cleanup_forced = force_cleanup or mode == "cleanup-only"
     if not uninstall_detected and not cleanup_forced:
         human_logger.info(
-            "Skipping licensing cleanup because uninstall steps have not completed; use --force to override."
+            "Skipping licensing cleanup because uninstall steps have not completed; "
+            "use --force to override."
         )
         machine_logger.info(
             "licensing_skipped",
@@ -230,7 +255,8 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
     if registry_keys:
         if backup_destination is None:
             human_logger.warning(
-                "No backup destination configured; registry keys will not be exported before cleanup."
+                "No backup destination configured; registry keys will not be exported before "
+                "cleanup."
             )
         else:
             if dry_run:

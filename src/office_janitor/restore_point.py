@@ -174,7 +174,10 @@ def _build_powershell_command(description: str) -> Sequence[str]:
         $restorePointType = 0
         $eventType = 100
         try {{
-            $systemRestore = Get-WmiObject -Class SystemRestore -Namespace \"root/default\" -ErrorAction Stop
+            $systemRestore = Get-WmiObject `
+                -Class SystemRestore `
+                -Namespace \"root/default\" `
+                -ErrorAction Stop
             $result = $systemRestore.CreateRestorePoint($description, $restorePointType, $eventType)
             if ($result.ReturnValue -eq 0) {{
                 exit 0
@@ -182,7 +185,11 @@ def _build_powershell_command(description: str) -> Sequence[str]:
             exit $result.ReturnValue
         }} catch {{
             try {{
-                Checkpoint-Computer -Description $description -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop | Out-Null
+                Checkpoint-Computer `
+                    -Description $description `
+                    -RestorePointType 'MODIFY_SETTINGS' `
+                    -ErrorAction Stop `
+                    | Out-Null
                 exit 0
             }} catch {{
                 $message = $_.Exception.Message

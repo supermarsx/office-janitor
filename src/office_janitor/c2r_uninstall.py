@@ -389,10 +389,9 @@ def uninstall_products(
         command = [str(client_path), *C2R_CLIENT_ARGS]
         result: command_runner.CommandResult | None = None
         for attempt in range(1, total_attempts + 1):
-            message = "Uninstalling Click-to-Run suite %s [attempt %d/%d]" % (
-                target.display_name,
-                attempt,
-                total_attempts,
+            message = (
+                f"Uninstalling Click-to-Run suite {target.display_name} "
+                f"[attempt {attempt}/{total_attempts}]"
             )
             result = command_runner.run_command(
                 command,

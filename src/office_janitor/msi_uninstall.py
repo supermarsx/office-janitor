@@ -365,8 +365,8 @@ def _handle_busy_installer(
         )
     else:
         prompt = (
-            f"Retry uninstall of {entry.display_name} after waiting {delay:.0f}s once other installers are closed? "
-            "[Y/n]: "
+            f"Retry uninstall of {entry.display_name} after waiting {delay:.0f}s once other "
+            "installers are closed? [Y/n]: "
         )
         try:
             response = input_func(prompt)
@@ -469,18 +469,14 @@ def _run_uninstall_command(
 
     for attempt in range(1, total_attempts + 1):
         if using_setup:
-            message = "Uninstalling MSI product %s (%s) via setup.exe [attempt %d/%d]" % (
-                entry.display_name,
-                entry.product_code,
-                attempt,
-                total_attempts,
+            message = (
+                f"Uninstalling MSI product {entry.display_name} ({entry.product_code}) "
+                f"via setup.exe [attempt {attempt}/{total_attempts}]"
             )
         else:
-            message = "Uninstalling MSI product %s (%s) [attempt %d/%d]" % (
-                entry.display_name,
-                entry.product_code,
-                attempt,
-                total_attempts,
+            message = (
+                f"Uninstalling MSI product {entry.display_name} ({entry.product_code}) "
+                f"[attempt {attempt}/{total_attempts}]"
             )
 
         result = command_runner.run_command(

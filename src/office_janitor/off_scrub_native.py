@@ -184,19 +184,23 @@ def _log_flag_effects(
         )
     if directives.keep_user_settings:
         human_logger.info(
-            "Legacy keep-user-settings flag set; user settings cleanup will be skipped where applicable."
+            "Legacy keep-user-settings flag set; user settings cleanup will be skipped where "
+            "applicable."
         )
     if directives.clear_addin_registry:
         human_logger.info(
-            "Legacy clear add-in registry flag set; add-in registry cleanup would be executed where applicable."
+            "Legacy clear add-in registry flag set; add-in registry cleanup would be executed "
+            "where applicable."
         )
     if directives.remove_vba:
         human_logger.info(
-            "Legacy remove VBA flag set; VBA-only package cleanup would be executed where applicable."
+            "Legacy remove VBA flag set; VBA-only package cleanup would be executed where "
+            "applicable."
         )
     if directives.return_error_or_success:
         human_logger.info(
-            "Legacy ReturnErrorOrSuccess flag set; exit code will be reduced to success unless a reboot bit is present."
+            "Legacy ReturnErrorOrSuccess flag set; exit code will be reduced to success unless a "
+            "reboot bit is present."
         )
 
     handled = {
