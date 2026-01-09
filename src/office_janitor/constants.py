@@ -9,23 +9,28 @@ artifacts.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, cast
 
-try:  # pragma: no cover - Windows registry handles are optional on test hosts.
-    import winreg
-except ImportError:  # pragma: no cover - test scaffolding supplies substitutes.
-    winreg = None  # type: ignore[assignment]
+if TYPE_CHECKING:  # pragma: no cover - type checking only
+    import winreg as _winreg
+else:
+    try:  # pragma: no cover - Windows registry handles are optional on test hosts.
+        import winreg as _winreg  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover - test scaffolding supplies substitutes.
+        class _WinRegStub:
+            HKEY_LOCAL_MACHINE = 0x80000002
+            HKEY_CURRENT_USER = 0x80000001
+            HKEY_CLASSES_ROOT = 0x80000000
+            HKEY_USERS = 0x80000003
 
+        _winreg = _WinRegStub()  # type: ignore[assignment]
 
-if winreg is not None:  # pragma: no branch - deterministic assignments.
-    HKLM = winreg.HKEY_LOCAL_MACHINE
-    HKCU = winreg.HKEY_CURRENT_USER
-    HKCR = winreg.HKEY_CLASSES_ROOT
-    HKU = winreg.HKEY_USERS
-else:  # pragma: no cover - exercised implicitly in non-Windows CI.
-    HKLM = 0x80000002
-    HKCU = 0x80000001
-    HKCR = 0x80000000
-    HKU = 0x80000003
+winreg = _winreg  # re-export for callers
+
+HKLM = cast(int, getattr(winreg, "HKEY_LOCAL_MACHINE", 0x80000002))
+HKCU = cast(int, getattr(winreg, "HKEY_CURRENT_USER", 0x80000001))
+HKCR = cast(int, getattr(winreg, "HKEY_CLASSES_ROOT", 0x80000000))
+HKU = cast(int, getattr(winreg, "HKEY_USERS", 0x80000003))
 
 
 REGISTRY_ROOTS: dict[str, int] = {

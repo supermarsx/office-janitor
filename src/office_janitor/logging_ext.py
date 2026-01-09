@@ -196,8 +196,11 @@ class _SizedTimedRotatingFileHandler(handlers.TimedRotatingFileHandler):
         backup_count: int = 0,
         **kwargs: object,
     ) -> None:
-        when = kwargs.pop("when", "midnight")
-        interval = kwargs.pop("interval", 1)
+        when = str(kwargs.pop("when", "midnight"))
+        try:
+            interval = int(kwargs.pop("interval", 1))
+        except Exception:
+            interval = 1
         super().__init__(
             filename,
             when=when,

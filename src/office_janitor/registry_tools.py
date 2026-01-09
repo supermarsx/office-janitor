@@ -16,14 +16,30 @@ import shutil
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from . import exec_utils, safety
 
-try:  # pragma: no cover - exercised through mocks on non-Windows platforms.
-    import winreg
-except ImportError:  # pragma: no cover - handled gracefully during tests.
-    winreg = None  # type: ignore[assignment]
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import winreg as _winreg
+else:  # pragma: no cover - runtime fallback for non-Windows tests
+    try:
+        import winreg as _winreg  # type: ignore[import-not-found]
+    except ImportError:
+        class _WinRegStub:
+            KEY_READ = 0
+            KEY_WRITE = 0
+            HKEY_LOCAL_MACHINE = 0x80000002
+            HKEY_CURRENT_USER = 0x80000001
+            HKEY_CLASSES_ROOT = 0x80000000
+            HKEY_USERS = 0x80000003
+
+            def OpenKey(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+                raise FileNotFoundError
+
+        _winreg = _WinRegStub()  # type: ignore[assignment]
+
+winreg = _winreg
 
 
 _LOGGER = logging.getLogger(__name__)

@@ -17,7 +17,14 @@ import time
 from collections import deque
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Any, Callable
+
+try:  # pragma: no cover - Windows specific
+    import msvcrt as _msvcrt  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - non-Windows hosts
+    _msvcrt = None  # type: ignore[assignment]
+
+msvcrt: Any = _msvcrt
 
 from . import constants, version
 from . import plan as plan_module

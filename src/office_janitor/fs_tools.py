@@ -17,12 +17,26 @@ import shutil
 import stat
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable, cast
 
-try:  # pragma: no cover - platform specific module availability
-    import winreg
-except ImportError:  # pragma: no cover - non-Windows hosts
-    winreg = None  # type: ignore[assignment]
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import winreg as _winreg
+else:
+    try:  # pragma: no cover - platform specific module availability
+        import winreg as _winreg  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover - non-Windows hosts
+        class _WinRegStub:
+            KEY_READ = 0
+            KEY_SET_VALUE = 0
+            REG_MULTI_SZ = 7
+            HKEY_LOCAL_MACHINE = 0x80000002
+
+            def ConnectRegistry(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+                raise FileNotFoundError
+
+        _winreg = _WinRegStub()  # type: ignore[assignment]
+
+winreg = _winreg
 
 from . import constants, exec_utils, logging_ext
 
