@@ -114,17 +114,18 @@ def test_run_command_dry_run_logs_without_invocation(monkeypatch: pytest.MonkeyP
     assert result.returncode == 0
     assert not calls
     assert machine_logger.records[0][1] == "sample_plan"
-    assert machine_logger.records[0][2]["extra"]["command"] == [
+    assert machine_logger.records[0][2]["extra"]["args"]["command"] == [
         "powershell",
         "-Command",
         "Write-Host",
     ]
     assert machine_logger.records[1][1] == "sample_dry_run"
-    assert machine_logger.records[1][2]["extra"]["command"] == [
+    assert machine_logger.records[1][2]["extra"]["args"]["command"] == [
         "powershell",
         "-Command",
         "Write-Host",
     ]
+    assert machine_logger.records[1][2]["extra"]["result"]["rc"] == 0
     assert "[dry-run]" in human_logger.records[0][1]
 
 
@@ -161,7 +162,7 @@ def test_run_command_executes_with_sanitized_environment(monkeypatch: pytest.Mon
     assert captured_env.get("KEEP") is None
     assert captured_env["EXTRA"] == "2"
     assert machine_logger.records[-1][1] == "sanity_result"
-    assert machine_logger.records[-1][2]["extra"]["return_code"] == 0
+    assert machine_logger.records[-1][2]["extra"]["result"]["rc"] == 0
 
 
 def test_run_command_check_raises_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -185,7 +186,7 @@ def test_run_command_check_raises_on_failure(monkeypatch: pytest.MonkeyPatch) ->
 
     assert excinfo.value.returncode == 5
     assert machine_logger.records[-1][1] == "failure_result"
-    assert machine_logger.records[-1][2]["extra"]["return_code"] == 5
+    assert machine_logger.records[-1][2]["extra"]["result"]["rc"] == 5
     warning_messages = [record for record in human_logger.records if record[0] == "warning"]
     assert warning_messages and "exited with" in warning_messages[0][1]
 

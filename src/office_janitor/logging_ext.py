@@ -96,10 +96,13 @@ class _JsonLineFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:  # noqa: D401 - concise override
         moment = _dt.datetime.fromtimestamp(record.created, tz=_dt.timezone.utc)
+        extras = _extract_extras(record)
+        event_name = getattr(record, "event", None) or extras.get("event") or record.getMessage()
         payload: dict[str, object] = {
             "timestamp": moment.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
+            "event": event_name,
             "message": record.getMessage(),
             "channel": getattr(record, "channel", "machine"),
         }
@@ -109,7 +112,6 @@ class _JsonLineFormatter(logging.Formatter):
         if _SESSION_ID is not None:
             payload.setdefault("corr", _SESSION_ID)
 
-        extras = _extract_extras(record)
         if _SESSION_ID is not None:
             session_info = extras.get("session")
             if not isinstance(session_info, Mapping):
