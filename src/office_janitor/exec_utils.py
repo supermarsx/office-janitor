@@ -85,7 +85,7 @@ def _resolve_timeout(requested: float | int | None) -> float | int | None:
     return min(_GLOBAL_TIMEOUT, requested)
 
 
-def _build_args_payload(
+def _build_call_payload(
     command_list: Sequence[str],
     *,
     timeout: float | int | None,
@@ -221,7 +221,12 @@ def run_command(
 
     metadata: MutableMapping[str, object] = {
         "event": f"{event}_plan",
-        "args": _build_args_payload(command_list, timeout=effective_timeout, cwd=cwd, extra=extra),
+        "call": _build_call_payload(
+            command_list,
+            timeout=effective_timeout,
+            cwd=cwd,
+            extra=extra,
+        ),
         "dry_run": dry_run,
     }
     machine_logger.info(f"{event}_plan", extra=dict(metadata))
@@ -233,7 +238,7 @@ def run_command(
             human_logger.info("Dry-run: would execute %s", " ".join(command_list))
         dry_meta: MutableMapping[str, object] = {
             "event": f"{event}_dry_run",
-            "args": _build_args_payload(
+            "call": _build_call_payload(
                 command_list,
                 timeout=effective_timeout,
                 cwd=cwd,
@@ -284,7 +289,7 @@ def run_command(
         human_logger.error("Command not found: %s", command_list[0])
         failure_meta: MutableMapping[str, object] = {
             "event": f"{event}_missing",
-            "args": _build_args_payload(
+            "call": _build_call_payload(
                 command_list,
                 timeout=effective_timeout,
                 cwd=cwd,
@@ -313,7 +318,7 @@ def run_command(
         human_logger.error("Command timed out after %.1fs: %s", duration, command_list[0])
         failure_meta = {
             "event": f"{event}_timeout",
-            "args": _build_args_payload(
+            "call": _build_call_payload(
                 command_list,
                 timeout=effective_timeout,
                 cwd=cwd,
@@ -343,7 +348,7 @@ def run_command(
         human_logger.error("Failed to execute %s: %s", command_list[0], exc)
         failure_meta = {
             "event": f"{event}_error",
-            "args": _build_args_payload(
+            "call": _build_call_payload(
                 command_list,
                 timeout=effective_timeout,
                 cwd=cwd,
@@ -371,7 +376,7 @@ def run_command(
     duration = time.monotonic() - start
     result_meta: MutableMapping[str, object] = {
         "event": f"{event}_result",
-        "args": _build_args_payload(
+        "call": _build_call_payload(
             command_list,
             timeout=effective_timeout,
             cwd=cwd,

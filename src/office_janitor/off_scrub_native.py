@@ -28,6 +28,7 @@ from .off_scrub_helpers import ExecutionDirectives, LegacyInvocation
 
 fs_tools = _helpers.fs_tools
 registry_tools = _helpers.registry_tools
+constants = _helpers.constants
 
 
 def _wrap_parse_legacy_arguments(command: str, argv: Sequence[str]) -> LegacyInvocation:

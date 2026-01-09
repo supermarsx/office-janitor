@@ -114,13 +114,13 @@ def test_run_command_dry_run_logs_without_invocation(monkeypatch: pytest.MonkeyP
     assert result.returncode == 0
     assert not calls
     assert machine_logger.records[0][1] == "sample_plan"
-    assert machine_logger.records[0][2]["extra"]["args"]["command"] == [
+    assert machine_logger.records[0][2]["extra"]["call"]["command"] == [
         "powershell",
         "-Command",
         "Write-Host",
     ]
     assert machine_logger.records[1][1] == "sample_dry_run"
-    assert machine_logger.records[1][2]["extra"]["args"]["command"] == [
+    assert machine_logger.records[1][2]["extra"]["call"]["command"] == [
         "powershell",
         "-Command",
         "Write-Host",

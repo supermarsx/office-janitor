@@ -17,6 +17,7 @@ from pathlib import Path
 
 from . import (
     constants,
+    c2r_uninstall,
     detect,
     fs_tools,
     licensing,
@@ -38,7 +39,7 @@ DEFAULT_MAX_PASSES = 3
 """
 
 
-@dataclass(slots=True)
+@dataclass
 class StepResult:
     """!
     @brief Capture the outcome for a single plan step.
