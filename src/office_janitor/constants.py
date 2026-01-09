@@ -540,9 +540,7 @@ C2R_CHANNEL_ALIASES: dict[str, str] = {
     "Production::InsiderFast": "Insider Fast",
     "Production::FirstReleaseCurrent": "Current Channel (Preview)",
     "Production::FirstReleaseDeferred": "Semi-Annual Preview",
-    (
-        "http://officecdn.microsoft.com/pr/492350f6-3a04-4b59-8b34-4c547755c2a0"
-    ): "Current Channel",
+    ("http://officecdn.microsoft.com/pr/492350f6-3a04-4b59-8b34-4c547755c2a0"): "Current Channel",
     (
         "http://officecdn.microsoft.com/pr/55336b82-a18d-4dd6-b5f6-9e5095c314a6"
     ): "Monthly Enterprise Channel",
