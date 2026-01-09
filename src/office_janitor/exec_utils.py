@@ -14,6 +14,7 @@ import subprocess
 import time
 from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from . import logging_ext
 
@@ -47,6 +48,41 @@ class CommandResult:
     skipped: bool = False
     timed_out: bool = False
     error: str | None = None
+
+
+_GLOBAL_TIMEOUT: float | None = None
+
+
+def set_global_timeout(timeout_seconds: float | int | None) -> None:
+    """!
+    @brief Apply a global timeout cap for all subprocess calls.
+    @details When set, :func:`run_command` will use the minimum of the caller
+    supplied timeout and this global limit so the CLI ``--timeout`` flag can
+    enforce per-step ceilings.
+    """
+
+    global _GLOBAL_TIMEOUT
+    if timeout_seconds is None:
+        _GLOBAL_TIMEOUT = None
+        return
+    try:
+        parsed = float(timeout_seconds)
+    except (TypeError, ValueError):
+        _GLOBAL_TIMEOUT = None
+    else:
+        _GLOBAL_TIMEOUT = parsed if parsed > 0 else None
+
+
+def _resolve_timeout(requested: float | int | None) -> float | int | None:
+    """!
+    @brief Determine the effective timeout considering the global override.
+    """
+
+    if _GLOBAL_TIMEOUT is None:
+        return requested
+    if requested is None:
+        return _GLOBAL_TIMEOUT
+    return min(_GLOBAL_TIMEOUT, requested)
 
 
 def sanitize_environment(
@@ -142,11 +178,13 @@ def run_command(
     else:
         command_list = [str(part) for part in command]
 
+    effective_timeout: Any = _resolve_timeout(timeout)
+
     metadata: MutableMapping[str, object] = {
         "event": f"{event}_plan",
         "command": command_list,
         "cwd": cwd,
-        "timeout": timeout,
+        "timeout": effective_timeout,
         "dry_run": dry_run,
     }
     if extra:
@@ -190,7 +228,7 @@ def run_command(
             command_list,
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=effective_timeout,
             check=False,
             env=sanitized_env,
             cwd=cwd,

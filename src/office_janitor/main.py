@@ -221,6 +221,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     enable_vt_mode_if_possible()
     parser = build_arg_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
+    exec_utils.set_global_timeout(getattr(args, "timeout", None))
     human_log, machine_log = _bootstrap_logging(args)
     if getattr(args, "quiet", False):
         human_log.setLevel(logging.ERROR)

@@ -80,11 +80,15 @@ def test_setup_logging_creates_files_and_formats(tmp_path) -> None:
     assert run_entry["event"] == "run_start"
     assert "run" in run_entry
     assert run_entry["run"]["run_id"]
+    assert run_entry.get("machine")
+    assert run_entry["machine"].get("host")
 
     startup_entry = next(item for item in machine_entries if item.get("event") == "startup")
     assert startup_entry["channel"] == "machine"
     assert startup_entry["correlation"] == {"mode": "auto"}
     assert startup_entry["session"]["id"] == run_entry["run"]["session_id"]
+    assert startup_entry.get("machine")
+    assert "corr" in startup_entry
 
     metadata = logging_ext.get_run_metadata()
     assert metadata is not None
@@ -118,6 +122,8 @@ def test_json_stdout_mirror(tmp_path) -> None:
     assert output_lines, "Expected JSONL output on stdout"
     first = json.loads(output_lines[0])
     assert first["event"] == "run_start"
+    assert first.get("machine")
+    assert "corr" in first
     parsed = json.loads(output_lines[-1])
     assert parsed["event"] == "mirror"
     assert parsed["channel"] == "machine"

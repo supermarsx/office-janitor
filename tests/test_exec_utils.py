@@ -51,6 +51,17 @@ class _StubLogger:
         self._record("error", message, args, kwargs)
 
 
+@pytest.fixture(autouse=True)
+def _reset_timeout() -> None:
+    """!
+    @brief Reset global timeout overrides between tests.
+    """
+
+    exec_utils.set_global_timeout(None)
+    yield
+    exec_utils.set_global_timeout(None)
+
+
 def test_sanitize_environment_strips_blocklist_and_overrides() -> None:
     """!
     @brief Ensure sanitisation removes Python-specific variables and applies overrides.
@@ -177,3 +188,26 @@ def test_run_command_check_raises_on_failure(monkeypatch: pytest.MonkeyPatch) ->
     assert machine_logger.records[-1][2]["extra"]["return_code"] == 5
     warning_messages = [record for record in human_logger.records if record[0] == "warning"]
     assert warning_messages and "exited with" in warning_messages[0][1]
+
+
+def test_global_timeout_caps_per_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    """!
+    @brief Global timeout should cap per-call timeouts.
+    """
+
+    exec_utils.set_global_timeout(5)
+
+    captured: dict[str, object] = {}
+
+    def fake_run(command, *, capture_output, text, timeout, check, env, cwd):
+        captured["timeout"] = timeout
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    human_logger = _StubLogger()
+    machine_logger = _StubLogger()
+    monkeypatch.setattr(exec_utils.logging_ext, "get_human_logger", lambda: human_logger)
+    monkeypatch.setattr(exec_utils.logging_ext, "get_machine_logger", lambda: machine_logger)
+    monkeypatch.setattr(exec_utils.subprocess, "run", fake_run)
+
+    exec_utils.run_command(["cmd"], event="cap", timeout=30)
+    assert captured["timeout"] == 5

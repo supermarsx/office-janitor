@@ -9,6 +9,7 @@ automation can correlate log bundles.
 from __future__ import annotations
 
 import datetime as _dt
+import getpass
 import json
 import logging
 import os
@@ -63,6 +64,7 @@ _STANDARD_RECORD_KEYS: dict[str, None] = {
 _CURRENT_LOG_DIRECTORY: Path | None = None
 _RUN_METADATA: dict[str, object] | None = None
 _SESSION_ID: str | None = None
+_MACHINE_INFO: dict[str, str] | None = None
 _UI_EVENT_EMITTER: Callable[..., object] | None = None
 _UI_EVENT_QUEUE: MutableSequence[dict[str, object]] | deque[dict[str, object]] | None = None
 
@@ -101,6 +103,11 @@ class _JsonLineFormatter(logging.Formatter):
             "message": record.getMessage(),
             "channel": getattr(record, "channel", "machine"),
         }
+
+        if _MACHINE_INFO is not None:
+            payload.setdefault("machine", dict(_MACHINE_INFO))
+        if _SESSION_ID is not None:
+            payload.setdefault("corr", _SESSION_ID)
 
         extras = _extract_extras(record)
         if _SESSION_ID is not None:
@@ -142,6 +149,31 @@ def _coerce_json(value: object) -> object:
     except TypeError:
         return repr(value)
     return value
+
+
+def _compute_machine_info() -> dict[str, str]:
+    """!
+    @brief Capture host and user metadata for log enrichment.
+    """
+
+    try:
+        import platform
+
+        platform_host = platform.node()
+    except Exception:
+        platform_host = ""
+
+    host = os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or platform_host
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = os.environ.get("USERNAME") or os.environ.get("USER") or ""
+    info: dict[str, str] = {}
+    if host:
+        info["host"] = host
+    if user:
+        info["user"] = user
+    return info
 
 
 class _SizedTimedRotatingFileHandler(handlers.TimedRotatingFileHandler):
@@ -219,7 +251,7 @@ def setup_logging(
     streams.
     """
 
-    global _CURRENT_LOG_DIRECTORY
+    global _CURRENT_LOG_DIRECTORY, _MACHINE_INFO
 
     root_dir.mkdir(parents=True, exist_ok=True)
     _CURRENT_LOG_DIRECTORY = root_dir
@@ -239,13 +271,13 @@ def setup_logging(
 
     human_file = _SizedTimedRotatingFileHandler(
         root_dir / "human.log",
-        max_bytes=1_048_576,
-        backup_count=14,
+        max_bytes=10_485_760,
+        backup_count=10,
     )
     machine_file = _SizedTimedRotatingFileHandler(
         root_dir / "events.jsonl",
-        max_bytes=1_048_576,
-        backup_count=30,
+        max_bytes=10_485_760,
+        backup_count=10,
     )
 
     machine_handlers: list[logging.Handler] = [machine_file]
@@ -260,6 +292,8 @@ def setup_logging(
 
     global _SESSION_ID
     _SESSION_ID = uuid.uuid4().hex
+    if _MACHINE_INFO is None:
+        _MACHINE_INFO = _compute_machine_info()
 
     _emit_run_metadata(human_logger, machine_logger)
 
@@ -403,6 +437,7 @@ def _emit_run_metadata(human_logger: logging.Logger, machine_logger: logging.Log
 
     moment = _dt.datetime.now(tz=_dt.timezone.utc)
     session_id = _SESSION_ID or uuid.uuid4().hex
+    machine = _MACHINE_INFO or _compute_machine_info()
     _RUN_METADATA = {
         "session_id": session_id,
         "run_id": session_id,
@@ -411,6 +446,7 @@ def _emit_run_metadata(human_logger: logging.Logger, machine_logger: logging.Log
         "build": version.__build__,
         "python": sys.version.split()[0],
         "logdir": str(_CURRENT_LOG_DIRECTORY) if _CURRENT_LOG_DIRECTORY else None,
+        "machine": dict(machine),
     }
 
     human_logger.info(
@@ -428,6 +464,7 @@ def _emit_run_metadata(human_logger: logging.Logger, machine_logger: logging.Log
             "event": "run_start",
             "run": dict(_RUN_METADATA),
             "session": {"id": session_id},
+            "machine": dict(machine),
         },
     )
 
