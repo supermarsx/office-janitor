@@ -19,15 +19,15 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from . import constants, version
+from . import plan as plan_module
+
 try:  # pragma: no cover - Windows specific
     import msvcrt as _msvcrt  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - non-Windows hosts
     _msvcrt = None  # type: ignore[assignment]
 
 msvcrt: Any = _msvcrt
-
-from . import constants, version
-from . import plan as plan_module
 
 
 @dataclass
@@ -875,6 +875,7 @@ class OfficeJanitorTUI:
         self.progress_message = "Detecting inventory..."
         self._notify("detect.start", "Starting detection run from TUI.")
         self._render()
+
         try:
             inventory = self.detector()
         except Exception as exc:  # pragma: no cover - defensive logging
