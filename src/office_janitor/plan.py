@@ -755,13 +755,21 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> dict[str, obje
     if context_metadata is not None:
         summary["mode"] = str(context_metadata.get("mode", ""))
         summary["dry_run"] = bool(context_metadata.get("dry_run", False))
-        summary["target_versions"] = _coerce_to_list(context_metadata.get("target_versions"))
-        summary["discovered_versions"] = _coerce_to_list(context_metadata.get("discovered_versions"))
-        summary["requested_components"] = _coerce_to_list(context_metadata.get("requested_components"))
+        summary["target_versions"] = _coerce_to_list(
+            context_metadata.get("target_versions")
+        )
+        summary["discovered_versions"] = _coerce_to_list(
+            context_metadata.get("discovered_versions")
+        )
+        summary["requested_components"] = _coerce_to_list(
+            context_metadata.get("requested_components")
+        )
         summary["unsupported_components"] = _coerce_to_list(
             context_metadata.get("unsupported_components")
         )
-        summary["inventory_counts"] = _coerce_to_mapping(context_metadata.get("inventory_counts"))
+        summary["inventory_counts"] = _coerce_to_mapping(
+            context_metadata.get("inventory_counts")
+        )
 
     return summary
 
