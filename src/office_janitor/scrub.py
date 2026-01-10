@@ -17,7 +17,6 @@ from pathlib import Path
 
 from . import (
     constants,
-    c2r_uninstall,
     detect,
     fs_tools,
     licensing,

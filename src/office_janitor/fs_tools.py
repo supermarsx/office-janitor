@@ -17,7 +17,7 @@ import shutil
 import stat
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import winreg as _winreg

@@ -7,8 +7,7 @@ and backups, matching the workflow outlined in the specification.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, MutableMapping, Sequence
-from typing import MutableSequence
+from collections.abc import Iterable, Mapping, MutableMapping, MutableSequence, Sequence
 
 from . import constants
 

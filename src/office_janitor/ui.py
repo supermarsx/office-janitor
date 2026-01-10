@@ -7,8 +7,8 @@ bridges menu actions to the detector/planner/executor callables exposed via the
 
 from __future__ import annotations
 
-import textwrap
 import logging
+import textwrap
 from collections.abc import Iterable, Mapping, MutableMapping
 from typing import Callable, cast
 

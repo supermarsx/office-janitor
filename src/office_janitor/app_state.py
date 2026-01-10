@@ -11,7 +11,7 @@ import argparse
 import logging
 from collections import deque
 from collections.abc import Callable, Mapping
-from typing import Deque, TypedDict
+from typing import TypedDict
 
 
 class _RequiredAppState(TypedDict):
@@ -21,7 +21,7 @@ class _RequiredAppState(TypedDict):
     detector: Callable[[], Mapping[str, object]]
     planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict[str, object]]]
     executor: Callable[[list[dict[str, object]], Mapping[str, object] | None], bool | None]
-    event_queue: Deque[dict[str, object]]
+    event_queue: deque[dict[str, object]]
     emit_event: Callable[..., None]
     confirm: Callable[..., bool]
 
@@ -30,10 +30,9 @@ class AppState(_RequiredAppState, total=False):
     input: Callable[[str], str]
 
 
-def new_event_queue() -> Deque[dict[str, object]]:
+def new_event_queue() -> deque[dict[str, object]]:
     """!
     @brief Provide a typed ``deque`` for UI events.
     """
 
     return deque()
-
