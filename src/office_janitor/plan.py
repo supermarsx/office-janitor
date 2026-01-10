@@ -8,6 +8,7 @@ and backups, matching the workflow outlined in the specification.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from typing import MutableSequence
 
 from . import constants
 
@@ -40,11 +41,11 @@ _MSI_MAJOR_VERSION_HINTS = {
 
 
 def build_plan(
-    inventory: dict[str, Sequence[dict]],
-    options: dict[str, object],
+    inventory: Mapping[str, Sequence[Mapping[str, object]]],
+    options: Mapping[str, object],
     *,
     pass_index: int = 1,
-) -> list[dict]:
+) -> list[dict[str, object]]:
     """!
     @brief Produce an ordered plan of actions using the current inventory and CLI options.
     @details ``pass_index`` allows the scrubber to regenerate uninstall steps for
@@ -60,13 +61,17 @@ def build_plan(
     components, unsupported_components = _resolve_components(normalized_options.get("include"))
     normalized_options["include_components"] = components
 
-    detected_inventory = {
-        key: list(value) if not isinstance(value, list) else list(value)
-        for key, value in inventory.items()
-    }
-    planning_inventory: MutableMapping[str, list[dict]] = {
-        key: list(value) if not isinstance(value, list) else list(value)
-        for key, value in detected_inventory.items()
+    detected_inventory: dict[str, list[Mapping[str, object]]] = {}
+    for key, value in inventory.items():
+        records: list[Mapping[str, object]] = []
+        if isinstance(value, list):
+            records = list(value)
+        elif isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+            records = list(value)
+        detected_inventory[key] = records
+
+    planning_inventory: MutableMapping[str, MutableSequence[Mapping[str, object]]] = {
+        key: list(value) for key, value in detected_inventory.items()
     }
     if mode == "auto-all":
         _augment_auto_all_c2r_inventory(planning_inventory, components)
@@ -78,7 +83,7 @@ def build_plan(
 
     inventory_summary = _summarize_inventory(detected_inventory, detected_versions)
 
-    plan: list[dict] = []
+    plan: list[dict[str, object]] = []
     context_metadata = {
         "mode": mode,
         "dry_run": dry_run,
@@ -381,7 +386,8 @@ def _resolve_components(include_option: object) -> tuple[list[str], list[str]]:
 
 
 def _augment_auto_all_c2r_inventory(
-    inventory: MutableMapping[str, Sequence[dict]], include_components: Sequence[str]
+    inventory: MutableMapping[str, MutableSequence[Mapping[str, object]]],
+    include_components: Sequence[str],
 ) -> None:
     bucket = inventory.get("c2r")
     if bucket is None:
@@ -728,7 +734,9 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> dict[str, obje
         category = str(step.get("category", ""))
         categories[category] = categories.get(category, 0) + 1
         if category not in _NON_ACTIONABLE_CATEGORIES:
-            summary["actionable_steps"] = int(summary.get("actionable_steps", 0)) + 1
+            actionable_value = summary.get("actionable_steps")
+            actionable_steps = actionable_value if isinstance(actionable_value, int) else 0
+            summary["actionable_steps"] = actionable_steps + 1
         if category in {"msi-uninstall", "c2r-uninstall"}:
             metadata = step.get("metadata", {})
             if isinstance(metadata, Mapping):
@@ -737,8 +745,9 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> dict[str, obje
                     uninstall_versions.add(str(version))
         if category.endswith("cleanup") and category not in cleanup_categories:
             cleanup_categories.append(category)
-        if category == "context" and isinstance(step.get("metadata"), MutableMapping):
-            context_metadata = step["metadata"]  # type: ignore[assignment]
+        metadata_obj = step.get("metadata")
+        if category == "context" and isinstance(metadata_obj, MutableMapping):
+            context_metadata = metadata_obj
 
     summary["categories"] = categories
     summary["uninstall_versions"] = _sort_versions(uninstall_versions)
@@ -747,11 +756,13 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> dict[str, obje
     if context_metadata is not None:
         summary["mode"] = str(context_metadata.get("mode", ""))
         summary["dry_run"] = bool(context_metadata.get("dry_run", False))
-        summary["target_versions"] = list(context_metadata.get("target_versions", []))
-        summary["discovered_versions"] = list(context_metadata.get("discovered_versions", []))
-        summary["requested_components"] = list(context_metadata.get("requested_components", []))
-        summary["unsupported_components"] = list(context_metadata.get("unsupported_components", []))
-        summary["inventory_counts"] = dict(context_metadata.get("inventory_counts", {}))
+        summary["target_versions"] = _coerce_to_list(context_metadata.get("target_versions"))
+        summary["discovered_versions"] = _coerce_to_list(context_metadata.get("discovered_versions"))
+        summary["requested_components"] = _coerce_to_list(context_metadata.get("requested_components"))
+        summary["unsupported_components"] = _coerce_to_list(
+            context_metadata.get("unsupported_components")
+        )
+        summary["inventory_counts"] = _coerce_to_mapping(context_metadata.get("inventory_counts"))
 
     return summary
 
@@ -764,3 +775,19 @@ def _sort_versions(versions: Iterable[str]) -> list[str]:
         return (order_map.get(lower, len(order_map)), lower)
 
     return sorted({str(value) for value in versions if value}, key=_sort_key)
+
+
+def _coerce_to_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+        return [str(item) for item in value]
+    return []
+
+
+def _coerce_to_mapping(value: object) -> dict[str, object]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, Mapping):
+        return dict(value)
+    return {}

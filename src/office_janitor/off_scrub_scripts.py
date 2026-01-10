@@ -98,6 +98,14 @@ def _pick_msi_script(version: str | None) -> str:
     return constants.MSI_OFFSCRUB_DEFAULT_SCRIPT
 
 
+def _coerce_arguments(arguments: object) -> list[str]:
+    if isinstance(arguments, str):
+        return [arguments]
+    if isinstance(arguments, Sequence):
+        return [str(item) for item in arguments]
+    return []
+
+
 def build_offscrub_command(
     kind: str,
     *,
@@ -124,20 +132,20 @@ def build_offscrub_command(
     host_args = ["-m", "office_janitor.off_scrub_native"]
 
     args: list[str] = []
-    script_path = None
+    script_path: Path | None = None
 
     if kind == "msi":
         script_name = _pick_msi_script(version)
         script_path = ensure_offscrub_script(script_name, base_directory=base_directory)
         args.extend(["msi"])
         if extra_args is None:
-            extra_args = list(template.get("arguments", ()))
+            extra_args = _coerce_arguments(template.get("arguments"))
     elif kind == "c2r":
-        script_name = template.get("script") or constants.C2R_OFFSCRUB_SCRIPT
+        script_name = str(template.get("script") or constants.C2R_OFFSCRUB_SCRIPT)
         script_path = ensure_offscrub_script(script_name, base_directory=base_directory)
         args.extend(["c2r"])
         if extra_args is None:
-            extra_args = list(template.get("arguments", ()))
+            extra_args = _coerce_arguments(template.get("arguments"))
     else:
         # Unknown kinds have been rejected earlier but keep safe handling
         raise KeyError(f"Unsupported OffScrub kind: {kind}")

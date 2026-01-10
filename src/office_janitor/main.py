@@ -17,7 +17,6 @@ import os
 import pathlib
 import platform
 import sys
-from collections import deque
 from collections.abc import Iterable, Mapping
 
 from . import (
@@ -38,6 +37,7 @@ from . import (
 from . import (
     plan as plan_module,
 )
+from .app_state import AppState, new_event_queue
 
 
 def enable_vt_mode_if_possible() -> None:
@@ -316,7 +316,7 @@ def _should_use_tui(args: argparse.Namespace) -> bool:
 
 def _build_app_state(
     args: argparse.Namespace, human_log: logging.Logger, machine_log: logging.Logger
-) -> Mapping[str, object]:
+) -> AppState:
     """!
     @brief Assemble the dependency dictionary consumed by CLI/TUI front-ends.
     @details The mapping exposes callables for detection, planning, and
@@ -324,7 +324,7 @@ def _build_app_state(
     the non-interactive CLI code path.
     """
 
-    ui_events: deque[dict[str, object]] = deque()
+    ui_events = new_event_queue()
 
     def emit_event(event: str, *, message: str | None = None, **payload: object) -> None:
         """!
@@ -342,7 +342,7 @@ def _build_app_state(
 
     logging_ext.register_ui_event_sink(emitter=emit_event, queue=ui_events)
 
-    def detector() -> dict:
+    def detector() -> dict[str, object]:
         logdir_path = pathlib.Path(
             getattr(args, "logdir", _resolve_log_directory(None))
         ).expanduser()
@@ -413,7 +413,7 @@ def _build_app_state(
         scrub.execute_plan(plan_data, dry_run=dry_run)
         return True
 
-    return {
+    app_state: AppState = {
         "args": args,
         "human_logger": human_log,
         "machine_logger": machine_log,
@@ -424,6 +424,7 @@ def _build_app_state(
         "emit_event": emit_event,
         "confirm": confirm.request_scrub_confirmation,
     }
+    return app_state
 
 
 def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:

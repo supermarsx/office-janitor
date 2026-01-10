@@ -402,7 +402,7 @@ def emit_ui_event(event: str, message: str, **payload: object) -> bool:
         if payload:
             record["data"] = dict(payload)
         try:
-            queue.append(record)  # type: ignore[arg-type]
+            queue.append(record)
             delivered = True
         except Exception:
             pass

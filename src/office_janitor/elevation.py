@@ -26,7 +26,7 @@ def is_admin() -> bool:
     if os.name != "nt":
         return False
     try:
-        shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+        shell32 = ctypes.windll.shell32
         return bool(shell32.IsUserAnAdmin())
     except Exception:
         return False
@@ -60,7 +60,7 @@ def relaunch_as_admin(argv: Sequence[str] | None = None) -> bool:
     if os.name != "nt":
         return False
     try:
-        shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+        shell32 = ctypes.windll.shell32
     except Exception:
         return False
 
@@ -90,7 +90,7 @@ def run_as_limited_user(
     """
 
     human_logger = logging_ext.get_human_logger()
-    runas_path = shutil.which("runas.exe") if os.name == "nt" else None  # type: ignore[attr-defined]
+    runas_path = shutil.which("runas.exe") if os.name == "nt" else None
 
     if runas_path:
         runas_cmd: list[str] = [

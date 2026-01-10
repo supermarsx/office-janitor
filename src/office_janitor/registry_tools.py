@@ -43,6 +43,11 @@ winreg = _winreg
 
 
 _LOGGER = logging.getLogger(__name__)
+_WINREG_KEY_READ = getattr(winreg, "KEY_READ", 0)
+_WINREG_HKLM = getattr(winreg, "HKEY_LOCAL_MACHINE", 0)
+_WINREG_HKCU = getattr(winreg, "HKEY_CURRENT_USER", 0)
+_WINREG_HKU = getattr(winreg, "HKEY_USERS", 0)
+_WINREG_HKCR = getattr(winreg, "HKEY_CLASSES_ROOT", 0)
 
 _CANONICAL_PREFIXES: Mapping[str, str] = {
     "HKEY_LOCAL_MACHINE": "HKLM",
@@ -186,12 +191,12 @@ def open_key(
     """
 
     _ensure_winreg()
-    mask = access if access is not None else winreg.KEY_READ  # type: ignore[union-attr]
+    mask = access if access is not None else _WINREG_KEY_READ
     last_error: Exception | None = None
 
     for candidate in _iter_access_masks(mask, view):
         try:
-            handle = winreg.OpenKey(root, path, 0, candidate)  # type: ignore[union-attr]
+            handle = winreg.OpenKey(root, path, 0, candidate)
         except FileNotFoundError as exc:
             last_error = exc
             continue
@@ -202,7 +207,7 @@ def open_key(
             try:
                 yield handle
             finally:
-                winreg.CloseKey(handle)  # type: ignore[union-attr]
+                winreg.CloseKey(handle)
             return
 
     if last_error is not None:
@@ -219,9 +224,9 @@ def iter_subkeys(root: int, path: str, *, view: str | None = None) -> Iterator[s
     yielded: set[str] = set()
     found = False
 
-    for candidate in _iter_access_masks(winreg.KEY_READ, view):  # type: ignore[union-attr]
+    for candidate in _iter_access_masks(_WINREG_KEY_READ, view):
         try:
-            handle = winreg.OpenKey(root, path, 0, candidate)  # type: ignore[union-attr]
+            handle = winreg.OpenKey(root, path, 0, candidate)
         except FileNotFoundError:
             continue
         except OSError:  # pragma: no cover - depends on registry permissions.
@@ -232,7 +237,7 @@ def iter_subkeys(root: int, path: str, *, view: str | None = None) -> Iterator[s
                 index = 0
                 while True:
                     try:
-                        name = winreg.EnumKey(handle, index)  # type: ignore[union-attr]
+                        name = winreg.EnumKey(handle, index)
                     except OSError:
                         break
                     index += 1
@@ -241,7 +246,7 @@ def iter_subkeys(root: int, path: str, *, view: str | None = None) -> Iterator[s
                     yielded.add(name)
                     yield name
             finally:
-                winreg.CloseKey(handle)  # type: ignore[union-attr]
+                winreg.CloseKey(handle)
 
     if not found:
         raise FileNotFoundError(path)
@@ -256,9 +261,9 @@ def iter_values(root: int, path: str, *, view: str | None = None) -> Iterator[tu
     seen: set[str] = set()
     found = False
 
-    for candidate in _iter_access_masks(winreg.KEY_READ, view):  # type: ignore[union-attr]
+    for candidate in _iter_access_masks(_WINREG_KEY_READ, view):
         try:
-            handle = winreg.OpenKey(root, path, 0, candidate)  # type: ignore[union-attr]
+            handle = winreg.OpenKey(root, path, 0, candidate)
         except FileNotFoundError:
             continue
         except OSError:  # pragma: no cover - depends on registry permissions.
@@ -269,7 +274,7 @@ def iter_values(root: int, path: str, *, view: str | None = None) -> Iterator[tu
                 index = 0
                 while True:
                     try:
-                        name, value, _ = winreg.EnumValue(handle, index)  # type: ignore[union-attr]
+                        name, value, _ = winreg.EnumValue(handle, index)
                     except OSError:
                         break
                     index += 1
@@ -278,7 +283,7 @@ def iter_values(root: int, path: str, *, view: str | None = None) -> Iterator[tu
                     seen.add(name)
                     yield name, value
             finally:
-                winreg.CloseKey(handle)  # type: ignore[union-attr]
+                winreg.CloseKey(handle)
 
     if not found:
         raise FileNotFoundError(path)
@@ -315,7 +320,7 @@ def get_value(
     try:
         _ensure_winreg()
         with open_key(root, path, view=view) as handle:
-            value, _ = winreg.QueryValueEx(handle, value_name)  # type: ignore[union-attr]
+            value, _ = winreg.QueryValueEx(handle, value_name)
             return value
     except FileNotFoundError:
         return default
@@ -344,10 +349,10 @@ def hive_name(root: int) -> str:
     """
 
     mapping = {
-        getattr(winreg, "HKEY_LOCAL_MACHINE", 0): "HKLM",  # type: ignore[union-attr]
-        getattr(winreg, "HKEY_CURRENT_USER", 0): "HKCU",  # type: ignore[union-attr]
-        getattr(winreg, "HKEY_USERS", 0): "HKU",  # type: ignore[union-attr]
-        getattr(winreg, "HKEY_CLASSES_ROOT", 0): "HKCR",  # type: ignore[union-attr]
+        _WINREG_HKLM: "HKLM",
+        _WINREG_HKCU: "HKCU",
+        _WINREG_HKU: "HKU",
+        _WINREG_HKCR: "HKCR",
     }
     return mapping.get(root, hex(root))
 

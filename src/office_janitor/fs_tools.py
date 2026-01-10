@@ -307,7 +307,7 @@ def _get_movefileex() -> Callable[[str, str | None, int], int] | None:
     if ctypes is None:  # pragma: no cover - defensive guard
         return None
     try:
-        movefileex = ctypes.windll.kernel32.MoveFileExW  # type: ignore[attr-defined]
+        movefileex = ctypes.windll.kernel32.MoveFileExW
     except AttributeError:
         return None
     try:  # pragma: no cover - attribute assignment skipped in tests
@@ -330,12 +330,12 @@ def _queue_pending_file_rename(path: str) -> bool:
         return False
 
     try:
-        access = winreg.KEY_READ | winreg.KEY_SET_VALUE  # type: ignore[attr-defined]
+        access = winreg.KEY_READ | winreg.KEY_SET_VALUE
     except AttributeError:  # pragma: no cover - legacy Python
         access = getattr(winreg, "KEY_WRITE", 0)
 
     try:
-        with winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE) as registry:  # type: ignore[attr-defined]
+        with winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE) as registry:
             with winreg.OpenKey(registry, _PENDING_FILE_RENAME_KEY, 0, access) as key:
                 try:
                     existing, regtype = winreg.QueryValueEx(key, _PENDING_FILE_RENAME_VALUE)
