@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 OfficeScrubber.zip
 /src/office_janitor.egg-info
+/reports
