@@ -376,7 +376,7 @@ def test_detect_msi_installations_with_registry(monkeypatch: pytest.MonkeyPatch)
         "ProductCode": "{90160000-0011-0000-0000-0000000FF1CE}",
         "DisplayName": "Microsoft Office Professional Plus 2016",
         "DisplayVersion": "16.0.1234.5678",
-        "UninstallString": 'MsiExec.exe /X{90160000-0011-0000-0000-0000000FF1CE}',
+        "UninstallString": "MsiExec.exe /X{90160000-0011-0000-0000-0000000FF1CE}",
     }
 
     monkeypatch.setattr(
@@ -388,7 +388,14 @@ def test_detect_msi_installations_with_registry(monkeypatch: pytest.MonkeyPatch)
     installations = detect.detect_msi_installations()
 
     assert len(installations) > 0
-    found = next((inst for inst in installations if inst.product_code == "{90160000-0011-0000-0000-0000000FF1CE}"), None)
+    found = next(
+        (
+            inst
+            for inst in installations
+            if inst.product_code == "{90160000-0011-0000-0000-0000000FF1CE}"
+        ),
+        None,
+    )
     assert found is not None
     assert found.product == "Microsoft Office Professional Plus 2016"
     assert found.version == "16.0.1234.5678"

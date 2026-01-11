@@ -287,7 +287,7 @@ class StepExecutor:
                     metadata,
                 )
             else:
-                msi_uninstall.uninstall_products([product], dry_run=dry_run)
+                msi_uninstall.uninstall_products([product], dry_run=dry_run)  # type: ignore[list-item]
             return None
         if category == "c2r-uninstall":
             installation = metadata.get("installation") or metadata

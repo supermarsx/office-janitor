@@ -3,3 +3,4 @@ __pycache__/
 OfficeScrubber.zip
 /src/office_janitor.egg-info
 /reports
+.coverage
