@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import textwrap
 from collections.abc import Iterable, Mapping, MutableMapping
-from typing import Callable, cast
+from typing import Any, Callable, Union, cast
 
 from . import confirm, version
 from . import plan as plan_module
@@ -143,7 +143,7 @@ def _print_menu(menu: list[tuple[str, MenuHandler]]) -> None:
     header = textwrap.dedent(
         f"""
         ================= Office Janitor =================
-        Version {metadata['version']} (build {metadata['build']})
+        Version {metadata["version"]} (build {metadata["build"]})
         --------------------------------------------------
         1. {labels[0]}
         2. {labels[1]}
@@ -216,7 +216,7 @@ def _menu_diagnostics(context: MutableMapping[str, object]) -> None:
     _notify(context, "diagnostics.start", "Generating diagnostics plan from CLI menu.")
     plan_steps = _ensure_plan(context, {"mode": "diagnose", "diagnose": True})
     executor = cast(
-        Callable[[list[dict[str, object]], Mapping[str, object] | None], bool | None],
+        Callable[[list[dict[str, object]], Union[Mapping[str, object], None]], Union[bool, None]],
         context["executor"],
     )
     inventory = context.get("inventory")
@@ -229,7 +229,7 @@ def _menu_diagnostics(context: MutableMapping[str, object]) -> None:
 
 
 def _menu_settings(context: MutableMapping[str, object]) -> None:
-    args = context.get("args")
+    args = cast(Any, context.get("args"))
     input_func = cast(Callable[[str], str], context.get("input", input))
     if args is None:
         print("Settings unavailable (no argument namespace detected).")
@@ -342,7 +342,7 @@ def _plan_and_execute(
     _notify(context, "plan.start", f"Planning run for {label} mode.", overrides=dict(overrides))
     plan_steps = _ensure_plan(context, overrides)
     executor = cast(
-        Callable[[list[dict[str, object]], Mapping[str, object] | None], bool | None],
+        Callable[[list[dict[str, object]], Union[Mapping[str, object], None]], Union[bool, None]],
         context["executor"],
     )
     payload = dict(overrides)
@@ -389,7 +389,9 @@ def _ensure_plan(
     context: MutableMapping[str, object], overrides: Mapping[str, object]
 ) -> list[dict[str, object]]:
     planner = cast(
-        Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict[str, object]]],
+        Callable[
+            [Mapping[str, object], Union[Mapping[str, object], None]], list[dict[str, object]]
+        ],
         context["planner"],
     )
     inventory = context.get("inventory")
@@ -438,7 +440,7 @@ def _notify(
             extra["data"] = dict(payload)
         machine_logger.info("ui_progress", extra=extra)
 
-    record = {"event": event, "message": message}
+    record: dict[str, object] = {"event": event, "message": message}
     if payload:
         record["data"] = dict(payload)
 

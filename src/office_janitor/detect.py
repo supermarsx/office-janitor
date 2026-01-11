@@ -604,15 +604,15 @@ def detect_msi_installations() -> list[DetectedInstallation]:
         install_location = str(metadata.get("install_location") or "")
         architecture = _infer_architecture(display_name, install_location or None) or "unknown"
         handles = _candidate_msi_handles(product_code)
-        properties: dict[str, object] = {
+        properties2: dict[str, object] = {
             "display_name": display_name,
             "display_version": version,
         }
         if install_location:
-            properties["install_location"] = install_location
+            properties2["install_location"] = install_location
         probe = metadata.get("probe")
         if probe:
-            properties["supplemental_probes"] = [str(probe)]
+            properties2["supplemental_probes"] = [str(probe)]
 
         installations.append(
             DetectedInstallation(
@@ -623,7 +623,7 @@ def detect_msi_installations() -> list[DetectedInstallation]:
                 uninstall_handles=handles,
                 channel="MSI",
                 product_code=product_code,
-                properties=properties,
+                properties=properties2,
                 display_icon=None,
                 maintenance_paths=(),
             )

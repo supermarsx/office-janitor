@@ -280,7 +280,7 @@ class StepExecutor:
                 self._human_logger.info("Detection snapshot captured.")
             return None
         if category == "msi-uninstall":
-            product = metadata.get("product", {})
+            product = str(metadata.get("product", ""))
             if not product:
                 self._human_logger.warning(
                     "Skipping MSI uninstall step without product metadata: %s",

@@ -27,6 +27,7 @@ else:
     try:  # pragma: no cover - platform specific module availability
         import winreg as _winreg  # type: ignore[import-not-found]
     except ImportError:  # pragma: no cover - non-Windows hosts
+
         class _WinRegStub:
             KEY_READ = 0
             KEY_SET_VALUE = 0

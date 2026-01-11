@@ -390,7 +390,7 @@ def _augment_auto_all_c2r_inventory(
 ) -> None:
     bucket = inventory.get("c2r")
     if bucket is None:
-        records: list[dict] = []
+        records: list[Mapping[str, object]] = []
     elif isinstance(bucket, list):
         records = bucket
     else:
@@ -519,7 +519,7 @@ def _build_seeded_c2r_entry(
     return seeded
 
 
-def _discover_versions(inventory: Mapping[str, Sequence[dict]]) -> list[str]:
+def _discover_versions(inventory: Mapping[str, Sequence[Mapping[str, object]]]) -> list[str]:
     versions: set[str] = set()
     for key in ("msi", "c2r"):
         for record in inventory.get(key, []):
@@ -529,11 +529,13 @@ def _discover_versions(inventory: Mapping[str, Sequence[dict]]) -> list[str]:
     return sorted(versions)
 
 
-def _filter_records_by_target(records: Sequence[dict], targets: Sequence[str]) -> list[dict]:
+def _filter_records_by_target(
+    records: Sequence[Mapping[str, object]], targets: Sequence[str]
+) -> list[Mapping[str, object]]:
     if not targets:
         return list(records)
     target_set = {str(target) for target in targets}
-    filtered: list[dict] = []
+    filtered: list[Mapping[str, object]] = []
     for record in records:
         version = _infer_version(record)
         if version and version in target_set:
@@ -755,9 +757,7 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> dict[str, obje
     if context_metadata is not None:
         summary["mode"] = str(context_metadata.get("mode", ""))
         summary["dry_run"] = bool(context_metadata.get("dry_run", False))
-        summary["target_versions"] = _coerce_to_list(
-            context_metadata.get("target_versions")
-        )
+        summary["target_versions"] = _coerce_to_list(context_metadata.get("target_versions"))
         summary["discovered_versions"] = _coerce_to_list(
             context_metadata.get("discovered_versions")
         )
@@ -767,9 +767,7 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> dict[str, obje
         summary["unsupported_components"] = _coerce_to_list(
             context_metadata.get("unsupported_components")
         )
-        summary["inventory_counts"] = _coerce_to_mapping(
-            context_metadata.get("inventory_counts")
-        )
+        summary["inventory_counts"] = _coerce_to_mapping(context_metadata.get("inventory_counts"))
 
     return summary
 

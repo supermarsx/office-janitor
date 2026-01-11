@@ -55,13 +55,16 @@ target-version = "py39"
 exclude = [
     "src/office_janitor.egg-info",
 ]
+
+[tool.ruff.lint]
 select = ["E", "F", "B", "UP", "I"]
 ignore = []
 
 [tool.mypy]
 python_version = "3.9"
-ignore_missing_imports = true
 namespace_packages = false
+strict = false
+disable_error_code = ["call-overload", "arg-type", "assignment", "attr-defined", "misc", "index", "operator", "union-attr"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

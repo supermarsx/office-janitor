@@ -365,16 +365,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if not isinstance(entry, MutableMapping):
                         products_to_use.append({"product_code": entry})
                         continue
-                    merged: MutableMapping[str, object] = dict(entry)
+                    merged2: MutableMapping[str, object] = dict(entry)
                     if directives.delete_user_settings:
-                        merged["delete_user_settings"] = True
+                        merged2["delete_user_settings"] = True
                     if directives.keep_user_settings:
-                        merged["keep_user_settings"] = True
+                        merged2["keep_user_settings"] = True
                     if directives.clear_addin_registry:
-                        merged["clear_addin_registry"] = True
+                        merged2["clear_addin_registry"] = True
                     if directives.remove_vba:
-                        merged["remove_vba"] = True
-                    products_to_use.append(merged)
+                        merged2["remove_vba"] = True
+                    products_to_use.append(merged2)
                 for attempt in range(1, directives.reruns + 1):
                     if directives.reruns > 1:
                         human_logger.info(
