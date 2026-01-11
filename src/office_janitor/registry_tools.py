@@ -26,6 +26,7 @@ else:  # pragma: no cover - runtime fallback for non-Windows tests
     try:
         import winreg as _winreg  # type: ignore[import-not-found]
     except ImportError:
+
         class _WinRegStub:
             KEY_READ = 0
             KEY_WRITE = 0

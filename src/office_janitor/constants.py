@@ -17,6 +17,7 @@ else:
     try:  # pragma: no cover - Windows registry handles are optional on test hosts.
         import winreg as _winreg  # type: ignore[import-not-found]
     except ImportError:  # pragma: no cover - test scaffolding supplies substitutes.
+
         class _WinRegStub:
             HKEY_LOCAL_MACHINE = 0x80000002
             HKEY_CURRENT_USER = 0x80000001
