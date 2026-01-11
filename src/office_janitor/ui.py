@@ -16,6 +16,7 @@ from . import confirm, version
 from . import plan as plan_module
 from .app_state import AppState
 
+
 _DEFAULT_MENU_LABELS = [
     "Detect & show installed Office",
     "Auto scrub everything detected (recommended)",
@@ -39,10 +40,12 @@ def run_cli(app_state: AppState) -> None:
     """
 
     args = app_state["args"]
-    human_logger = app_state["human_logger"]
-    machine_logger = app_state["machine_logger"]
-    emit_event = app_state["emit_event"]
-    event_queue = app_state["event_queue"]
+    # Use .get for optional components so lightweight test app_state mappings
+    # need not supply logging/event plumbing.
+    human_logger = app_state.get("human_logger")
+    machine_logger = app_state.get("machine_logger")
+    emit_event = app_state.get("emit_event")
+    event_queue = app_state.get("event_queue")
     input_func = cast(Callable[[str], str], app_state.get("input", input))
 
     if getattr(args, "quiet", False) or getattr(args, "json", False):

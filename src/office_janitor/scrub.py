@@ -22,6 +22,7 @@ from . import (
     licensing,
     logging_ext,
     msi_uninstall,
+    c2r_uninstall,
     off_scrub_native,
     processes,
     registry_tools,
@@ -296,7 +297,7 @@ class StepExecutor:
                     "Skipping C2R uninstall step without installation metadata",
                 )
             else:
-                off_scrub_native.uninstall_products(installation, dry_run=dry_run)
+                c2r_uninstall.uninstall_products(installation, dry_run=dry_run)
             return None
         if category == "licensing-cleanup":
             extended = dict(metadata)
