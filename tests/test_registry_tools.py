@@ -259,3 +259,33 @@ def test_iter_office_uninstall_entries_filters_non_office(monkeypatch) -> None:
     assert hive == 0x80000002
     assert path.endswith("{90160000-0011-0000-0000-0000000FF1CE}")
     assert values["ProductCode"] == "{90160000-0011-0000-0000-0000000FF1CE}"
+
+
+def test_normalize_registry_key() -> None:
+    """!
+    @brief Test registry key normalization.
+    """
+
+    from office_janitor.registry_tools import _normalize_registry_key
+
+    assert _normalize_registry_key("HKLM\\Software\\Microsoft") == "HKLM\\SOFTWARE\\MICROSOFT"
+    assert (
+        _normalize_registry_key("HKEY_LOCAL_MACHINE\\Software\\Microsoft")
+        == "HKLM\\SOFTWARE\\MICROSOFT"
+    )
+    assert _normalize_registry_key("hkcu\\software") == "HKCU\\SOFTWARE"
+    assert _normalize_registry_key("INVALID\\path") == "INVALID\\PATH"
+
+
+def test_is_registry_path_allowed() -> None:
+    """!
+    @brief Test registry path validation.
+    """
+
+    from office_janitor.registry_tools import _is_registry_path_allowed
+
+    # Assuming some allowed paths
+    assert _is_registry_path_allowed("HKLM\\SOFTWARE\\MICROSOFT\\OFFICE")
+    assert not _is_registry_path_allowed(
+        "HKLM\\SOFTWARE\\MICROSOFT\\WINDOWS"
+    )  # assuming not allowed
