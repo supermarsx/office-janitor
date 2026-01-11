@@ -345,3 +345,77 @@ class TestRegistryDetectionScenarios:
         expected_prefix = registry_tools.hive_name(constants.HKLM)
         assert f"{expected_prefix}\\SOFTWARE\\Microsoft\\Office\\16.0" in handles
         assert any("SoftwareProtectionPlatform" in handle for handle in handles)
+
+
+def test_reprobe_with_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    """!
+    @brief Test reprobe accepts options mapping.
+    """
+
+    monkeypatch.setattr(detect, "_probe_msi_wmi", lambda: {})
+    monkeypatch.setattr(detect, "_probe_msi_powershell", lambda: {})
+
+    options = {"limited_user": True}
+    result = detect.reprobe(options)
+
+    assert isinstance(result, dict)
+    assert "msi" in result
+    assert "c2r" in result
+
+
+def test_detect_msi_installations_with_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """!
+    @brief Test MSI detection with fake registry entries.
+    """
+
+    monkeypatch.setattr(detect, "_probe_msi_wmi", lambda: {})
+    monkeypatch.setattr(detect, "_probe_msi_powershell", lambda: {})
+
+    # Mock registry values
+    fake_values = {
+        "ProductCode": "{90160000-0011-0000-0000-0000000FF1CE}",
+        "DisplayName": "Microsoft Office Professional Plus 2016",
+        "DisplayVersion": "16.0.1234.5678",
+        "UninstallString": 'MsiExec.exe /X{90160000-0011-0000-0000-0000000FF1CE}',
+    }
+
+    monkeypatch.setattr(
+        detect,
+        "_read_values_with_fallback",
+        lambda hive, path: fake_values if "Uninstall" in path and "{90160000" in path else {},
+    )
+
+    installations = detect.detect_msi_installations()
+
+    assert len(installations) > 0
+    found = next((inst for inst in installations if inst.product_code == "{90160000-0011-0000-0000-0000000FF1CE}"), None)
+    assert found is not None
+    assert found.product == "Microsoft Office Professional Plus 2016"
+    assert found.version == "16.0.1234.5678"
+
+
+def test_detect_c2r_installations_with_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """!
+    @brief Test C2R detection with fake registry entries.
+    """
+
+    fake_config_values = {
+        "ProductReleaseIds": "O365ProPlusRetail",
+        "Platform": "x64",
+        "VersionToReport": "16.0.12345.67890",
+        "UpdateChannel": "http://officecdn.microsoft.com/pr/7ffbc6bf-bc32-4f92-8982-f9dd17fd3114",
+    }
+
+    monkeypatch.setattr(
+        detect,
+        "_read_values_with_fallback",
+        lambda hive, path: fake_config_values if "Configuration" in path else {},
+    )
+
+    installations = detect.detect_c2r_installations()
+
+    assert len(installations) > 0
+    found = next((inst for inst in installations if "O365ProPlusRetail" in inst.release_ids), None)
+    assert found is not None
+    assert found.source == "C2R"
+    assert found.version == "16.0.12345.67890"
