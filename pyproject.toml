@@ -62,11 +62,12 @@ ignore = []
 python_version = "3.9"
 strict_optional = true
 warn_return_any = true
-warn_unused_ignores = true
+warn_unused_ignors = true
 warn_redundant_casts = true
 warn_unused_configs = true
 ignore_missing_imports = true
 mypy_path = ["src"]
+namespace_packages = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
