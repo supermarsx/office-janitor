@@ -16,14 +16,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import (
+    c2r_uninstall,
     constants,
     detect,
     fs_tools,
     licensing,
     logging_ext,
     msi_uninstall,
-    c2r_uninstall,
-    off_scrub_native,
     processes,
     registry_tools,
     restore_point,

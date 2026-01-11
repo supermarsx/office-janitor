@@ -19,6 +19,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from . import constants, exec_utils, logging_ext
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import winreg as _winreg
 else:
@@ -37,8 +39,6 @@ else:
         _winreg = _WinRegStub()  # type: ignore[assignment]
 
 winreg = _winreg
-
-from . import constants, exec_utils, logging_ext
 
 FILESYSTEM_WHITELIST: tuple[str, ...] = (
     r"C:\\PROGRAM FILES\\MICROSOFT OFFICE",

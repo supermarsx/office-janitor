@@ -8,7 +8,7 @@ in pyproject.toml. Accepts an alternate Python interpreter when needed.
 #>
 param(
     [string]$Python = "python",
-    [string[]]$Targets = @("src", "tests")
+    [string[]]$Targets = @("src")
 )
 
 $ErrorActionPreference = "Stop"

@@ -16,7 +16,6 @@ from . import confirm, version
 from . import plan as plan_module
 from .app_state import AppState
 
-
 _DEFAULT_MENU_LABELS = [
     "Detect & show installed Office",
     "Auto scrub everything detected (recommended)",
