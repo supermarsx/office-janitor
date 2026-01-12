@@ -17,27 +17,26 @@ __all__ = ["main"]
 # ---------------------------------------------------------------------------
 
 _STARTUP_TIME = time.perf_counter()
-_TERM_WIDTH = 80
 
 
-def _elapsed_ms() -> float:
-    """Return milliseconds since startup."""
-    return (time.perf_counter() - _STARTUP_TIME) * 1000
+def _elapsed_secs() -> float:
+    """Return seconds since startup."""
+    return time.perf_counter() - _STARTUP_TIME
 
 
 def _log_init(message: str, *, newline: bool = True) -> None:
-    """Print an initialization progress message with Linux init-style formatting."""
+    """Print an initialization progress message with dmesg-style timestamp."""
+    timestamp = f"[{_elapsed_secs():12.6f}]"
     if newline:
-        print(f"         {message}", flush=True)
+        print(f"{timestamp} {message}", flush=True)
     else:
-        # Pad message for right-aligned status
-        print(f"         {message}", end="", flush=True)
+        print(f"{timestamp} {message}", end="", flush=True)
 
 
 def _log_ok(extra: str = "") -> None:
     """Print OK status in Linux init style [  OK  ]."""
     suffix = f" {extra}" if extra else ""
-    print(f"\r[  \033[32mOK\033[0m  ]{suffix}", flush=True)
+    print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
 
 
 def _log_fail(reason: str = "") -> None:
@@ -190,7 +189,7 @@ def main() -> int:
     except Exception:
         pass
 
-    _log_init(f"Initialization complete in {_elapsed_ms():.1f}ms")
+    _log_init(f"Initialization complete in {_elapsed_secs():.3f}s")
     _log_init("-" * 60)
 
     return package_main()

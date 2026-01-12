@@ -48,39 +48,39 @@ from .app_state import AppState, new_event_queue
 _MAIN_START_TIME: float | None = None
 
 
-def _get_elapsed_ms() -> float:
-    """Return milliseconds since main() started, or 0 if not started."""
+def _get_elapsed_secs() -> float:
+    """Return seconds since main() started, or 0 if not started."""
     if _MAIN_START_TIME is None:
         return 0.0
-    return (time.perf_counter() - _MAIN_START_TIME) * 1000
+    return time.perf_counter() - _MAIN_START_TIME
 
 
 def _progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
-    """Print a progress message with Linux init-style formatting."""
+    """Print a progress message with dmesg-style timestamp."""
+    timestamp = f"[{_get_elapsed_secs():12.6f}]"
     prefix = "  " * indent
     if newline:
-        print(f"         {prefix}{message}", flush=True)
+        print(f"{timestamp} {prefix}{message}", flush=True)
     else:
-        # For status messages, leave room for right-aligned bracket
-        print(f"         {prefix}{message}", end="", flush=True)
+        print(f"{timestamp} {prefix}{message}", end="", flush=True)
 
 
 def _progress_ok(extra: str = "") -> None:
     """Print OK status in Linux init style [  OK  ]."""
     suffix = f" {extra}" if extra else ""
-    print(f"\r[  \033[32mOK\033[0m  ]{suffix}", flush=True)
+    print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
 
 
 def _progress_fail(reason: str = "") -> None:
     """Print FAIL status in Linux init style [FAILED]."""
     suffix = f" ({reason})" if reason else ""
-    print(f"\r[\033[31mFAILED\033[0m]{suffix}", flush=True)
+    print(f" [\033[31mFAILED\033[0m]{suffix}", flush=True)
 
 
 def _progress_skip(reason: str = "") -> None:
     """Print SKIP status in Linux init style [ SKIP ]."""
     suffix = f" ({reason})" if reason else ""
-    print(f"\r[ \033[33mSKIP\033[0m ]{suffix}", flush=True)
+    print(f" [ \033[33mSKIP\033[0m ]{suffix}", flush=True)
 
 
 def enable_vt_mode_if_possible() -> None:
@@ -446,7 +446,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     scrub.execute_plan(generated_plan, dry_run=scrub_dry_run)
 
     _progress("=" * 60)
-    _progress(f"Execution complete in {_get_elapsed_ms():.1f}ms")
+    _progress(f"Execution complete in {_get_elapsed_secs():.3f}s")
     _progress("=" * 60)
     return 0
 

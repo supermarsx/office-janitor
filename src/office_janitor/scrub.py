@@ -45,32 +45,33 @@ DEFAULT_MAX_PASSES = 3
 _SCRUB_START_TIME: float | None = None
 
 
-def _get_scrub_elapsed_ms() -> float:
-    """Return milliseconds since scrub started, or 0 if not started."""
+def _get_scrub_elapsed_secs() -> float:
+    """Return seconds since scrub started, or 0 if not started."""
     if _SCRUB_START_TIME is None:
         return 0.0
-    return (time.perf_counter() - _SCRUB_START_TIME) * 1000
+    return time.perf_counter() - _SCRUB_START_TIME
 
 
 def _scrub_progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
-    """Print a scrub progress message with Linux init-style formatting."""
+    """Print a scrub progress message with dmesg-style timestamp."""
+    timestamp = f"[{_get_scrub_elapsed_secs():12.6f}]"
     prefix = "  " * indent
     if newline:
-        print(f"         {prefix}{message}", flush=True)
+        print(f"{timestamp} {prefix}{message}", flush=True)
     else:
-        print(f"         {prefix}{message}", end="", flush=True)
+        print(f"{timestamp} {prefix}{message}", end="", flush=True)
 
 
 def _scrub_ok(extra: str = "") -> None:
     """Print OK status in Linux init style [  OK  ]."""
     suffix = f" {extra}" if extra else ""
-    print(f"\r[  \033[32mOK\033[0m  ]{suffix}", flush=True)
+    print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
 
 
 def _scrub_fail(reason: str = "") -> None:
     """Print FAIL status in Linux init style [FAILED]."""
     suffix = f" ({reason})" if reason else ""
-    print(f"\r[\033[31mFAILED\033[0m]{suffix}", flush=True)
+    print(f" [\033[31mFAILED\033[0m]{suffix}", flush=True)
 
 
 @dataclass
@@ -690,7 +691,7 @@ def execute_plan(
 
     total_successes = sum(1 for r in all_results if r.status == "success")
     total_failures = sum(1 for r in all_results if r.status == "failed")
-    total_time = _get_scrub_elapsed_ms() / 1000
+    total_time = _get_scrub_elapsed_secs()
 
     _scrub_progress("=" * 50)
     _scrub_progress("SCRUB EXECUTION COMPLETE")
