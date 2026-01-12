@@ -583,7 +583,10 @@ def execute_plan(
             and item.completed_at >= item.started_at
         )
 
-        _scrub_progress(f"Pass {current_pass} complete: {pass_successes} success, {pass_failures} failed, {pass_skipped} skipped ({pass_duration:.2f}s)", indent=1)
+        _scrub_progress(
+            f"Pass {current_pass} complete: {pass_successes} success, {pass_failures} failed, {pass_skipped} skipped ({pass_duration:.2f}s)",
+            indent=1,
+        )
 
         machine_logger.info(
             "scrub_pass_complete",
@@ -619,7 +622,9 @@ def execute_plan(
         next_plan = [dict(step) for step in next_plan_raw]
 
         if not _has_uninstall_steps(next_plan):
-            _scrub_progress("No remaining installations detected - uninstall phase complete", indent=1)
+            _scrub_progress(
+                "No remaining installations detected - uninstall phase complete", indent=1
+            )
             human_logger.info(
                 "No remaining MSI or Click-to-Run installations detected after pass %d.",
                 current_pass,
@@ -638,7 +643,9 @@ def execute_plan(
     _scrub_progress("-" * 50)
 
     if final_plan:
-        _scrub_progress(f"Cleanup steps to process: {sum(1 for s in final_plan if s.get('category') in CLEANUP_CATEGORIES)}")
+        _scrub_progress(
+            f"Cleanup steps to process: {sum(1 for s in final_plan if s.get('category') in CLEANUP_CATEGORIES)}"
+        )
 
         machine_logger.info(
             "scrub_cleanup_start",
@@ -672,7 +679,9 @@ def execute_plan(
             and item.completed_at >= item.started_at
         )
 
-        _scrub_progress(f"Cleanup complete: {cleanup_successes} success, {cleanup_failures} failed ({cleanup_duration:.2f}s)")
+        _scrub_progress(
+            f"Cleanup complete: {cleanup_successes} success, {cleanup_failures} failed ({cleanup_duration:.2f}s)"
+        )
 
         machine_logger.info(
             "scrub_cleanup_complete",

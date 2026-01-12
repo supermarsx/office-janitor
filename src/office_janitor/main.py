@@ -774,9 +774,13 @@ def _handle_plan_artifacts(
             context_step["metadata"] = metadata
 
         if resolved_backup is not None:
-            registry_steps = sum(1 for s in plan_steps if s.get("category") == "registry-cleanup")
+            registry_steps = sum(
+                1 for s in plan_steps if s.get("category") == "registry-cleanup"
+            )
             if registry_steps > 0:
-                _progress(f"Configuring backup for {registry_steps} registry steps", indent=2)
+                _progress(
+                    f"Configuring backup for {registry_steps} registry steps", indent=2
+                )
             for step in plan_steps:
                 if step.get("category") != "registry-cleanup":
                     continue
