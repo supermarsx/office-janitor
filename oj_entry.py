@@ -46,6 +46,7 @@ def _log_fail(reason: str = "") -> None:
 # Environment detection
 # ---------------------------------------------------------------------------
 
+
 def _is_frozen() -> bool:
     """Check if running as a PyInstaller bundle."""
     return hasattr(sys, "_MEIPASS")
@@ -85,6 +86,7 @@ _log_ok()
 _log_init("Importing office_janitor package...", newline=False)
 try:
     import office_janitor
+
     _log_ok()
 except ImportError as e:
     _log_fail(str(e))
@@ -93,6 +95,7 @@ except ImportError as e:
 _log_init("Importing office_janitor.main module...", newline=False)
 try:
     import office_janitor.main
+
     _log_ok()
 except ImportError as e:
     _log_fail(str(e))
@@ -166,6 +169,7 @@ def main() -> int:
     _log_init("Importing main entry point...", newline=False)
     try:
         from office_janitor.main import main as package_main
+
         _log_ok()
     except ImportError as e:
         _log_fail(str(e))
@@ -174,8 +178,11 @@ def main() -> int:
     # Try to get version info for logging
     try:
         from office_janitor.version import build_info
+
         info = build_info()
-        _log_init(f"Version: {info.get('version', 'unknown')} (build {info.get('build', 'unknown')})")
+        _log_init(
+            f"Version: {info.get('version', 'unknown')} (build {info.get('build', 'unknown')})"
+        )
     except Exception:
         pass
 

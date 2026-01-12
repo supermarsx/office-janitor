@@ -151,57 +151,85 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
 
     modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("--auto-all", action="store_true", help="Run full detection and scrub.")
+    modes.add_argument(
+        "--auto-all", action="store_true", help="Run full detection and scrub."
+    )
     modes.add_argument(
         "--target",
         metavar="VER",
         help="Target a specific Office version (2003-2024/365).",
     )
     modes.add_argument(
-        "--diagnose", action="store_true", help="Emit inventory and plan without changes."
+        "--diagnose",
+        action="store_true",
+        help="Emit inventory and plan without changes.",
     )
     modes.add_argument(
-        "--cleanup-only", action="store_true", help="Skip uninstalls; clean residue and licensing."
+        "--cleanup-only",
+        action="store_true",
+        help="Skip uninstalls; clean residue and licensing.",
     )
 
     parser.add_argument(
         "--include", metavar="COMPONENTS", help="Additional suites/apps to include."
     )
-    parser.add_argument("--force", action="store_true", help="Relax certain guardrails when safe.")
+    parser.add_argument(
+        "--force", action="store_true", help="Relax certain guardrails when safe."
+    )
     parser.add_argument(
         "--allow-unsupported-windows",
         action="store_true",
         help="Permit execution on Windows releases below the supported minimum.",
     )
     parser.add_argument(
-        "--dry-run", action="store_true", help="Simulate actions without modifying the system."
+        "--dry-run",
+        action="store_true",
+        help="Simulate actions without modifying the system.",
     )
     parser.add_argument(
         "--no-restore-point", action="store_true", help="Skip creating a restore point."
     )
-    parser.add_argument("--no-license", action="store_true", help="Skip license cleanup steps.")
+    parser.add_argument(
+        "--no-license", action="store_true", help="Skip license cleanup steps."
+    )
     parser.add_argument(
         "--keep-license",
         action="store_true",
         help="Preserve Office licenses (alias of --no-license).",
     )
     parser.add_argument(
-        "--keep-templates", action="store_true", help="Preserve user templates like normal.dotm."
+        "--keep-templates",
+        action="store_true",
+        help="Preserve user templates like normal.dotm.",
     )
     parser.add_argument(
         "--plan", metavar="OUT", help="Write the computed action plan to a JSON file."
     )
-    parser.add_argument("--logdir", metavar="DIR", help="Directory for human/JSONL log output.")
-    parser.add_argument("--backup", metavar="DIR", help="Destination for registry/file backups.")
-    parser.add_argument("--timeout", metavar="SEC", type=int, help="Per-step timeout in seconds.")
+    parser.add_argument(
+        "--logdir", metavar="DIR", help="Directory for human/JSONL log output."
+    )
+    parser.add_argument(
+        "--backup", metavar="DIR", help="Destination for registry/file backups."
+    )
+    parser.add_argument(
+        "--timeout", metavar="SEC", type=int, help="Per-step timeout in seconds."
+    )
     parser.add_argument(
         "--quiet", action="store_true", help="Minimal console output (errors only)."
     )
-    parser.add_argument("--json", action="store_true", help="Mirror structured events to stdout.")
-    parser.add_argument("--tui", action="store_true", help="Force the interactive text UI mode.")
-    parser.add_argument("--no-color", action="store_true", help="Disable ANSI color codes.")
     parser.add_argument(
-        "--tui-compact", action="store_true", help="Use a compact TUI layout for small consoles."
+        "--json", action="store_true", help="Mirror structured events to stdout."
+    )
+    parser.add_argument(
+        "--tui", action="store_true", help="Force the interactive text UI mode."
+    )
+    parser.add_argument(
+        "--no-color", action="store_true", help="Disable ANSI color codes."
+    )
+    parser.add_argument(
+        "--tui-compact",
+        action="store_true",
+        help="Use a compact TUI layout for small consoles.",
     )
     parser.add_argument(
         "--tui-refresh",
@@ -232,7 +260,9 @@ def _resolve_log_directory(candidate: str | None) -> pathlib.Path:
         return expanded
 
 
-def _bootstrap_logging(args: argparse.Namespace) -> tuple[logging.Logger, logging.Logger]:
+def _bootstrap_logging(
+    args: argparse.Namespace,
+) -> tuple[logging.Logger, logging.Logger]:
     """!
     @brief Initialize human and machine loggers using :mod:`logging_ext` helpers.
     @returns A tuple of configured human and machine loggers.
@@ -257,17 +287,53 @@ def main(argv: Iterable[str] | None = None) -> int:
     @brief Entry point invoked by the shim and PyInstaller bundle.
     @returns Process exit code integer.
     """
+    global _MAIN_START_TIME
+    _MAIN_START_TIME = time.perf_counter()
 
-    ensure_admin_and_relaunch_if_needed()
+    _progress("=" * 60)
+    _progress("Office Janitor - Main Entry Point")
+    _progress("=" * 60)
+
+    # Phase 1: Elevation check
+    _progress("Phase 1: Checking administrative privileges...", newline=False)
+    try:
+        ensure_admin_and_relaunch_if_needed()
+        _progress_ok("elevated")
+    except SystemExit:
+        _progress_fail("elevation required")
+        raise
+
+    # Phase 2: Console setup
+    _progress("Phase 2: Configuring console...", newline=False)
     enable_vt_mode_if_possible()
+    _progress_ok("VT mode enabled")
+
+    # Phase 3: Argument parsing
+    _progress("Phase 3: Parsing command-line arguments...", newline=False)
     parser = build_arg_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
-    exec_utils.set_global_timeout(getattr(args, "timeout", None))
+    _progress_ok()
+
+    # Phase 4: Timeout configuration
+    _progress("Phase 4: Configuring execution timeout...", newline=False)
+    timeout_val = getattr(args, "timeout", None)
+    exec_utils.set_global_timeout(timeout_val)
+    _progress_ok(f"{timeout_val}s" if timeout_val else "default")
+
+    # Phase 5: Logging bootstrap
+    _progress("Phase 5: Initializing logging subsystem...", newline=False)
     human_log, machine_log = _bootstrap_logging(args)
     if getattr(args, "quiet", False):
         human_log.setLevel(logging.ERROR)
+    _progress_ok(f"logdir={getattr(args, 'logdir', 'default')}")
 
+    # Phase 6: Mode determination
+    _progress("Phase 6: Determining operation mode...", newline=False)
     mode = _determine_mode(args)
+    _progress_ok(mode)
+
+    # Log startup event
+    _progress("Emitting startup telemetry...")
     machine_log.info(
         "startup",
         extra={
@@ -276,40 +342,85 @@ def main(argv: Iterable[str] | None = None) -> int:
         },
     )
 
+    # Phase 7: App state construction
+    _progress("Phase 7: Building application state...", newline=False)
     app_state = _build_app_state(args, human_log, machine_log)
+    _progress_ok()
+
+    # Interactive mode handling
     if mode == "interactive":
+        _progress("Entering interactive mode...")
         if getattr(args, "tui", False):
+            _progress("Launching TUI (forced via --tui)...")
             tui.run_tui(app_state)
         else:
             tui_candidate = _should_use_tui(args)
             if tui_candidate:
+                _progress("Launching TUI (auto-detected)...")
                 tui.run_tui(app_state)
             else:
+                _progress("Launching CLI interface...")
                 ui.run_cli(app_state)
+        _progress("Interactive session complete.")
         return 0
 
-    logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
+    _progress("-" * 60)
+    _progress(f"Running in non-interactive mode: {mode}")
+    _progress("-" * 60)
+
+    # Phase 8: Detection
+    _progress("Phase 8: Running Office detection...")
+    logdir_path = pathlib.Path(
+        getattr(args, "logdir", _resolve_log_directory(None))
+    ).expanduser()
     limited_flag = bool(getattr(args, "limited_user", False))
+    if limited_flag:
+        _progress("Using limited user token for detection", indent=1)
     inventory = _run_detection(
         machine_log,
         logdir_path,
         limited_user=limited_flag or None,
     )
+    _progress(
+        f"Detection complete: {sum(len(v) if hasattr(v, '__len__') else 0 for v in inventory.values())} items found",
+        indent=1,
+    )
+
+    # Phase 9: Plan generation
+    _progress("Phase 9: Building execution plan...")
     options = _collect_plan_options(args, mode)
+    _progress(
+        f"Plan options: dry_run={options.get('dry_run')}, force={options.get('force')}",
+        indent=1,
+    )
     generated_plan = plan_module.build_plan(inventory, options)
+    _progress(f"Generated {len(generated_plan)} plan steps", indent=1)
+
+    # Phase 10: Safety checks
+    _progress("Phase 10: Performing preflight safety checks...", newline=False)
     safety.perform_preflight_checks(generated_plan)
+    _progress_ok()
+
+    # Phase 11: Artifacts
+    _progress("Phase 11: Writing plan artifacts...")
     _handle_plan_artifacts(args, generated_plan, inventory, human_log, mode)
 
     if mode == "diagnose":
+        _progress("=" * 60)
+        _progress("Diagnostics complete - no actions executed")
+        _progress("=" * 60)
         human_log.info("Diagnostics complete; plan written and no actions executed.")
         return 0
 
+    # Phase 12: User confirmation
+    _progress("Phase 12: Requesting user confirmation...")
     scrub_dry_run = bool(getattr(args, "dry_run", False))
     proceed = confirm.request_scrub_confirmation(
         dry_run=scrub_dry_run,
         force=bool(getattr(args, "force", False)),
     )
     if not proceed:
+        _progress("User declined confirmation - aborting")
         human_log.info("Scrub cancelled by user confirmation prompt.")
         machine_log.info(
             "scrub.cancelled",
@@ -319,9 +430,22 @@ def main(argv: Iterable[str] | None = None) -> int:
             },
         )
         return 0
+    _progress("Confirmation received", indent=1)
 
+    # Phase 13: Runtime guards
+    _progress("Phase 13: Enforcing runtime guards...", newline=False)
     _enforce_runtime_guards(options, dry_run=scrub_dry_run)
+    _progress_ok()
+
+    # Phase 14: Plan execution
+    _progress("=" * 60)
+    _progress(f"Phase 14: Executing plan ({'DRY RUN' if scrub_dry_run else 'LIVE'})...")
+    _progress("=" * 60)
     scrub.execute_plan(generated_plan, dry_run=scrub_dry_run)
+
+    _progress("=" * 60)
+    _progress(f"Execution complete in {_get_elapsed_ms():.1f}ms")
+    _progress("=" * 60)
     return 0
 
 
@@ -351,7 +475,9 @@ def _should_use_tui(args: argparse.Namespace) -> bool:
     if getattr(args, "no_color", False):
         return False
     if getattr(sys.stdout, "isatty", None) and sys.stdout.isatty():
-        return bool(os.environ.get("WT_SESSION") or os.environ.get("TERM", "").lower() != "dumb")
+        return bool(
+            os.environ.get("WT_SESSION") or os.environ.get("TERM", "").lower() != "dumb"
+        )
     return False
 
 
@@ -367,7 +493,9 @@ def _build_app_state(
 
     ui_events = new_event_queue()
 
-    def emit_event(event: str, *, message: str | None = None, **payload: object) -> None:
+    def emit_event(
+        event: str, *, message: str | None = None, **payload: object
+    ) -> None:
         """!
         @brief Publish progress events for interactive front-ends.
         @details Events are queued for consumption by the CLI/TUI layers so they
@@ -404,7 +532,9 @@ def _build_app_state(
         safety.perform_preflight_checks(generated_plan)
         return generated_plan
 
-    def executor(plan_data: list[dict], overrides: Mapping[str, object] | None = None) -> bool:
+    def executor(
+        plan_data: list[dict], overrides: Mapping[str, object] | None = None
+    ) -> bool:
         dry_run = bool(getattr(args, "dry_run", False))
         if overrides and "dry_run" in overrides:
             dry_run = bool(overrides["dry_run"])
@@ -414,10 +544,14 @@ def _build_app_state(
             mode_override = str(overrides["mode"])
 
         inventory_override = overrides.get("inventory") if overrides else None
-        _handle_plan_artifacts(args, plan_data, inventory_override, human_log, mode_override)
+        _handle_plan_artifacts(
+            args, plan_data, inventory_override, human_log, mode_override
+        )
 
         if mode_override == "diagnose":
-            human_log.info("Diagnostics complete; plan written and no actions executed.")
+            human_log.info(
+                "Diagnostics complete; plan written and no actions executed."
+            )
             return True
 
         guard_options = dict(_collect_plan_options(args, mode_override))
@@ -482,7 +616,9 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
         "diagnose": bool(getattr(args, "diagnose", False)),
         "cleanup_only": bool(getattr(args, "cleanup_only", False)),
         "auto_all": bool(getattr(args, "auto_all", False)),
-        "allow_unsupported_windows": bool(getattr(args, "allow_unsupported_windows", False)),
+        "allow_unsupported_windows": bool(
+            getattr(args, "allow_unsupported_windows", False)
+        ),
         "no_license": bool(
             getattr(args, "no_license", False) or getattr(args, "keep_license", False)
         ),
@@ -505,28 +641,43 @@ def _run_detection(
     """!
     @brief Execute inventory gathering, persist artifacts, and emit telemetry.
     """
+    _progress("Starting inventory scan...", indent=1)
 
     if limited_user:
         machine_log.info("Detection requested under limited user token.")
+        _progress("Running under limited user token", indent=2)
+
+    _progress("Gathering Office inventory...", indent=2, newline=False)
     if limited_user:
         inventory = detect.gather_office_inventory(limited_user=True)
     else:
         inventory = detect.gather_office_inventory()
+    _progress_ok()
+
     if log_directory is None:
         logdir_path = _resolve_log_directory(None)
     else:
         logdir_path = pathlib.Path(log_directory).expanduser()
 
+    _progress(f"Log directory: {logdir_path}", indent=2)
+
     inventory_path: pathlib.Path | None = None
     try:
         logdir_path.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y%m%d-%H%M%S"
+        )
         inventory_path = logdir_path / f"inventory-{timestamp}.json"
+        _progress(
+            f"Writing inventory to {inventory_path.name}...", indent=2, newline=False
+        )
         inventory_path.write_text(
             json.dumps(inventory, indent=2, sort_keys=True, default=str),
             encoding="utf-8",
         )
+        _progress_ok()
     except OSError as exc:
+        _progress_fail(str(exc))
         machine_log.warning(
             "inventory_write_failed",
             extra={
@@ -535,6 +686,13 @@ def _run_detection(
                 "logdir": str(logdir_path),
             },
         )
+
+    # Log inventory summary
+    _progress("Inventory summary:", indent=2)
+    for key, value in inventory.items():
+        count = len(value) if hasattr(value, "__len__") else len(list(value))
+        if count > 0:
+            _progress(f"{key}: {count} items", indent=3)
 
     machine_log.info(
         "inventory",
@@ -562,7 +720,9 @@ def _handle_plan_artifacts(
     """
 
     plan_steps = list(plan_data)
-    logdir = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
+    logdir = pathlib.Path(
+        getattr(args, "logdir", _resolve_log_directory(None))
+    ).expanduser()
     logdir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -697,7 +857,9 @@ def _discover_blocking_processes() -> list[str]:
     @brief Enumerate Office-related processes that may block destructive actions.
     """
 
-    patterns = list(constants.DEFAULT_OFFICE_PROCESSES) + list(constants.OFFICE_PROCESS_PATTERNS)
+    patterns = list(constants.DEFAULT_OFFICE_PROCESSES) + list(
+        constants.OFFICE_PROCESS_PATTERNS
+    )
     try:
         return processes.enumerate_processes(patterns)
     except Exception:
