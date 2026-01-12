@@ -561,9 +561,26 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress("Confirmation received", indent=1)
 
     # Phase 13: Runtime guards
-    _progress("Phase 13: Enforcing runtime guards...", newline=False)
-    _enforce_runtime_guards(options, dry_run=scrub_dry_run)
-    _progress_ok()
+    _progress("Phase 13: Enforcing runtime guards...")
+    try:
+        _enforce_runtime_guards(options, dry_run=scrub_dry_run)
+        _progress("Runtime guards passed", indent=1, newline=False)
+        _progress_ok()
+    except ValueError as err:
+        _progress(f"Runtime guard warning: {err}", indent=1, newline=False)
+        _progress_fail()
+        human_log.warning("Runtime guard failed: %s", err)
+        if not getattr(args, "force", False):
+            _progress("Use --force to bypass runtime guards", indent=1)
+            return 1
+        _progress("Continuing due to --force flag", indent=1)
+    except Exception as err:  # noqa: BLE001
+        _progress(f"Unexpected runtime error: {err}", indent=1, newline=False)
+        _progress_fail()
+        human_log.exception("Unexpected error during runtime guards")
+        if not getattr(args, "force", False):
+            return 1
+        _progress("Continuing due to --force flag", indent=1)
 
     # Phase 14: Plan execution
     _progress("=" * 60)
