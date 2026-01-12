@@ -38,6 +38,40 @@ DEFAULT_MAX_PASSES = 3
 """
 
 
+# ---------------------------------------------------------------------------
+# Progress logging utilities
+# ---------------------------------------------------------------------------
+
+_SCRUB_START_TIME: float | None = None
+
+
+def _get_scrub_elapsed_ms() -> float:
+    """Return milliseconds since scrub started, or 0 if not started."""
+    if _SCRUB_START_TIME is None:
+        return 0.0
+    return (time.perf_counter() - _SCRUB_START_TIME) * 1000
+
+
+def _scrub_progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
+    """Print a scrub progress message with timestamp to console."""
+    timestamp = f"[{_get_scrub_elapsed_ms():8.1f}ms]"
+    prefix = "  " * indent
+    end = "\n" if newline else ""
+    print(f"{timestamp} {prefix}[SCRUB] {message}", end=end, flush=True)
+
+
+def _scrub_ok(extra: str = "") -> None:
+    """Print OK status."""
+    suffix = f" ({extra})" if extra else ""
+    print(f" OK{suffix}", flush=True)
+
+
+def _scrub_fail(reason: str = "") -> None:
+    """Print FAIL status."""
+    suffix = f" ({reason})" if reason else ""
+    print(f" FAIL{suffix}", flush=True)
+
+
 @dataclass
 class StepResult:
     """!
@@ -414,14 +448,23 @@ def execute_plan(
     final plan, ensuring filesystem and licensing tasks do not repeat across
     passes.
     """
+    global _SCRUB_START_TIME
+    _SCRUB_START_TIME = time.perf_counter()
+
+    _scrub_progress("=" * 50)
+    _scrub_progress("Scrub Execution Engine Starting")
+    _scrub_progress("=" * 50)
 
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
     steps = [dict(step) for step in plan]
     if not steps:
+        _scrub_progress("No plan steps supplied; nothing to execute.")
         human_logger.info("No plan steps supplied; nothing to execute.")
         return
+
+    _scrub_progress(f"Loaded {len(steps)} plan steps")
 
     all_results: list[StepResult] = []
 
@@ -437,6 +480,8 @@ def execute_plan(
         or DEFAULT_MAX_PASSES
     )
 
+    _scrub_progress(f"Configuration: dry_run={global_dry_run}, max_passes={max_pass_limit}")
+
     machine_logger.info(
         "scrub_plan_start",
         extra={
@@ -448,22 +493,38 @@ def execute_plan(
         },
     )
 
+    # Restore point
     should_request_restore_point = bool(
         options.get("create_restore_point") or options.get("restore_point")
     )
     if should_request_restore_point:
+        _scrub_progress("Creating system restore point...", newline=False)
         try:
             restore_point.create_restore_point("Office Janitor pre-cleanup", dry_run=global_dry_run)
+            _scrub_ok()
         except Exception as exc:  # pragma: no cover - defensive logging
+            _scrub_fail(str(exc))
             human_logger.warning("Failed to create restore point: %s", exc)
+    else:
+        _scrub_progress("Restore point creation: skipped")
 
+    # Pre-scrub process/service cleanup
     if global_dry_run:
+        _scrub_progress("DRY RUN MODE - No destructive actions will occur")
         human_logger.info("Executing plan in dry-run mode; no destructive actions will occur.")
     else:
+        _scrub_progress("Terminating Office processes...", newline=False)
         processes.terminate_office_processes(constants.DEFAULT_OFFICE_PROCESSES)
         processes.terminate_process_patterns(constants.OFFICE_PROCESS_PATTERNS)
+        _scrub_ok()
+
+        _scrub_progress("Stopping Office services...", newline=False)
         tasks_services.stop_services(constants.KNOWN_SERVICES)
+        _scrub_ok()
+
+        _scrub_progress("Disabling scheduled tasks...", newline=False)
         tasks_services.disable_tasks(constants.KNOWN_SCHEDULED_TASKS, dry_run=False)
+        _scrub_ok()
 
     passes_run = 0
     base_options = dict(options)
@@ -474,8 +535,15 @@ def execute_plan(
     final_plan = current_plan
     uninstalls_seen = _has_uninstall_steps(current_plan)
 
+    _scrub_progress("-" * 50)
+    _scrub_progress("Beginning uninstall passes")
+    _scrub_progress("-" * 50)
+
     while True:
         passes_run += 1
+        _scrub_progress(f"=== PASS {current_pass} of {max_pass_limit} ===")
+        _scrub_progress(f"Steps in this pass: {len(current_plan)}", indent=1)
+
         machine_logger.info(
             "scrub_pass_start",
             extra={
@@ -489,10 +557,13 @@ def execute_plan(
         _update_context_metadata(current_plan, current_pass, base_options, global_dry_run)
         if _has_uninstall_steps(current_plan):
             uninstalls_seen = True
+            _scrub_progress("Uninstall steps detected in plan", indent=1)
 
+        _scrub_progress("Executing uninstall steps...", indent=1)
         try:
             pass_results = _execute_steps(current_plan, UNINSTALL_CATEGORIES, global_dry_run)
         except StepExecutionError as exc:
+            _scrub_progress(f"Pass {current_pass} FAILED", indent=1)
             all_results.extend(exc.partial_results)
             _log_summary(all_results, passes_run, global_dry_run)
             raise
@@ -510,6 +581,8 @@ def execute_plan(
             and item.completed_at >= item.started_at
         )
 
+        _scrub_progress(f"Pass {current_pass} complete: {pass_successes} success, {pass_failures} failed, {pass_skipped} skipped ({pass_duration:.2f}s)", indent=1)
+
         machine_logger.info(
             "scrub_pass_complete",
             extra={
@@ -524,11 +597,13 @@ def execute_plan(
         )
 
         if global_dry_run:
+            _scrub_progress("Dry run - skipping additional passes", indent=1)
             final_plan = current_plan
             uninstalls_seen = uninstalls_seen or _has_uninstall_steps(current_plan)
             break
 
         if current_pass >= max_pass_limit:
+            _scrub_progress(f"Reached maximum passes ({max_pass_limit})", indent=1)
             human_logger.warning(
                 "Reached maximum scrub passes (%d); continuing to cleanup phase.",
                 max_pass_limit,
@@ -536,11 +611,13 @@ def execute_plan(
             final_plan = current_plan
             break
 
+        _scrub_progress("Re-probing inventory for next pass...", indent=1)
         inventory = detect.reprobe(base_options)
         next_plan_raw = plan_module.build_plan(inventory, base_options, pass_index=current_pass + 1)
         next_plan = [dict(step) for step in next_plan_raw]
 
         if not _has_uninstall_steps(next_plan):
+            _scrub_progress("No remaining installations detected - uninstall phase complete", indent=1)
             human_logger.info(
                 "No remaining MSI or Click-to-Run installations detected after pass %d.",
                 current_pass,
@@ -552,8 +629,15 @@ def execute_plan(
         current_plan = next_plan
         final_plan = next_plan
         current_pass += 1
+        _scrub_progress(f"Moving to pass {current_pass}...", indent=1)
+
+    _scrub_progress("-" * 50)
+    _scrub_progress("Beginning cleanup phase")
+    _scrub_progress("-" * 50)
 
     if final_plan:
+        _scrub_progress(f"Cleanup steps to process: {sum(1 for s in final_plan if s.get('category') in CLEANUP_CATEGORIES)}")
+
         machine_logger.info(
             "scrub_cleanup_start",
             extra={
@@ -564,14 +648,20 @@ def execute_plan(
         )
         _update_context_metadata(final_plan, current_pass, base_options, global_dry_run)
         _annotate_cleanup_metadata(final_plan, base_options, uninstalls_seen)
+
+        _scrub_progress("Executing cleanup steps...")
         try:
             cleanup_results = _execute_steps(final_plan, CLEANUP_CATEGORIES, global_dry_run)
         except StepExecutionError as exc:
+            _scrub_progress("Cleanup phase FAILED")
             all_results.extend(exc.partial_results)
             _log_summary(all_results, passes_run, global_dry_run)
             raise
         else:
             all_results.extend(cleanup_results)
+
+        cleanup_successes = sum(1 for r in cleanup_results if r.status == "success")
+        cleanup_failures = sum(1 for r in cleanup_results if r.status == "failed")
         cleanup_duration = sum(
             (item.completed_at - item.started_at)
             for item in cleanup_results
@@ -579,6 +669,9 @@ def execute_plan(
             and item.completed_at is not None
             and item.completed_at >= item.started_at
         )
+
+        _scrub_progress(f"Cleanup complete: {cleanup_successes} success, {cleanup_failures} failed ({cleanup_duration:.2f}s)")
+
         machine_logger.info(
             "scrub_cleanup_complete",
             extra={
@@ -589,8 +682,23 @@ def execute_plan(
                 "duration": round(cleanup_duration, 6),
             },
         )
+    else:
+        _scrub_progress("No cleanup steps to execute")
 
     _log_summary(all_results, passes_run, global_dry_run)
+
+    total_successes = sum(1 for r in all_results if r.status == "success")
+    total_failures = sum(1 for r in all_results if r.status == "failed")
+    total_time = _get_scrub_elapsed_ms() / 1000
+
+    _scrub_progress("=" * 50)
+    _scrub_progress("SCRUB EXECUTION COMPLETE")
+    _scrub_progress(f"Total steps: {len(all_results)}")
+    _scrub_progress(f"Successes: {total_successes}")
+    _scrub_progress(f"Failures: {total_failures}")
+    _scrub_progress(f"Passes run: {passes_run}")
+    _scrub_progress(f"Total time: {total_time:.2f}s")
+    _scrub_progress("=" * 50)
 
     machine_logger.info(
         "scrub_plan_complete",

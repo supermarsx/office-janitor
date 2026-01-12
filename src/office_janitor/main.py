@@ -718,6 +718,7 @@ def _handle_plan_artifacts(
     """!
     @brief Persist plan diagnostics and backups as requested via CLI flags.
     """
+    _progress("Processing plan artifacts...", indent=1)
 
     plan_steps = list(plan_data)
     logdir = pathlib.Path(
@@ -730,19 +731,23 @@ def _handle_plan_artifacts(
 
     backup_dir = getattr(args, "backup", None)
     if backup_dir:
+        _progress(f"Setting up backup directory: {backup_dir}", indent=2)
         destination = pathlib.Path(backup_dir).expanduser().resolve()
         destination.mkdir(parents=True, exist_ok=True)
         if inventory is not None:
+            _progress("Writing inventory to backup...", indent=3, newline=False)
             (destination / "inventory.json").write_text(
                 json.dumps(inventory, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
+            _progress_ok()
         resolved_backup = destination
     else:
         resolved_backup = logdir / f"registry-backup-{timestamp}"
 
     if mode == "diagnose" and inventory is not None and not backup_dir:
         inventory_path = logdir / "diagnostics-inventory.json"
+        _progress(f"Writing diagnostics inventory: {inventory_path.name}", indent=2)
         inventory_path.write_text(
             json.dumps(inventory, indent=2, sort_keys=True),
             encoding="utf-8",
@@ -750,6 +755,7 @@ def _handle_plan_artifacts(
         human_log.info("Wrote diagnostics inventory to %s", inventory_path)
 
     if plan_steps:
+        _progress(f"Enriching {len(plan_steps)} plan steps with metadata...", indent=2)
         context_step = next(
             (step for step in plan_steps if step.get("category") == "context"), None
         )
@@ -766,6 +772,9 @@ def _handle_plan_artifacts(
             context_step["metadata"] = metadata
 
         if resolved_backup is not None:
+            registry_steps = sum(1 for s in plan_steps if s.get("category") == "registry-cleanup")
+            if registry_steps > 0:
+                _progress(f"Configuring backup for {registry_steps} registry steps", indent=2)
             for step in plan_steps:
                 if step.get("category") != "registry-cleanup":
                     continue
@@ -776,6 +785,7 @@ def _handle_plan_artifacts(
 
     serialized_plan = json.dumps(plan_steps, indent=2, sort_keys=True)
     primary_plan_path = logdir / f"plan-{timestamp}.json"
+    _progress(f"Writing primary plan: {primary_plan_path.name}", indent=2)
     primary_plan_path.write_text(serialized_plan, encoding="utf-8")
     human_log.info("Wrote plan to %s", primary_plan_path)
 
@@ -788,12 +798,16 @@ def _handle_plan_artifacts(
     for target in additional_plan_targets:
         if target == primary_plan_path:
             continue
+        _progress(f"Writing additional plan: {target.name}", indent=2)
         target.write_text(serialized_plan, encoding="utf-8")
         human_log.info("Wrote plan to %s", target)
 
     if backup_dir and resolved_backup is not None:
+        _progress(f"Writing plan to backup: {resolved_backup}", indent=2)
         (resolved_backup / "plan.json").write_text(serialized_plan, encoding="utf-8")
         human_log.info("Wrote backup artifacts to %s", resolved_backup)
+
+    _progress("Artifact processing complete", indent=1)
 
 
 def _enforce_runtime_guards(options: Mapping[str, object], *, dry_run: bool) -> None:
@@ -803,18 +817,46 @@ def _enforce_runtime_guards(options: Mapping[str, object], *, dry_run: bool) -> 
     :func:`safety.evaluate_runtime_environment` so operating system, process, and
     restore point guards are enforced consistently across CLI entry points.
     """
+    _progress("Gathering runtime environment info...", indent=1)
 
+    _progress("Detecting operating system...", indent=2, newline=False)
     system, release = _detect_operating_system()
+    _progress_ok(f"{system} {release}")
+
     require_restore_point = bool(options.get("create_restore_point", False))
     restore_point_available = True
     if require_restore_point and not dry_run:
+        _progress("Checking restore point availability...", indent=2, newline=False)
         restore_point_available = _restore_points_available()
+        if restore_point_available:
+            _progress_ok()
+        else:
+            _progress_fail("not available")
 
+    _progress("Checking admin privileges...", indent=2, newline=False)
+    is_admin = _current_process_is_admin()
+    if is_admin:
+        _progress_ok()
+    else:
+        _progress_fail()
+
+    _progress("Scanning for blocking processes...", indent=2, newline=False)
+    blocking = _discover_blocking_processes()
+    if blocking:
+        _progress_fail(f"{len(blocking)} found")
+        for proc in blocking[:5]:  # Show first 5
+            _progress(f"- {proc}", indent=3)
+        if len(blocking) > 5:
+            _progress(f"... and {len(blocking) - 5} more", indent=3)
+    else:
+        _progress_ok("none")
+
+    _progress("Evaluating safety constraints...", indent=2, newline=False)
     safety.evaluate_runtime_environment(
-        is_admin=_current_process_is_admin(),
+        is_admin=is_admin,
         os_system=system,
         os_release=release,
-        blocking_processes=_discover_blocking_processes(),
+        blocking_processes=blocking,
         dry_run=dry_run,
         require_restore_point=require_restore_point,
         restore_point_available=restore_point_available,
@@ -825,6 +867,7 @@ def _enforce_runtime_guards(options: Mapping[str, object], *, dry_run: bool) -> 
         or options.get("free_space_root")
         or options.get("system_drive"),
     )
+    _progress_ok()
 
 
 def _detect_operating_system() -> tuple[str, str]:
