@@ -53,23 +53,24 @@ def _get_scrub_elapsed_ms() -> float:
 
 
 def _scrub_progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
-    """Print a scrub progress message with timestamp to console."""
-    timestamp = f"[{_get_scrub_elapsed_ms():8.1f}ms]"
+    """Print a scrub progress message with Linux init-style formatting."""
     prefix = "  " * indent
-    end = "\n" if newline else ""
-    print(f"{timestamp} {prefix}[SCRUB] {message}", end=end, flush=True)
+    if newline:
+        print(f"         {prefix}{message}", flush=True)
+    else:
+        print(f"         {prefix}{message}", end="", flush=True)
 
 
 def _scrub_ok(extra: str = "") -> None:
-    """Print OK status."""
-    suffix = f" ({extra})" if extra else ""
-    print(f" OK{suffix}", flush=True)
+    """Print OK status in Linux init style [  OK  ]."""
+    suffix = f" {extra}" if extra else ""
+    print(f"\r[  \033[32mOK\033[0m  ]{suffix}", flush=True)
 
 
 def _scrub_fail(reason: str = "") -> None:
-    """Print FAIL status."""
+    """Print FAIL status in Linux init style [FAILED]."""
     suffix = f" ({reason})" if reason else ""
-    print(f" FAIL{suffix}", flush=True)
+    print(f"\r[\033[31mFAILED\033[0m]{suffix}", flush=True)
 
 
 @dataclass

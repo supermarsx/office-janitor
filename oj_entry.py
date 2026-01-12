@@ -17,6 +17,7 @@ __all__ = ["main"]
 # ---------------------------------------------------------------------------
 
 _STARTUP_TIME = time.perf_counter()
+_TERM_WIDTH = 80
 
 
 def _elapsed_ms() -> float:
@@ -25,21 +26,24 @@ def _elapsed_ms() -> float:
 
 
 def _log_init(message: str, *, newline: bool = True) -> None:
-    """Print an initialization progress message with timestamp."""
-    timestamp = f"[{_elapsed_ms():7.1f}ms]"
-    end = "\n" if newline else ""
-    print(f"{timestamp} {message}", end=end, flush=True)
+    """Print an initialization progress message with Linux init-style formatting."""
+    if newline:
+        print(f"         {message}", flush=True)
+    else:
+        # Pad message for right-aligned status
+        print(f"         {message}", end="", flush=True)
 
 
-def _log_ok() -> None:
-    """Print OK status (used after _log_init with newline=False)."""
-    print(" OK", flush=True)
+def _log_ok(extra: str = "") -> None:
+    """Print OK status in Linux init style [  OK  ]."""
+    suffix = f" {extra}" if extra else ""
+    print(f"\r[  \033[32mOK\033[0m  ]{suffix}", flush=True)
 
 
 def _log_fail(reason: str = "") -> None:
-    """Print FAIL status (used after _log_init with newline=False)."""
+    """Print FAIL status in Linux init style [FAILED]."""
     suffix = f" ({reason})" if reason else ""
-    print(f" FAIL{suffix}", flush=True)
+    print(f"\r[\033[31mFAILED\033[0m]{suffix}", flush=True)
 
 
 # ---------------------------------------------------------------------------

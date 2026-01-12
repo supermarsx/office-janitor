@@ -56,29 +56,31 @@ def _get_elapsed_ms() -> float:
 
 
 def _progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
-    """Print a progress message with timestamp to console."""
-    timestamp = f"[{_get_elapsed_ms():8.1f}ms]"
+    """Print a progress message with Linux init-style formatting."""
     prefix = "  " * indent
-    end = "\n" if newline else ""
-    print(f"{timestamp} {prefix}{message}", end=end, flush=True)
+    if newline:
+        print(f"         {prefix}{message}", flush=True)
+    else:
+        # For status messages, leave room for right-aligned bracket
+        print(f"         {prefix}{message}", end="", flush=True)
 
 
 def _progress_ok(extra: str = "") -> None:
-    """Print OK status (used after _progress with newline=False)."""
-    suffix = f" ({extra})" if extra else ""
-    print(f" OK{suffix}", flush=True)
+    """Print OK status in Linux init style [  OK  ]."""
+    suffix = f" {extra}" if extra else ""
+    print(f"\r[  \033[32mOK\033[0m  ]{suffix}", flush=True)
 
 
 def _progress_fail(reason: str = "") -> None:
-    """Print FAIL status (used after _progress with newline=False)."""
+    """Print FAIL status in Linux init style [FAILED]."""
     suffix = f" ({reason})" if reason else ""
-    print(f" FAIL{suffix}", flush=True)
+    print(f"\r[\033[31mFAILED\033[0m]{suffix}", flush=True)
 
 
 def _progress_skip(reason: str = "") -> None:
-    """Print SKIP status (used after _progress with newline=False)."""
+    """Print SKIP status in Linux init style [ SKIP ]."""
     suffix = f" ({reason})" if reason else ""
-    print(f" SKIP{suffix}", flush=True)
+    print(f"\r[ \033[33mSKIP\033[0m ]{suffix}", flush=True)
 
 
 def enable_vt_mode_if_possible() -> None:
