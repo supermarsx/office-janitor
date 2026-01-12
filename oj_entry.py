@@ -192,7 +192,8 @@ def main() -> int:
     _log_init(f"Initialization complete in {_elapsed_secs():.3f}s")
     _log_init("-" * 60)
 
-    return package_main()
+    # Pass startup time to main for continuous timestamps
+    return package_main(start_time=_STARTUP_TIME)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation

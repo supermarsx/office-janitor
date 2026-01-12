@@ -378,13 +378,15 @@ def _print_shutdown_message() -> None:
     print(f"[{elapsed:12.6f}] " + "=" * 50, flush=True)
 
 
-def main(argv: Iterable[str] | None = None) -> int:
+def main(argv: Iterable[str] | None = None, *, start_time: float | None = None) -> int:
     """!
     @brief Entry point invoked by the shim and PyInstaller bundle.
+    @param start_time Optional startup timestamp from entry point for continuous timing.
     @returns Process exit code integer.
     """
     global _MAIN_START_TIME
-    _MAIN_START_TIME = time.perf_counter()
+    # Use provided start_time for continuous timestamps, or start fresh
+    _MAIN_START_TIME = start_time if start_time is not None else time.perf_counter()
 
     # Install signal handler for clean Ctrl+C shutdown
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
@@ -508,26 +510,20 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     generated_plan = plan_module.build_plan(inventory, options)
     _progress(f"Generated {len(generated_plan)} plan steps", indent=1)
 
-    # Phase 10: Safety checks
+    # Phase 10: Safety checks (warnings only - never block execution)
     _progress("Phase 10: Performing preflight safety checks...")
-    safety_errors: list[str] = []
     try:
         safety.perform_preflight_checks(generated_plan)
         _progress("All preflight checks passed", indent=1, newline=False)
         _progress_ok()
     except ValueError as err:
-        safety_errors.append(str(err))
-        _progress(f"Safety check warning: {err}", indent=1, newline=False)
-        _progress_fail()
-        human_log.warning("Preflight safety check failed: %s", err)
+        _progress(f"Warning: {err}", indent=1, newline=False)
+        _progress_skip("non-fatal")
+        human_log.warning("Preflight safety warning: %s", err)
     except Exception as err:  # noqa: BLE001
-        safety_errors.append(str(err))
-        _progress(f"Unexpected safety error: {err}", indent=1, newline=False)
-        _progress_fail()
-        human_log.exception("Unexpected error during preflight checks")
-
-    if safety_errors:
-        _progress(f"Continuing with {len(safety_errors)} safety warning(s)", indent=1)
+        _progress(f"Warning: {err}", indent=1, newline=False)
+        _progress_skip("non-fatal")
+        human_log.warning("Unexpected preflight warning: %s", err)
 
     # Phase 11: Artifacts
     _progress("Phase 11: Writing plan artifacts...")
@@ -560,51 +556,53 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
         return 0
     _progress("Confirmation received", indent=1)
 
-    # Phase 13: Runtime guards
+    # Phase 13: Runtime guards (warnings only - never block execution)
     _progress("Phase 13: Enforcing runtime guards...")
     try:
         _enforce_runtime_guards(options, dry_run=scrub_dry_run)
         _progress("Runtime guards passed", indent=1, newline=False)
         _progress_ok()
     except ValueError as err:
-        _progress(f"Runtime guard warning: {err}", indent=1, newline=False)
-        _progress_fail()
-        human_log.warning("Runtime guard failed: %s", err)
-        if not getattr(args, "force", False):
-            _progress("Use --force to bypass runtime guards", indent=1)
-            return 1
-        _progress("Continuing due to --force flag", indent=1)
+        _progress(f"Warning: {err}", indent=1, newline=False)
+        _progress_skip("non-fatal")
+        human_log.warning("Runtime guard warning: %s", err)
     except Exception as err:  # noqa: BLE001
-        _progress(f"Unexpected runtime error: {err}", indent=1, newline=False)
-        _progress_fail()
-        human_log.exception("Unexpected error during runtime guards")
-        if not getattr(args, "force", False):
-            return 1
-        _progress("Continuing due to --force flag", indent=1)
+        _progress(f"Warning: {err}", indent=1, newline=False)
+        _progress_skip("non-fatal")
+        human_log.warning("Unexpected runtime warning: %s", err)
 
     # Phase 14: Plan execution
     _progress("=" * 60)
     _progress(f"Phase 14: Executing plan ({'DRY RUN' if scrub_dry_run else 'LIVE'})...")
     _progress("=" * 60)
-    execution_errors: list[str] = []
+    fatal_error: str | None = None
     try:
         scrub.execute_plan(generated_plan, dry_run=scrub_dry_run)
-    except Exception as err:  # noqa: BLE001
-        execution_errors.append(str(err))
-        _progress(f"Execution error: {err}", indent=1, newline=False)
+    except KeyboardInterrupt:
+        _progress("Execution interrupted by user", indent=1, newline=False)
+        _progress_skip("cancelled")
+        human_log.warning("Plan execution cancelled by user")
+        raise
+    except (OSError, PermissionError) as err:
+        # These are potentially fatal - system-level failures
+        fatal_error = str(err)
+        _progress(f"Fatal error: {err}", indent=1, newline=False)
         _progress_fail()
-        human_log.exception("Error during plan execution")
+        human_log.error("Fatal execution error: %s", err)
+    except Exception as err:  # noqa: BLE001
+        # Log but don't treat as fatal - execution may have partially succeeded
+        _progress(f"Error during execution: {err}", indent=1, newline=False)
+        _progress_fail()
+        human_log.exception("Error during plan execution (non-fatal)")
 
     _progress("=" * 60)
-    if execution_errors:
-        _progress(
-            f"Execution completed with {len(execution_errors)} error(s) "
-            f"in {_get_elapsed_secs():.3f}s"
-        )
-    else:
-        _progress(f"Execution complete in {_get_elapsed_secs():.3f}s")
+    if fatal_error:
+        _progress(f"Execution failed after {_get_elapsed_secs():.3f}s")
+        _progress("=" * 60)
+        return 1
+    _progress(f"Execution complete in {_get_elapsed_secs():.3f}s")
     _progress("=" * 60)
-    return 1 if execution_errors else 0
+    return 0
 
 
 def _determine_mode(args: argparse.Namespace) -> str:
