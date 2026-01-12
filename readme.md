@@ -25,9 +25,9 @@ Office Janitor is a stdlib-only Python utility that inventories, uninstalls, and
 ### Building the PyInstaller executable
 Office Janitor is designed to ship as a one-file executable. After installing PyInstaller, build the binary with:
 ```bash
-pyinstaller --onefile --uac-admin --name OfficeJanitor office_janitor.py --paths src
+pyinstaller --onefile --uac-admin --name office-janitor office_janitor.py --paths src
 ```
-The resulting executable will appear in `dist/OfficeJanitor.exe`.
+The resulting executable will appear in `dist/office-janitor.exe`.
 
 ## Usage
 

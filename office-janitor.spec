@@ -2,11 +2,11 @@
 
 
 a = Analysis(
-    ['src\\office_janitor\\main.py'],
+    ['office_janitor.py'],
     pathex=['src'],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=['office_janitor.main'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

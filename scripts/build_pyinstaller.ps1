@@ -22,7 +22,7 @@ Set-Location $repoRoot
 Write-Host "Installing PyInstaller..."
 & $Python -m pip install --upgrade pyinstaller | Write-Output
 
-$command = "pyinstaller --clean --onefile --uac-admin --name office-janitor src/office_janitor/main.py --paths src"
+$command = "pyinstaller --clean --onefile --uac-admin --name office-janitor --hidden-import office_janitor.main office_janitor.py --paths src"
 
 Write-Host "Running PyInstaller: $command"
 Invoke-Expression $command | Write-Output

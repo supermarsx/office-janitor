@@ -29,8 +29,12 @@ def _prepend_src_to_sys_path() -> None:
     @brief Prepend the repository ``src`` directory to ``sys.path``.
     @details The shim mirrors the structure described in :mod:`spec.md`, keeping
     the distributable executable simple while letting the package live under
-    ``src/``.
+    ``src/``. In PyInstaller bundles, ``src`` is already in ``sys.path``.
     """
+
+    # In PyInstaller bundles, _MEIPASS is set and src is already in sys.path
+    if hasattr(sys, "_MEIPASS"):
+        return
 
     if _SRC_PATH not in sys.path:
         sys.path.insert(0, _SRC_PATH)
