@@ -17,6 +17,7 @@ import os
 import pathlib
 import platform
 import sys
+import time
 from collections.abc import Iterable, Mapping
 
 from . import (
@@ -38,6 +39,46 @@ from . import (
     plan as plan_module,
 )
 from .app_state import AppState, new_event_queue
+
+
+# ---------------------------------------------------------------------------
+# Progress logging utilities
+# ---------------------------------------------------------------------------
+
+_MAIN_START_TIME: float | None = None
+
+
+def _get_elapsed_ms() -> float:
+    """Return milliseconds since main() started, or 0 if not started."""
+    if _MAIN_START_TIME is None:
+        return 0.0
+    return (time.perf_counter() - _MAIN_START_TIME) * 1000
+
+
+def _progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
+    """Print a progress message with timestamp to console."""
+    timestamp = f"[{_get_elapsed_ms():8.1f}ms]"
+    prefix = "  " * indent
+    end = "\n" if newline else ""
+    print(f"{timestamp} {prefix}{message}", end=end, flush=True)
+
+
+def _progress_ok(extra: str = "") -> None:
+    """Print OK status (used after _progress with newline=False)."""
+    suffix = f" ({extra})" if extra else ""
+    print(f" OK{suffix}", flush=True)
+
+
+def _progress_fail(reason: str = "") -> None:
+    """Print FAIL status (used after _progress with newline=False)."""
+    suffix = f" ({reason})" if reason else ""
+    print(f" FAIL{suffix}", flush=True)
+
+
+def _progress_skip(reason: str = "") -> None:
+    """Print SKIP status (used after _progress with newline=False)."""
+    suffix = f" ({reason})" if reason else ""
+    print(f" SKIP{suffix}", flush=True)
 
 
 def enable_vt_mode_if_possible() -> None:
