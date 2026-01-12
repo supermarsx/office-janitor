@@ -772,19 +772,19 @@ def _run_detection(
         elif status == "ok":
             with _PROGRESS_LOCK:
                 print(
-                    f"{timestamp} {prefix}  \u2514\u2500 [  \033[32mOK\033[0m  ]",
+                    f"{timestamp} {prefix}{phase} [  \033[32mOK\033[0m  ]",
                     flush=True,
                 )
         elif status == "skip":
             with _PROGRESS_LOCK:
                 print(
-                    f"{timestamp} {prefix}  \u2514\u2500 [ \033[33mSKIP\033[0m ]",
+                    f"{timestamp} {prefix}{phase} [ \033[33mSKIP\033[0m ]",
                     flush=True,
                 )
         elif status == "fail":
             with _PROGRESS_LOCK:
                 print(
-                    f"{timestamp} {prefix}  \u2514\u2500 [\033[31mFAILED\033[0m]",
+                    f"{timestamp} {prefix}{phase} [\033[31mFAILED\033[0m]",
                     flush=True,
                 )
 
