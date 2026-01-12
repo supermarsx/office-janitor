@@ -876,7 +876,7 @@ def gather_office_inventory(
 
     # Define detection tasks for parallel execution
     def _detect_msi(
-        precomputed_fallbacks: dict[str, dict[str, Any]] | None = None
+        precomputed_fallbacks: dict[str, dict[str, Any]] | None = None,
     ) -> list[dict[str, object]]:
         if fast_mode:
             _report("Scanning MSI-based installations (fast mode)")
@@ -986,38 +986,53 @@ def gather_office_inventory(
 
     # Run detection tasks in parallel or sequentially
     if parallel:
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=8, thread_name_prefix="detect"
-        ) as executor:
-            # Start all fast tasks immediately
-            c2r_future = executor.submit(_detect_c2r)
-            processes_future = executor.submit(_detect_processes)
-            services_future = executor.submit(_detect_services)
-            tasks_future = executor.submit(_detect_tasks)
-            activation_future = executor.submit(_detect_activation)
-            registry_future = executor.submit(_detect_registry)
-            filesystem_future = executor.submit(_detect_filesystem)
+        try:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=10, thread_name_prefix="detect"
+            ) as executor:
+                # Start all tasks immediately (including WMI/PS as separate tasks)
+                c2r_future = executor.submit(_detect_c2r)
+                processes_future = executor.submit(_detect_processes)
+                services_future = executor.submit(_detect_services)
+                tasks_future = executor.submit(_detect_tasks)
+                activation_future = executor.submit(_detect_activation)
+                registry_future = executor.submit(_detect_registry)
+                filesystem_future = executor.submit(_detect_filesystem)
 
-            # Collect WMI/PS probe results (they started earlier, may already be done)
-            probe_fallbacks: dict[str, dict[str, Any]] = {}
-            if wmi_future is not None and ps_future is not None:
-                _report("Waiting for WMI/PowerShell probes")
-                _merge_fallback_metadata(probe_fallbacks, wmi_future.result())
-                _merge_fallback_metadata(probe_fallbacks, ps_future.result())
-                _report("Waiting for WMI/PowerShell probes", "ok")
+                # Start MSI detection immediately (registry-only, fast)
+                # WMI/PS probes run in parallel and will supplement the results
+                def _msi_with_probes() -> list[dict[str, object]]:
+                    # Collect WMI/PS probe results while registry scan happens
+                    probe_fallbacks: dict[str, dict[str, Any]] = {}
+                    if wmi_future is not None and ps_future is not None:
+                        try:
+                            _report("Waiting for WMI/PowerShell probes")
+                            _merge_fallback_metadata(probe_fallbacks, wmi_future.result())
+                            _merge_fallback_metadata(probe_fallbacks, ps_future.result())
+                            _report("Waiting for WMI/PowerShell probes", "ok")
+                        except (KeyboardInterrupt, concurrent.futures.CancelledError):
+                            _report("Waiting for WMI/PowerShell probes", "skip")
+                            raise
+                    return _detect_msi(probe_fallbacks if probe_fallbacks else None)
 
-            # Now run MSI detection with pre-collected probe data
-            msi_future = executor.submit(_detect_msi, probe_fallbacks if probe_fallbacks else None)
+                msi_future = executor.submit(_msi_with_probes)
 
-            # Wait for all to complete and collect results
-            msi_list = msi_future.result()
-            c2r_list = c2r_future.result()
-            processes_list = processes_future.result()
-            services_list = services_future.result()
-            tasks_list = tasks_future.result()
-            activation_info = activation_future.result()
-            registry_residue = registry_future.result()
-            filesystem_list = filesystem_future.result()
+                # Wait for all to complete and collect results (fast ones finish first)
+                c2r_list = c2r_future.result()
+                processes_list = processes_future.result()
+                services_list = services_future.result()
+                tasks_list = tasks_future.result()
+                activation_info = activation_future.result()
+                registry_residue = registry_future.result()
+                filesystem_list = filesystem_future.result()
+                # MSI waits for probes, but everything else is already done
+                msi_list = msi_future.result()
+        except KeyboardInterrupt:
+            _LOGGER.info("Detection interrupted by user")
+            # Cancel any pending futures
+            if probe_executor is not None:
+                probe_executor.shutdown(wait=False, cancel_futures=True)
+            raise
 
         # Clean up probe executor
         if probe_executor is not None:

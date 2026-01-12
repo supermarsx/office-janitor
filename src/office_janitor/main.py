@@ -18,6 +18,7 @@ import pathlib
 import platform
 import signal
 import sys
+import threading
 import time
 from collections.abc import Iterable, Mapping
 
@@ -47,6 +48,8 @@ from .app_state import AppState, new_event_queue
 # ---------------------------------------------------------------------------
 
 _MAIN_START_TIME: float | None = None
+_PROGRESS_LOCK = threading.Lock()  # Thread-safe progress output
+_PENDING_LINE_OWNER: int | None = None  # Thread ID that owns the current incomplete line
 
 
 def _get_elapsed_secs() -> float:
@@ -58,30 +61,74 @@ def _get_elapsed_secs() -> float:
 
 def _progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
     """Print a progress message with dmesg-style timestamp."""
-    timestamp = f"[{_get_elapsed_secs():12.6f}]"
-    prefix = "  " * indent
-    if newline:
-        print(f"{timestamp} {prefix}{message}", flush=True)
-    else:
-        print(f"{timestamp} {prefix}{message}", end="", flush=True)
+    global _PENDING_LINE_OWNER
+    with _PROGRESS_LOCK:
+        # If another thread left an incomplete line, finish it first
+        if _PENDING_LINE_OWNER is not None and _PENDING_LINE_OWNER != threading.get_ident():
+            print(flush=True)  # Force newline
+            _PENDING_LINE_OWNER = None
+
+        timestamp = f"[{_get_elapsed_secs():12.6f}]"
+        prefix = "  " * indent
+        if newline:
+            print(f"{timestamp} {prefix}{message}", flush=True)
+            _PENDING_LINE_OWNER = None
+        else:
+            print(f"{timestamp} {prefix}{message}", end="", flush=True)
+            _PENDING_LINE_OWNER = threading.get_ident()
 
 
 def _progress_ok(extra: str = "") -> None:
     """Print OK status in Linux init style [  OK  ]."""
-    suffix = f" {extra}" if extra else ""
-    print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
+    global _PENDING_LINE_OWNER
+    with _PROGRESS_LOCK:
+        current_thread = threading.get_ident()
+        # Only print inline if we own the pending line
+        if _PENDING_LINE_OWNER == current_thread:
+            suffix = f" {extra}" if extra else ""
+            print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
+            _PENDING_LINE_OWNER = None
+        else:
+            # Another thread's line or no pending line - print on new line
+            if _PENDING_LINE_OWNER is not None:
+                print(flush=True)  # Finish the other thread's line
+            suffix = f" {extra}" if extra else ""
+            print(f"[{_get_elapsed_secs():12.6f}]  [  \033[32mOK\033[0m  ]{suffix}", flush=True)
+            _PENDING_LINE_OWNER = None
 
 
 def _progress_fail(reason: str = "") -> None:
     """Print FAIL status in Linux init style [FAILED]."""
-    suffix = f" ({reason})" if reason else ""
-    print(f" [\033[31mFAILED\033[0m]{suffix}", flush=True)
+    global _PENDING_LINE_OWNER
+    with _PROGRESS_LOCK:
+        current_thread = threading.get_ident()
+        if _PENDING_LINE_OWNER == current_thread:
+            suffix = f" ({reason})" if reason else ""
+            print(f" [\033[31mFAILED\033[0m]{suffix}", flush=True)
+            _PENDING_LINE_OWNER = None
+        else:
+            if _PENDING_LINE_OWNER is not None:
+                print(flush=True)
+            suffix = f" ({reason})" if reason else ""
+            print(f"[{_get_elapsed_secs():12.6f}]  [\033[31mFAILED\033[0m]{suffix}", flush=True)
+            _PENDING_LINE_OWNER = None
 
 
 def _progress_skip(reason: str = "") -> None:
     """Print SKIP status in Linux init style [ SKIP ]."""
-    suffix = f" ({reason})" if reason else ""
-    print(f" [ \033[33mSKIP\033[0m ]{suffix}", flush=True)
+    global _PENDING_LINE_OWNER
+    with _PROGRESS_LOCK:
+        current_thread = threading.get_ident()
+        if _PENDING_LINE_OWNER == current_thread:
+            suffix = f" ({reason})" if reason else ""
+            print(f" [ \033[33mSKIP\033[0m ]{suffix}", flush=True)
+            _PENDING_LINE_OWNER = None
+        else:
+            if _PENDING_LINE_OWNER is not None:
+                print(flush=True)
+            suffix = f" ({reason})" if reason else ""
+            print(f"[{_get_elapsed_secs():12.6f}]  [ \033[33mSKIP\033[0m ]{suffix}", flush=True)
+            _PENDING_LINE_OWNER = None
 
 
 def enable_vt_mode_if_possible() -> None:
@@ -304,6 +351,19 @@ def _handle_shutdown_signal(signum: int, frame: object) -> None:
     sys.exit(130)  # Standard exit code for SIGINT
 
 
+def _print_shutdown_message() -> None:
+    """Print a clean shutdown message with timestamp."""
+    elapsed = _get_elapsed_secs()
+    print(flush=True)  # Newline after any partial output
+    print(f"[{elapsed:12.6f}] " + "=" * 50, flush=True)
+    print(
+        f"[{elapsed:12.6f}] \033[33mShutting down...\033[0m (keyboard interrupt)",
+        flush=True,
+    )
+    print(f"[{elapsed:12.6f}] Cleanup in progress, please wait...", flush=True)
+    print(f"[{elapsed:12.6f}] " + "=" * 50, flush=True)
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     """!
     @brief Entry point invoked by the shim and PyInstaller bundle.
@@ -317,6 +377,17 @@ def main(argv: Iterable[str] | None = None) -> int:
     if hasattr(signal, "SIGBREAK"):  # Windows-specific
         signal.signal(signal.SIGBREAK, _handle_shutdown_signal)  # type: ignore[attr-defined]
 
+    try:
+        return _main_impl(argv)
+    except KeyboardInterrupt:
+        _print_shutdown_message()
+        return 130  # Standard exit code for SIGINT
+
+
+def _main_impl(argv: Iterable[str] | None = None) -> int:
+    """!
+    @brief Implementation of main() wrapped with KeyboardInterrupt handling.
+    """
     _progress("=" * 60)
     _progress("Office Janitor - Main Entry Point")
     _progress("=" * 60)
@@ -686,14 +757,22 @@ def _run_detection(
             _progress_fail()
 
     _progress("Gathering Office inventory...", indent=2)
-    if limited_user:
-        inventory = detect.gather_office_inventory(
-            limited_user=True, progress_callback=progress_callback
-        )
-    else:
-        inventory = detect.gather_office_inventory(progress_callback=progress_callback)
-    _progress("Inventory collection complete", indent=2, newline=False)
-    _progress_ok()
+    try:
+        if limited_user:
+            inventory = detect.gather_office_inventory(
+                limited_user=True, progress_callback=progress_callback
+            )
+        else:
+            inventory = detect.gather_office_inventory(
+                progress_callback=progress_callback
+            )
+        _progress("Inventory collection complete", indent=2, newline=False)
+        _progress_ok()
+    except KeyboardInterrupt:
+        print(flush=True)  # Newline after partial output
+        _progress("Inventory collection interrupted", indent=2, newline=False)
+        _progress_skip("user cancelled")
+        raise
 
     if log_directory is None:
         logdir_path = _resolve_log_directory(None)
