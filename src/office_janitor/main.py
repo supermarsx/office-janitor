@@ -49,7 +49,9 @@ from .app_state import AppState, new_event_queue
 
 _MAIN_START_TIME: float | None = None
 _PROGRESS_LOCK = threading.Lock()  # Thread-safe progress output
-_PENDING_LINE_OWNER: int | None = None  # Thread ID that owns the current incomplete line
+_PENDING_LINE_OWNER: int | None = (
+    None  # Thread ID that owns the current incomplete line
+)
 
 
 def _get_elapsed_secs() -> float:
@@ -64,7 +66,10 @@ def _progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
     global _PENDING_LINE_OWNER
     with _PROGRESS_LOCK:
         # If another thread left an incomplete line, finish it first
-        if _PENDING_LINE_OWNER is not None and _PENDING_LINE_OWNER != threading.get_ident():
+        if (
+            _PENDING_LINE_OWNER is not None
+            and _PENDING_LINE_OWNER != threading.get_ident()
+        ):
             print(flush=True)  # Force newline
             _PENDING_LINE_OWNER = None
 
@@ -93,7 +98,10 @@ def _progress_ok(extra: str = "") -> None:
             if _PENDING_LINE_OWNER is not None:
                 print(flush=True)  # Finish the other thread's line
             suffix = f" {extra}" if extra else ""
-            print(f"[{_get_elapsed_secs():12.6f}]  [  \033[32mOK\033[0m  ]{suffix}", flush=True)
+            print(
+                f"[{_get_elapsed_secs():12.6f}]  [  \033[32mOK\033[0m  ]{suffix}",
+                flush=True,
+            )
             _PENDING_LINE_OWNER = None
 
 
@@ -110,7 +118,10 @@ def _progress_fail(reason: str = "") -> None:
             if _PENDING_LINE_OWNER is not None:
                 print(flush=True)
             suffix = f" ({reason})" if reason else ""
-            print(f"[{_get_elapsed_secs():12.6f}]  [\033[31mFAILED\033[0m]{suffix}", flush=True)
+            print(
+                f"[{_get_elapsed_secs():12.6f}]  [\033[31mFAILED\033[0m]{suffix}",
+                flush=True,
+            )
             _PENDING_LINE_OWNER = None
 
 
@@ -127,7 +138,10 @@ def _progress_skip(reason: str = "") -> None:
             if _PENDING_LINE_OWNER is not None:
                 print(flush=True)
             suffix = f" ({reason})" if reason else ""
-            print(f"[{_get_elapsed_secs():12.6f}]  [ \033[33mSKIP\033[0m ]{suffix}", flush=True)
+            print(
+                f"[{_get_elapsed_secs():12.6f}]  [ \033[33mSKIP\033[0m ]{suffix}",
+                flush=True,
+            )
             _PENDING_LINE_OWNER = None
 
 
