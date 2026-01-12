@@ -194,9 +194,14 @@ def _extract_context(plan_steps: Sequence[Mapping[str, object]]) -> Mapping[str,
 
 
 def _ensure_no_action_steps(plan_steps: Sequence[Mapping[str, object]]) -> None:
+    """Check that diagnose mode only has context/detect steps, no actual actions."""
+    allowed_categories = {"context", "detect"}
     for step in plan_steps:
-        if step.get("category") != "context":
-            raise ValueError("Diagnostics mode must not schedule action steps.")
+        category = step.get("category")
+        if category not in allowed_categories:
+            raise ValueError(
+                f"Diagnostics mode must not schedule action steps (found: {category})."
+            )
 
 
 def _ensure_no_uninstall_steps(plan_steps: Sequence[Mapping[str, object]]) -> None:
