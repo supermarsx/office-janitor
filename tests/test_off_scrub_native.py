@@ -108,7 +108,7 @@ def test_test_rerun_runs_twice_for_msi(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
 
     calls = []
 
@@ -132,7 +132,7 @@ def test_offline_flag_carried_into_c2r_invocation(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
 
     captured = []
 
@@ -157,7 +157,7 @@ def test_c2r_registry_cleanup_invoked(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None
     )
@@ -185,7 +185,7 @@ def test_c2r_cache_cleanup_respects_keep_license(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None
     )
@@ -218,7 +218,7 @@ def test_c2r_task_cleanup_invoked(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None
     )
@@ -248,7 +248,7 @@ def test_quiet_suppresses_info_logging(monkeypatch, caplog):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
 
     monkeypatch.setattr(
         off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None
@@ -270,7 +270,7 @@ def test_no_reboot_suppresses_recommendations(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
 
     tasks_services.consume_reboot_recommendations()
 
@@ -294,7 +294,7 @@ def test_user_settings_flags_forwarded(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
 
     captured = []
 
@@ -319,7 +319,7 @@ def test_shortcut_cleanup_respects_skip_flag(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native,
         "uninstall_msi_products",
@@ -348,7 +348,7 @@ def test_user_settings_cleanup_executed(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native,
         "uninstall_msi_products",
@@ -377,7 +377,7 @@ def test_clear_addin_registry_calls_delete(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None
     )
@@ -404,7 +404,7 @@ def test_remove_vba_registry(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native,
         "uninstall_msi_products",
@@ -433,7 +433,7 @@ def test_vba_filesystem_cleanup(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native,
         "uninstall_msi_products",
@@ -468,7 +468,7 @@ def test_return_code_includes_reboot(monkeypatch):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native, "uninstall_products", lambda config, dry_run=False, retries=None: None
     )
@@ -491,7 +491,7 @@ def test_unmapped_flags_logged(monkeypatch, caplog):
             }
         ]
     }
-    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(off_scrub_native.detect, "gather_office_inventory", lambda **kw: inventory)
     monkeypatch.setattr(
         off_scrub_native,
         "uninstall_msi_products",

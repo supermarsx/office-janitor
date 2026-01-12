@@ -16,6 +16,7 @@ import logging
 import os
 import pathlib
 import platform
+import signal
 import sys
 import time
 from collections.abc import Iterable, Mapping
@@ -284,6 +285,25 @@ def _bootstrap_logging(
     return human_logger, machine_logger
 
 
+def _handle_shutdown_signal(signum: int, frame: object) -> None:
+    """!
+    @brief Handle Ctrl+C (SIGINT) for clean shutdown.
+    """
+    sig_name = (
+        signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
+    )
+    elapsed = _get_elapsed_secs()
+    print(flush=True)  # Newline after any partial output
+    print(f"[{elapsed:12.6f}] " + "=" * 50, flush=True)
+    print(
+        f"[{elapsed:12.6f}] \033[33mShutting down...\033[0m (received {sig_name})",
+        flush=True,
+    )
+    print(f"[{elapsed:12.6f}] Cleanup in progress, please wait...", flush=True)
+    print(f"[{elapsed:12.6f}] " + "=" * 50, flush=True)
+    sys.exit(130)  # Standard exit code for SIGINT
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     """!
     @brief Entry point invoked by the shim and PyInstaller bundle.
@@ -291,6 +311,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     """
     global _MAIN_START_TIME
     _MAIN_START_TIME = time.perf_counter()
+
+    # Install signal handler for clean Ctrl+C shutdown
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
+    if hasattr(signal, "SIGBREAK"):  # Windows-specific
+        signal.signal(signal.SIGBREAK, _handle_shutdown_signal)  # type: ignore[attr-defined]
 
     _progress("=" * 60)
     _progress("Office Janitor - Main Entry Point")
@@ -649,11 +674,25 @@ def _run_detection(
         machine_log.info("Detection requested under limited user token.")
         _progress("Running under limited user token", indent=2)
 
-    _progress("Gathering Office inventory...", indent=2, newline=False)
+    # Use detailed progress callback for inventory gathering
+    def progress_callback(phase: str, status: str = "start") -> None:
+        if status == "start":
+            _progress(f"{phase}...", indent=3, newline=False)
+        elif status == "ok":
+            _progress_ok()
+        elif status == "skip":
+            _progress_skip()
+        elif status == "fail":
+            _progress_fail()
+
+    _progress("Gathering Office inventory...", indent=2)
     if limited_user:
-        inventory = detect.gather_office_inventory(limited_user=True)
+        inventory = detect.gather_office_inventory(
+            limited_user=True, progress_callback=progress_callback
+        )
     else:
-        inventory = detect.gather_office_inventory()
+        inventory = detect.gather_office_inventory(progress_callback=progress_callback)
+    _progress("Inventory collection complete", indent=2, newline=False)
     _progress_ok()
 
     if log_directory is None:

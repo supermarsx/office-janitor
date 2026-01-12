@@ -36,7 +36,7 @@ def test_main_auto_all_executes_scrub_pipeline(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
 
     inventory = {"msi": [], "c2r": [], "filesystem": []}
-    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda **kw: inventory)
 
     recorded: list[tuple[str, object]] = []
 
@@ -93,7 +93,7 @@ def test_main_requires_confirmation_before_execution(monkeypatch, tmp_path) -> N
     monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
     monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
 
-    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: {"msi": []})
+    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda **kw: {"msi": []})
 
     def fake_plan(inv, options):  # type: ignore[no-untyped-def]
         return [
@@ -143,7 +143,7 @@ def test_limited_user_flag_passes_to_detection(monkeypatch, tmp_path) -> None:
 
     captured = {}
 
-    def fake_gather(*, limited_user=None):
+    def fake_gather(*, limited_user=None, progress_callback=None):
         captured["limited_user"] = limited_user
         return {"msi": [], "c2r": [], "filesystem": [], "registry": []}
 
@@ -170,7 +170,9 @@ def test_main_diagnose_skips_execution(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
 
     monkeypatch.setattr(
-        main.detect, "gather_office_inventory", lambda: {"msi": [], "c2r": [], "filesystem": []}
+        main.detect,
+        "gather_office_inventory",
+        lambda **kw: {"msi": [], "c2r": [], "filesystem": []},
     )
 
     def fake_plan(inv, options):  # type: ignore[no-untyped-def]
@@ -397,7 +399,7 @@ def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(main, "_resolve_log_directory", lambda candidate: tmp_path)
 
     inventory = {"msi": ["Office16"], "c2r": [], "filesystem": []}
-    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: inventory)
+    monkeypatch.setattr(main.detect, "gather_office_inventory", lambda **kw: inventory)
 
     captured_options: dict = {}
 
@@ -922,7 +924,7 @@ def test_main_diagnose_writes_default_artifacts(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         main.detect,
         "gather_office_inventory",
-        lambda: {"msi": ["Office"], "c2r": [], "filesystem": []},
+        lambda **kw: {"msi": ["Office"], "c2r": [], "filesystem": []},
     )
 
     def fake_plan(inv, options):  # type: ignore[no-untyped-def]

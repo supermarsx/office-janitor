@@ -7,13 +7,15 @@ contain uninstall handles, source type, and channel information.
 
 from __future__ import annotations
 
+import concurrent.futures
 import csv
 import json
 import logging
 import os
 import shlex
 import sys
-from collections.abc import Iterable, Mapping
+import threading
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -423,6 +425,7 @@ def _normalize_release_ids(raw: object) -> tuple[str, ...]:
 def _probe_msi_wmi() -> dict[str, dict[str, Any]]:
     """!
     @brief Collect MSI product metadata via ``wmic`` when available.
+    @details WARNING: This is slow (30-120+ seconds) because wmic enumerates all products.
     """
 
     code, output = _run_command(
@@ -504,9 +507,10 @@ def _probe_msi_powershell() -> dict[str, dict[str, Any]]:
     return results
 
 
-def detect_msi_installations() -> list[DetectedInstallation]:
+def detect_msi_installations(*, skip_slow_probes: bool = False) -> list[DetectedInstallation]:
     """!
     @brief Inspect the registry and return metadata for MSI-based Office installs.
+    @param skip_slow_probes If True, skip WMI/PowerShell probes that can take 60-120+ seconds.
     """
 
     installations: list[DetectedInstallation] = []
@@ -514,8 +518,20 @@ def detect_msi_installations() -> list[DetectedInstallation]:
     seen_codes: set[str] = set()
 
     fallback_sources: dict[str, dict[str, Any]] = {}
-    _merge_fallback_metadata(fallback_sources, _probe_msi_wmi())
-    _merge_fallback_metadata(fallback_sources, _probe_msi_powershell())
+
+    if skip_slow_probes:
+        # Skip the extremely slow WMI queries
+        _LOGGER.debug("Skipping slow MSI probes (WMI/PowerShell)")
+    else:
+        # Run both slow probes in parallel to reduce total wait time
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="msi_probe"
+        ) as executor:
+            wmi_future = executor.submit(_probe_msi_wmi)
+            ps_future = executor.submit(_probe_msi_powershell)
+            # Merge results as they complete
+            _merge_fallback_metadata(fallback_sources, wmi_future.result())
+            _merge_fallback_metadata(fallback_sources, ps_future.result())
 
     for product_code, metadata in constants.MSI_PRODUCT_MAP.items():
         registry_roots: Iterable[tuple[int, str]] = metadata.get(
@@ -775,10 +791,30 @@ def detect_c2r_installations() -> list[DetectedInstallation]:
     return installations
 
 
-def gather_office_inventory(*, limited_user: bool | None = None) -> dict[str, object]:
+def gather_office_inventory(
+    *,
+    limited_user: bool | None = None,
+    progress_callback: Callable[[str, str], None] | None = None,
+    parallel: bool = True,
+    fast_mode: bool = False,
+) -> dict[str, object]:
     """!
     @brief Aggregate MSI, C2R, and ancillary signals into an inventory payload.
+    @param limited_user If True, attempt de-elevated probes for user context.
+    @param progress_callback Optional callback(phase, status) for progress reporting.
+           phase is a description, status is "start", "ok", "skip", or "fail".
+    @param parallel If True, run independent detection tasks in parallel threads.
+    @param fast_mode If True, skip slow WMI/PowerShell probes (reduces MSI detection from
+           60-120+ seconds to under 1 second, but may miss some edge-case installations).
     """
+
+    # Thread-safe progress reporting
+    _report_lock = threading.Lock()
+
+    def _report(phase: str, status: str = "start") -> None:
+        if progress_callback:
+            with _report_lock:
+                progress_callback(phase, status)
 
     run_under_limited = bool(limited_user)
     human_logger = logging_ext.get_human_logger()
@@ -790,6 +826,7 @@ def gather_office_inventory(*, limited_user: bool | None = None) -> dict[str, ob
         human_logger.info(
             "Detection requested under limited user context; attempting de-elevated probes."
         )
+        _report("De-elevating for user context probe")
         result = elevation.run_as_limited_user(
             [sys.executable, "-m", "office_janitor.detect"],
             event="detect_deelevate",
@@ -799,75 +836,171 @@ def gather_office_inventory(*, limited_user: bool | None = None) -> dict[str, ob
             try:
                 parsed = json.loads(result.stdout)
                 if isinstance(parsed, dict):
+                    _report("De-elevated probe", "ok")
                     return parsed
             except json.JSONDecodeError:
+                _report("De-elevated probe", "fail")
                 human_logger.warning(
                     "Failed to parse limited-user detection output; falling back to current "
                     "context."
                 )
 
-    inventory: dict[str, object] = {
-        "context": {
-            "user": elevation.current_username(),
-            "is_admin": elevation.is_admin(),
-        },
-        "msi": [entry.to_dict() for entry in detect_msi_installations()],
-        "c2r": [entry.to_dict() for entry in detect_c2r_installations()],
-        "filesystem": [],
-        "processes": gather_running_office_processes(),
-        "services": gather_office_services(),
-        "tasks": gather_office_tasks(),
-        "activation": gather_activation_state(),
-        "registry": gather_registry_residue(),
+    # Context is quick and needed first
+    _report("Checking execution context")
+    context_info = {
+        "user": elevation.current_username(),
+        "is_admin": elevation.is_admin(),
     }
+    _report("Checking execution context", "ok")
 
-    seen_paths: set[str] = set()
+    # Define detection tasks for parallel execution
+    def _detect_msi() -> list[dict[str, object]]:
+        if fast_mode:
+            _report("Scanning MSI-based installations (fast mode)")
+        else:
+            _report("Scanning MSI-based installations")
+        result = [entry.to_dict() for entry in detect_msi_installations(skip_slow_probes=fast_mode)]
+        if fast_mode:
+            _report("Scanning MSI-based installations (fast mode)", "ok")
+        else:
+            _report("Scanning MSI-based installations", "ok")
+        return result
 
-    for template in constants.INSTALL_ROOT_TEMPLATES:
-        candidate = Path(template["path"])
-        try:
-            exists = candidate.exists()
-        except OSError:
-            exists = False
-        if not exists:
-            continue
-        path_str = str(candidate)
-        if path_str in seen_paths:
-            continue
-        inventory["filesystem"].append(
-            {
-                "path": str(candidate),
-                "architecture": template.get("architecture", "unknown"),
-                "release": template.get("release", ""),
+    def _detect_c2r() -> list[dict[str, object]]:
+        _report("Scanning Click-to-Run installations")
+        result = [entry.to_dict() for entry in detect_c2r_installations()]
+        _report("Scanning Click-to-Run installations", "ok")
+        return result
+
+    def _detect_processes() -> list[dict[str, object]]:
+        _report("Enumerating running Office processes")
+        result = gather_running_office_processes()
+        _report("Enumerating running Office processes", "ok")
+        return result
+
+    def _detect_services() -> list[dict[str, object]]:
+        _report("Checking Office services")
+        result = gather_office_services()
+        _report("Checking Office services", "ok")
+        return result
+
+    def _detect_tasks() -> list[dict[str, object]]:
+        _report("Checking scheduled tasks")
+        result = gather_office_tasks()
+        _report("Checking scheduled tasks", "ok")
+        return result
+
+    def _detect_activation() -> dict[str, object]:
+        _report("Gathering activation/licensing state")
+        result = gather_activation_state()
+        _report("Gathering activation/licensing state", "ok")
+        return result
+
+    def _detect_registry() -> list[dict[str, object]]:
+        _report("Scanning registry for residue")
+        result = gather_registry_residue()
+        _report("Scanning registry for residue", "ok")
+        return result
+
+    def _detect_filesystem() -> list[dict[str, object]]:
+        _report("Scanning filesystem paths")
+        fs_entries: list[dict[str, object]] = []
+        seen_paths: set[str] = set()
+
+        for template in constants.INSTALL_ROOT_TEMPLATES:
+            candidate = Path(template["path"])
+            try:
+                exists = candidate.exists()
+            except OSError:
+                exists = False
+            if not exists:
+                continue
+            path_str = str(candidate)
+            if path_str in seen_paths:
+                continue
+            fs_entries.append(
+                {
+                    "path": str(candidate),
+                    "architecture": template.get("architecture", "unknown"),
+                    "release": template.get("release", ""),
+                    "label": template.get("label", ""),
+                }
+            )
+            seen_paths.add(path_str)
+
+        for template in constants.RESIDUE_PATH_TEMPLATES:
+            raw_path = str(template.get("path", "").strip())
+            if not raw_path:
+                continue
+            expanded = os.path.expandvars(raw_path)
+            candidate = Path(expanded)
+            try:
+                exists = candidate.exists()
+            except OSError:
+                exists = False
+            if not exists:
+                continue
+            path_str = str(candidate)
+            if path_str in seen_paths:
+                continue
+            entry: dict[str, object] = {
+                "path": path_str,
                 "label": template.get("label", ""),
+                "category": template.get("category", "residue"),
             }
-        )
-        seen_paths.add(path_str)
+            if "architecture" in template:
+                entry["architecture"] = template["architecture"]
+            fs_entries.append(entry)
+            seen_paths.add(path_str)
 
-    for template in constants.RESIDUE_PATH_TEMPLATES:
-        raw_path = str(template.get("path", "").strip())
-        if not raw_path:
-            continue
-        expanded = os.path.expandvars(raw_path)
-        candidate = Path(expanded)
-        try:
-            exists = candidate.exists()
-        except OSError:
-            exists = False
-        if not exists:
-            continue
-        path_str = str(candidate)
-        if path_str in seen_paths:
-            continue
-        entry: dict[str, object] = {
-            "path": path_str,
-            "label": template.get("label", ""),
-            "category": template.get("category", "residue"),
-        }
-        if "architecture" in template:
-            entry["architecture"] = template["architecture"]
-        inventory["filesystem"].append(entry)
-        seen_paths.add(path_str)
+        _report("Scanning filesystem paths", "ok")
+        return fs_entries
+
+    # Run detection tasks in parallel or sequentially
+    if parallel:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=8, thread_name_prefix="detect"
+        ) as executor:
+            msi_future = executor.submit(_detect_msi)
+            c2r_future = executor.submit(_detect_c2r)
+            processes_future = executor.submit(_detect_processes)
+            services_future = executor.submit(_detect_services)
+            tasks_future = executor.submit(_detect_tasks)
+            activation_future = executor.submit(_detect_activation)
+            registry_future = executor.submit(_detect_registry)
+            filesystem_future = executor.submit(_detect_filesystem)
+
+            # Wait for all to complete and collect results
+            msi_list = msi_future.result()
+            c2r_list = c2r_future.result()
+            processes_list = processes_future.result()
+            services_list = services_future.result()
+            tasks_list = tasks_future.result()
+            activation_info = activation_future.result()
+            registry_residue = registry_future.result()
+            filesystem_list = filesystem_future.result()
+    else:
+        # Sequential fallback
+        msi_list = _detect_msi()
+        c2r_list = _detect_c2r()
+        processes_list = _detect_processes()
+        services_list = _detect_services()
+        tasks_list = _detect_tasks()
+        activation_info = _detect_activation()
+        registry_residue = _detect_registry()
+        filesystem_list = _detect_filesystem()
+
+    inventory: dict[str, object] = {
+        "context": context_info,
+        "msi": msi_list,
+        "c2r": c2r_list,
+        "filesystem": filesystem_list,
+        "processes": processes_list,
+        "services": services_list,
+        "tasks": tasks_list,
+        "activation": activation_info,
+        "registry": registry_residue,
+    }
 
     return inventory
 

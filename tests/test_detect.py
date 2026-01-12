@@ -197,7 +197,7 @@ class TestRegistryDetectionScenarios:
             properties={"supported_versions": ["2016", "2019"], "supported_architectures": ["x64"]},
         )
 
-        monkeypatch.setattr(detect, "detect_msi_installations", lambda: [sample_msi])
+        monkeypatch.setattr(detect, "detect_msi_installations", lambda **kw: [sample_msi])
         monkeypatch.setattr(detect, "detect_c2r_installations", lambda: [sample_c2r])
 
         monkeypatch.setenv("PROGRAMDATA", r"C:\\ProgramData")
@@ -296,7 +296,7 @@ class TestRegistryDetectionScenarios:
             "registry": [],
         }
 
-        monkeypatch.setattr(main.detect, "gather_office_inventory", lambda: sample_inventory)
+        monkeypatch.setattr(main.detect, "gather_office_inventory", lambda **kw: sample_inventory)
 
         machine_log = logging.getLogger("office-janitor-test")
         machine_log.handlers.clear()
