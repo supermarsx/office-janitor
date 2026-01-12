@@ -507,10 +507,15 @@ def _probe_msi_powershell() -> dict[str, dict[str, Any]]:
     return results
 
 
-def detect_msi_installations(*, skip_slow_probes: bool = False) -> list[DetectedInstallation]:
+def detect_msi_installations(
+    *,
+    skip_slow_probes: bool = False,
+    precomputed_fallbacks: dict[str, dict[str, Any]] | None = None,
+) -> list[DetectedInstallation]:
     """!
     @brief Inspect the registry and return metadata for MSI-based Office installs.
     @param skip_slow_probes If True, skip WMI/PowerShell probes that can take 60-120+ seconds.
+    @param precomputed_fallbacks Pre-collected WMI/PS probe results (avoids re-running probes).
     """
 
     installations: list[DetectedInstallation] = []
@@ -519,7 +524,10 @@ def detect_msi_installations(*, skip_slow_probes: bool = False) -> list[Detected
 
     fallback_sources: dict[str, dict[str, Any]] = {}
 
-    if skip_slow_probes:
+    if precomputed_fallbacks is not None:
+        # Use pre-computed fallback data (probes ran externally in parallel)
+        fallback_sources.update(precomputed_fallbacks)
+    elif skip_slow_probes:
         # Skip the extremely slow WMI queries
         _LOGGER.debug("Skipping slow MSI probes (WMI/PowerShell)")
     else:
@@ -853,16 +861,36 @@ def gather_office_inventory(
     }
     _report("Checking execution context", "ok")
 
+    # Start slow WMI/PS probes immediately (they run in background while other tasks execute)
+    wmi_future: concurrent.futures.Future[dict[str, dict[str, Any]]] | None = None
+    ps_future: concurrent.futures.Future[dict[str, dict[str, Any]]] | None = None
+    probe_executor: concurrent.futures.ThreadPoolExecutor | None = None
+
+    if not fast_mode and parallel:
+        _report("Starting WMI/PowerShell probes (background)")
+        probe_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="msi_probe"
+        )
+        wmi_future = probe_executor.submit(_probe_msi_wmi)
+        ps_future = probe_executor.submit(_probe_msi_powershell)
+
     # Define detection tasks for parallel execution
-    def _detect_msi() -> list[dict[str, object]]:
+    def _detect_msi(
+        precomputed_fallbacks: dict[str, dict[str, Any]] | None = None
+    ) -> list[dict[str, object]]:
         if fast_mode:
             _report("Scanning MSI-based installations (fast mode)")
-        else:
-            _report("Scanning MSI-based installations")
-        result = [entry.to_dict() for entry in detect_msi_installations(skip_slow_probes=fast_mode)]
-        if fast_mode:
+            result = [entry.to_dict() for entry in detect_msi_installations(skip_slow_probes=True)]
             _report("Scanning MSI-based installations (fast mode)", "ok")
         else:
+            _report("Scanning MSI-based installations")
+            result = [
+                entry.to_dict()
+                for entry in detect_msi_installations(
+                    skip_slow_probes=True,  # We handle probes externally
+                    precomputed_fallbacks=precomputed_fallbacks,
+                )
+            ]
             _report("Scanning MSI-based installations", "ok")
         return result
 
@@ -961,7 +989,7 @@ def gather_office_inventory(
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=8, thread_name_prefix="detect"
         ) as executor:
-            msi_future = executor.submit(_detect_msi)
+            # Start all fast tasks immediately
             c2r_future = executor.submit(_detect_c2r)
             processes_future = executor.submit(_detect_processes)
             services_future = executor.submit(_detect_services)
@@ -969,6 +997,17 @@ def gather_office_inventory(
             activation_future = executor.submit(_detect_activation)
             registry_future = executor.submit(_detect_registry)
             filesystem_future = executor.submit(_detect_filesystem)
+
+            # Collect WMI/PS probe results (they started earlier, may already be done)
+            probe_fallbacks: dict[str, dict[str, Any]] = {}
+            if wmi_future is not None and ps_future is not None:
+                _report("Waiting for WMI/PowerShell probes")
+                _merge_fallback_metadata(probe_fallbacks, wmi_future.result())
+                _merge_fallback_metadata(probe_fallbacks, ps_future.result())
+                _report("Waiting for WMI/PowerShell probes", "ok")
+
+            # Now run MSI detection with pre-collected probe data
+            msi_future = executor.submit(_detect_msi, probe_fallbacks if probe_fallbacks else None)
 
             # Wait for all to complete and collect results
             msi_list = msi_future.result()
@@ -979,9 +1018,17 @@ def gather_office_inventory(
             activation_info = activation_future.result()
             registry_residue = registry_future.result()
             filesystem_list = filesystem_future.result()
+
+        # Clean up probe executor
+        if probe_executor is not None:
+            probe_executor.shutdown(wait=False)
     else:
-        # Sequential fallback
-        msi_list = _detect_msi()
+        # Sequential fallback (with probes if not fast_mode)
+        probe_fallbacks_seq: dict[str, dict[str, Any]] = {}
+        if not fast_mode:
+            _merge_fallback_metadata(probe_fallbacks_seq, _probe_msi_wmi())
+            _merge_fallback_metadata(probe_fallbacks_seq, _probe_msi_powershell())
+        msi_list = _detect_msi(probe_fallbacks_seq if probe_fallbacks_seq else None)
         c2r_list = _detect_c2r()
         processes_list = _detect_processes()
         services_list = _detect_services()
