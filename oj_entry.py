@@ -18,6 +18,10 @@ _PACKAGE_PATH = os.path.join(_SRC_PATH, "office_janitor")
 if os.path.isdir(_SRC_PATH) and _SRC_PATH not in sys.path:
     sys.path.insert(0, _SRC_PATH)
 
+# Ensure the package is collected by PyInstaller
+import office_janitor
+import office_janitor.main
+
 if os.path.isdir(_PACKAGE_PATH):
     __path__ = [_PACKAGE_PATH]
     if __spec__ is not None:  # pragma: no cover - import system attribute

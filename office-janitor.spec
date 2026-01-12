@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['office_janitor.py'],
+    ['oj_entry.py'],
     pathex=['src'],
     binaries=[],
     datas=[],
