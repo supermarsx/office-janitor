@@ -27,7 +27,7 @@ $command = @(
     "--clean",
     "--onefile",
     "--uac-admin",
-    "--name", "OfficeJanitor",
+    "--name", "office-janitor",
     "office_janitor.py",
     "--paths", "src"
 )
@@ -39,13 +39,13 @@ if (-not (Test-Path $ArtifactFolder)) {
     New-Item -ItemType Directory -Path $ArtifactFolder | Out-Null
 }
 
-$executablePath = Join-Path $repoRoot "$DistFolder/OfficeJanitor.exe"
+$executablePath = Join-Path $repoRoot "$DistFolder/office-janitor.exe"
 if (-not (Test-Path $executablePath)) {
     throw "Expected executable not found at $executablePath"
 }
 
-$manifestPath = Join-Path $repoRoot "$DistFolder/OfficeJanitor.exe.manifest"
-$artifactZip = Join-Path $ArtifactFolder "OfficeJanitor-win64.zip"
+$manifestPath = Join-Path $repoRoot "$DistFolder/office-janitor.exe.manifest"
+$artifactZip = Join-Path $ArtifactFolder "office-janitor-win64.zip"
 
 $itemsToArchive = @($executablePath)
 if (Test-Path $manifestPath) {

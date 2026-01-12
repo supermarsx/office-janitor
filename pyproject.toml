@@ -72,7 +72,7 @@ addopts = ["-ra", "--strict-markers", "--strict-config"]
 
 [tool.pyinstaller.build]
 entry-point = "office_janitor.py"
-name = "OfficeJanitor"
+name = "office-janitor"
 onefile = true
 uac-admin = true
 paths = ["src"]
