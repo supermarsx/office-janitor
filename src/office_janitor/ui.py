@@ -433,9 +433,9 @@ def _notify(
 
     machine_logger = context.get("machine_logger")
     if isinstance(machine_logger, logging.Logger):
-        extra: dict[str, object] = {"event": "ui_progress", "name": event}
+        extra: dict[str, object] = {"event": "ui_progress", "event_name": event}
         if message:
-            extra["message"] = message
+            extra["log_message"] = message
         if payload:
             extra["data"] = dict(payload)
         machine_logger.info("ui_progress", extra=extra)

@@ -62,19 +62,13 @@ class OfficeJanitorTUI:
         self.app_state: MutableMapping[str, object] = dict(app_state)
         self.human_logger = self.app_state.get("human_logger")
         self.machine_logger = self.app_state.get("machine_logger")
-        self.detector: Callable[[], Mapping[str, object]] = self.app_state[
-            "detector"
-        ]  # type: ignore[assignment]
-        self.planner: Callable[
-            [Mapping[str, object], Mapping[str, object] | None], list[dict]
-        ] = self.app_state[
-            "planner"
-        ]  # type: ignore[assignment]
-        self.executor: Callable[
-            [list[dict], Mapping[str, object] | None], bool | None
-        ] = self.app_state[
-            "executor"
-        ]  # type: ignore[assignment]
+        self.detector: Callable[[], Mapping[str, object]] = self.app_state["detector"]  # type: ignore[assignment]
+        self.planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = (
+            self.app_state["planner"]
+        )  # type: ignore[assignment]
+        self.executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = (
+            self.app_state["executor"]
+        )  # type: ignore[assignment]
         confirm_callable = self.app_state.get("confirm")
         self._confirm_requestor: Callable[..., bool] | None = (
             confirm_callable if callable(confirm_callable) else None
@@ -94,9 +88,7 @@ class OfficeJanitorTUI:
         self.ansi_supported = _supports_ansi() and not bool(
             getattr(self.app_state.get("args"), "no_color", False)
         )
-        self._key_reader: Callable[[], str] | None = self.app_state.get(
-            "key_reader"
-        )  # type: ignore[assignment]
+        self._key_reader: Callable[[], str] | None = self.app_state.get("key_reader")  # type: ignore[assignment]
         args = self.app_state.get("args")
         refresh_ms = getattr(args, "tui_refresh", 120) if args is not None else 120
         try:
@@ -1024,9 +1016,9 @@ class OfficeJanitorTUI:
 
         machine_logger = self.machine_logger
         if machine_logger is not None:
-            extra: dict[str, object] = {"event": "ui_progress", "name": event}
+            extra: dict[str, object] = {"event": "ui_progress", "event_name": event}
             if message:
-                extra["message"] = message
+                extra["log_message"] = message
             if payload:
                 extra["data"] = dict(payload)
             machine_logger.info("ui_progress", extra=extra)

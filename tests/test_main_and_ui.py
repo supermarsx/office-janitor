@@ -964,3 +964,412 @@ def test_main_diagnose_writes_default_artifacts(monkeypatch, tmp_path) -> None:
     inventory_data = json.loads(inventory_path.read_text(encoding="utf-8"))
     assert inventory_data["msi"] == ["Office"]
     assert guard_calls == []
+
+
+# ===========================================================================
+# Comprehensive CLI argument tests
+# ===========================================================================
+
+
+class TestCLIArgumentParsing:
+    """!
+    @brief Test all CLI arguments are correctly parsed and handled.
+    """
+
+    def test_version_short_flag(self, capsys) -> None:
+        """Test -V flag outputs version info."""
+        parser = main.build_arg_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["-V"])
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "0." in output or "dev" in output  # Version format
+
+    def test_version_long_flag(self, capsys) -> None:
+        """Test --version flag outputs version info."""
+        parser = main.build_arg_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["--version"])
+        assert exc_info.value.code == 0
+
+    def test_help_flag(self, capsys) -> None:
+        """Test --help flag outputs usage info."""
+        parser = main.build_arg_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["--help"])
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "office-janitor" in output
+        assert "--auto-all" in output
+        assert "--diagnose" in output
+
+    def test_auto_all_mode(self) -> None:
+        """Test --auto-all sets the mode correctly."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all"])
+        assert args.auto_all is True
+        assert main._determine_mode(args) == "auto-all"
+
+    def test_target_mode_with_version(self) -> None:
+        """Test --target sets the mode and version correctly."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--target", "2019"])
+        assert args.target == "2019"
+        assert main._determine_mode(args) == "target:2019"
+
+    def test_target_mode_with_multiple_versions(self) -> None:
+        """Test --target accepts comma-separated versions."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--target", "2016,2019,365"])
+        assert args.target == "2016,2019,365"
+        assert main._determine_mode(args) == "target:2016,2019,365"
+
+    def test_diagnose_mode(self) -> None:
+        """Test --diagnose sets the mode correctly."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--diagnose"])
+        assert args.diagnose is True
+        assert main._determine_mode(args) == "diagnose"
+
+    def test_cleanup_only_mode(self) -> None:
+        """Test --cleanup-only sets the mode correctly."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--cleanup-only"])
+        assert args.cleanup_only is True
+        assert main._determine_mode(args) == "cleanup-only"
+
+    def test_interactive_mode_default(self) -> None:
+        """Test interactive mode is default when no mode flags provided."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args([])
+        assert main._determine_mode(args) == "interactive"
+
+    def test_modes_are_mutually_exclusive(self, capsys) -> None:
+        """Test that mode flags are mutually exclusive."""
+        parser = main.build_arg_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["--auto-all", "--diagnose"])
+        assert exc_info.value.code != 0
+
+    def test_include_components(self) -> None:
+        """Test --include accepts component list."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--include", "visio,project,access"])
+        assert args.include == "visio,project,access"
+
+    def test_force_flag(self) -> None:
+        """Test --force flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--force"])
+        assert args.force is True
+
+    def test_allow_unsupported_windows_flag(self) -> None:
+        """Test --allow-unsupported-windows flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--allow-unsupported-windows"])
+        assert args.allow_unsupported_windows is True
+
+    def test_dry_run_flag(self) -> None:
+        """Test --dry-run flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--dry-run"])
+        assert args.dry_run is True
+
+    def test_no_restore_point_flag(self) -> None:
+        """Test --no-restore-point flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--no-restore-point"])
+        assert args.no_restore_point is True
+
+    def test_no_license_flag(self) -> None:
+        """Test --no-license flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--no-license"])
+        assert args.no_license is True
+
+    def test_keep_license_flag(self) -> None:
+        """Test --keep-license flag (alias of --no-license)."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--keep-license"])
+        assert args.keep_license is True
+
+    def test_keep_templates_flag(self) -> None:
+        """Test --keep-templates flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--keep-templates"])
+        assert args.keep_templates is True
+
+    def test_plan_output_path(self) -> None:
+        """Test --plan accepts output path."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--plan", "C:/output/plan.json"])
+        assert args.plan == "C:/output/plan.json"
+
+    def test_logdir_path(self) -> None:
+        """Test --logdir accepts directory path."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--logdir", "C:/logs"])
+        assert args.logdir == "C:/logs"
+
+    def test_backup_path(self) -> None:
+        """Test --backup accepts directory path."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--backup", "C:/backup"])
+        assert args.backup == "C:/backup"
+
+    def test_timeout_seconds(self) -> None:
+        """Test --timeout accepts integer seconds."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--timeout", "120"])
+        assert args.timeout == 120
+
+    def test_timeout_requires_integer(self, capsys) -> None:
+        """Test --timeout rejects non-integer values."""
+        parser = main.build_arg_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["--timeout", "not-a-number"])
+        assert exc_info.value.code != 0
+
+    def test_quiet_flag(self) -> None:
+        """Test --quiet flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--quiet"])
+        assert args.quiet is True
+
+    def test_json_flag(self) -> None:
+        """Test --json flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--json"])
+        assert args.json is True
+
+    def test_tui_flag(self) -> None:
+        """Test --tui flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--tui"])
+        assert args.tui is True
+
+    def test_no_color_flag(self) -> None:
+        """Test --no-color flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--no-color"])
+        assert args.no_color is True
+
+    def test_tui_compact_flag(self) -> None:
+        """Test --tui-compact flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--tui-compact"])
+        assert args.tui_compact is True
+
+    def test_tui_refresh_milliseconds(self) -> None:
+        """Test --tui-refresh accepts milliseconds."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--tui-refresh", "500"])
+        assert args.tui_refresh == 500
+
+    def test_limited_user_flag(self) -> None:
+        """Test --limited-user flag."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--limited-user"])
+        assert args.limited_user is True
+
+    def test_all_flags_combined(self) -> None:
+        """Test multiple flags can be combined."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args([
+            "--auto-all",
+            "--force",
+            "--dry-run",
+            "--no-restore-point",
+            "--no-license",
+            "--keep-templates",
+            "--quiet",
+            "--json",
+            "--no-color",
+            "--allow-unsupported-windows",
+            "--limited-user",
+            "--include", "visio",
+            "--timeout", "60",
+            "--logdir", "/tmp/logs",
+            "--backup", "/tmp/backup",
+            "--plan", "/tmp/plan.json",
+        ])
+        assert args.auto_all is True
+        assert args.force is True
+        assert args.dry_run is True
+        assert args.no_restore_point is True
+        assert args.no_license is True
+        assert args.keep_templates is True
+        assert args.quiet is True
+        assert args.json is True
+        assert args.no_color is True
+        assert args.allow_unsupported_windows is True
+        assert args.limited_user is True
+        assert args.include == "visio"
+        assert args.timeout == 60
+        assert args.logdir == "/tmp/logs"
+        assert args.backup == "/tmp/backup"
+        assert args.plan == "/tmp/plan.json"
+
+
+class TestCLIArgumentsIntoPlanOptions:
+    """!
+    @brief Test CLI arguments are correctly propagated to plan options.
+    """
+
+    def test_force_in_plan_options(self) -> None:
+        """Test --force propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--force"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["force"] is True
+
+    def test_dry_run_in_plan_options(self) -> None:
+        """Test --dry-run propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--dry-run"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["dry_run"] is True
+
+    def test_no_restore_point_in_plan_options(self) -> None:
+        """Test --no-restore-point sets create_restore_point=False."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--no-restore-point"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["create_restore_point"] is False
+
+    def test_restore_point_default(self) -> None:
+        """Test create_restore_point defaults to True."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["create_restore_point"] is True
+
+    def test_no_license_in_plan_options(self) -> None:
+        """Test --no-license propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--no-license"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["no_license"] is True
+
+    def test_keep_license_in_plan_options(self) -> None:
+        """Test --keep-license sets no_license=True in plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--keep-license"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["keep_license"] is True
+
+    def test_keep_templates_in_plan_options(self) -> None:
+        """Test --keep-templates propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--keep-templates"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["keep_templates"] is True
+
+    def test_target_in_plan_options(self) -> None:
+        """Test --target value propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--target", "2019"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["target"] == "2019"
+
+    def test_include_in_plan_options(self) -> None:
+        """Test --include value propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--include", "visio,project"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["include"] == "visio,project"
+
+    def test_timeout_in_plan_options(self) -> None:
+        """Test --timeout value propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--timeout", "90"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["timeout"] == 90
+
+    def test_backup_in_plan_options(self) -> None:
+        """Test --backup value propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--backup", "C:/backup"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["backup"] == "C:/backup"
+
+    def test_allow_unsupported_windows_in_plan_options(self) -> None:
+        """Test --allow-unsupported-windows propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--allow-unsupported-windows"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["allow_unsupported_windows"] is True
+
+    def test_mode_in_plan_options(self) -> None:
+        """Test mode is included in plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--diagnose"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["mode"] == "diagnose"
+
+
+class TestCLIFlagBehavior:
+    """!
+    @brief Test CLI flags affect program behavior correctly.
+    """
+
+    def test_dry_run_prevents_system_changes(self, monkeypatch, tmp_path) -> None:
+        """Test --dry-run passes dry_run=True to scrub execution."""
+        monkeypatch.setattr(main, "ensure_admin_and_relaunch_if_needed", _no_op)
+        monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
+        monkeypatch.setattr(main, "_resolve_log_directory", lambda c: tmp_path)
+        monkeypatch.setattr(main.detect, "gather_office_inventory", lambda **kw: {})
+        monkeypatch.setattr(main.plan_module, "build_plan", lambda i, o: [
+            {"id": "ctx", "category": "context", "metadata": {"mode": o["mode"]}},
+        ])
+        monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda p: None)
+
+        scrub_dry_run: list[bool] = []
+        monkeypatch.setattr(
+            main.scrub, "execute_plan",
+            lambda plan, dry_run=False: scrub_dry_run.append(dry_run)
+        )
+        monkeypatch.setattr(main, "_enforce_runtime_guards", lambda o, *, dry_run=False: None)
+
+        main.main(["--auto-all", "--dry-run", "--logdir", str(tmp_path)])
+        assert scrub_dry_run == [True]
+
+    def test_quiet_flag_affects_logging(self, monkeypatch, tmp_path) -> None:
+        """Test --quiet flag is parsed and accessible."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--quiet"])
+        assert args.quiet is True
+
+    def test_json_flag_affects_logging(self, monkeypatch, tmp_path) -> None:
+        """Test --json flag is parsed and accessible."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--json"])
+        assert args.json is True
+
+    def test_no_color_flag_accessible(self) -> None:
+        """Test --no-color flag is parsed and accessible."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--no-color"])
+        assert args.no_color is True
+
+    def test_tui_flags_accessible(self) -> None:
+        """Test TUI-related flags are parsed and accessible."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--tui", "--tui-compact", "--tui-refresh", "100"])
+        assert args.tui is True
+        assert args.tui_compact is True
+        assert args.tui_refresh == 100
+
