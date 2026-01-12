@@ -586,12 +586,25 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress("=" * 60)
     _progress(f"Phase 14: Executing plan ({'DRY RUN' if scrub_dry_run else 'LIVE'})...")
     _progress("=" * 60)
-    scrub.execute_plan(generated_plan, dry_run=scrub_dry_run)
+    execution_errors: list[str] = []
+    try:
+        scrub.execute_plan(generated_plan, dry_run=scrub_dry_run)
+    except Exception as err:  # noqa: BLE001
+        execution_errors.append(str(err))
+        _progress(f"Execution error: {err}", indent=1, newline=False)
+        _progress_fail()
+        human_log.exception("Error during plan execution")
 
     _progress("=" * 60)
-    _progress(f"Execution complete in {_get_elapsed_secs():.3f}s")
+    if execution_errors:
+        _progress(
+            f"Execution completed with {len(execution_errors)} error(s) "
+            f"in {_get_elapsed_secs():.3f}s"
+        )
+    else:
+        _progress(f"Execution complete in {_get_elapsed_secs():.3f}s")
     _progress("=" * 60)
-    return 0
+    return 1 if execution_errors else 0
 
 
 def _determine_mode(args: argparse.Namespace) -> str:
