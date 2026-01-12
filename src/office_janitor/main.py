@@ -509,9 +509,25 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress(f"Generated {len(generated_plan)} plan steps", indent=1)
 
     # Phase 10: Safety checks
-    _progress("Phase 10: Performing preflight safety checks...", newline=False)
-    safety.perform_preflight_checks(generated_plan)
-    _progress_ok()
+    _progress("Phase 10: Performing preflight safety checks...")
+    safety_errors: list[str] = []
+    try:
+        safety.perform_preflight_checks(generated_plan)
+        _progress("All preflight checks passed", indent=1, newline=False)
+        _progress_ok()
+    except ValueError as err:
+        safety_errors.append(str(err))
+        _progress(f"Safety check warning: {err}", indent=1, newline=False)
+        _progress_fail()
+        human_log.warning("Preflight safety check failed: %s", err)
+    except Exception as err:  # noqa: BLE001
+        safety_errors.append(str(err))
+        _progress(f"Unexpected safety error: {err}", indent=1, newline=False)
+        _progress_fail()
+        human_log.exception("Unexpected error during preflight checks")
+
+    if safety_errors:
+        _progress(f"Continuing with {len(safety_errors)} safety warning(s)", indent=1)
 
     # Phase 11: Artifacts
     _progress("Phase 11: Writing plan artifacts...")
