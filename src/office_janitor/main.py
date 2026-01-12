@@ -759,16 +759,34 @@ def _run_detection(
         machine_log.info("Detection requested under limited user token.")
         _progress("Running under limited user token", indent=2)
 
-    # Use detailed progress callback for inventory gathering
+    # Use detailed progress callback for inventory gathering.
+    # Since detect.py calls this from multiple threads concurrently, we use
+    # complete single-line output for thread-safety (no pending line pattern).
     def progress_callback(phase: str, status: str = "start") -> None:
+        prefix = "      "  # indent=3 equivalent
+        timestamp = f"[{_get_elapsed_secs():12.6f}]"
         if status == "start":
-            _progress(f"{phase}...", indent=3, newline=False)
+            # Print complete line with "..." to indicate in-progress
+            with _PROGRESS_LOCK:
+                print(f"{timestamp} {prefix}{phase}...", flush=True)
         elif status == "ok":
-            _progress_ok()
+            with _PROGRESS_LOCK:
+                print(
+                    f"{timestamp} {prefix}  \u2514\u2500 [  \033[32mOK\033[0m  ]",
+                    flush=True,
+                )
         elif status == "skip":
-            _progress_skip()
+            with _PROGRESS_LOCK:
+                print(
+                    f"{timestamp} {prefix}  \u2514\u2500 [ \033[33mSKIP\033[0m ]",
+                    flush=True,
+                )
         elif status == "fail":
-            _progress_fail()
+            with _PROGRESS_LOCK:
+                print(
+                    f"{timestamp} {prefix}  \u2514\u2500 [\033[31mFAILED\033[0m]",
+                    flush=True,
+                )
 
     _progress("Gathering Office inventory...", indent=2)
     try:
