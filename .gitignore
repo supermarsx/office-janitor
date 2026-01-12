@@ -4,3 +4,6 @@ OfficeScrubber.zip
 /src/office_janitor.egg-info
 /reports
 .coverage
+/build
+/artifacts
+/dist
