@@ -2,5 +2,6 @@
   <Remove All="TRUE"></Remove>
   <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
   <RemoveMSI />
-  <Display Level="Full" AcceptEULA="TRUE" />
+  <Display Level="None" AcceptEULA="TRUE" />
+  <Logging Level="Standard" Path="%temp%" />
 </Configuration>

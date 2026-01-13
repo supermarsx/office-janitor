@@ -10,7 +10,12 @@ with the Office Deployment Tool documentation for programmatic repair scenarios.
 
 from __future__ import annotations
 
+import glob
+import os
 import re
+import subprocess
+import threading
+import time
 from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -678,6 +683,103 @@ BUNDLED_ODT_SETUP = "oem/setup.exe"
 """!
 @brief Path to bundled setup.exe relative to the package root.
 """
+
+# Log file patterns for ODT/Office setup
+ODT_LOG_PATTERNS = [
+    "%temp%/SetupOffice*.log",
+    "%temp%/OfficeClickToRun*.log",
+    "%temp%/Office*.log",
+]
+
+
+class LogTailer:
+    """!
+    @brief Background log file tailer for Office setup operations.
+    @details Monitors log files in %temp% and streams new content to console.
+    """
+
+    def __init__(self, patterns: list[str] | None = None):
+        self._patterns = patterns or ODT_LOG_PATTERNS
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._seen_files: set[str] = set()
+        self._file_positions: dict[str, int] = {}
+        self._log = logging_ext.get_human_logger()
+
+    def _expand_pattern(self, pattern: str) -> str:
+        """Expand environment variables in pattern."""
+        return os.path.expandvars(pattern)
+
+    def _find_log_files(self) -> list[Path]:
+        """Find all matching log files."""
+        files: list[Path] = []
+        for pattern in self._patterns:
+            expanded = self._expand_pattern(pattern)
+            for match in glob.glob(expanded):
+                files.append(Path(match))
+        return files
+
+    def _tail_file(self, filepath: Path) -> None:
+        """Read and print new content from a log file."""
+        try:
+            str_path = str(filepath)
+            if str_path not in self._file_positions:
+                # New file - start from beginning if recently created, else end
+                stat = filepath.stat()
+                age = time.time() - stat.st_mtime
+                if age < 5:  # File created in last 5 seconds
+                    self._file_positions[str_path] = 0
+                else:
+                    self._file_positions[str_path] = stat.st_size
+
+            pos = self._file_positions[str_path]
+            current_size = filepath.stat().st_size
+
+            if current_size > pos:
+                with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                    f.seek(pos)
+                    new_content = f.read()
+                    if new_content.strip():
+                        # Print with log prefix
+                        for line in new_content.splitlines():
+                            if line.strip():
+                                print(f"  [ODT] {line}")
+                    self._file_positions[str_path] = f.tell()
+
+        except (OSError, IOError):
+            pass  # File may be locked or deleted
+
+    def _monitor_loop(self) -> None:
+        """Main monitoring loop."""
+        while not self._stop_event.is_set():
+            for filepath in self._find_log_files():
+                self._tail_file(filepath)
+            self._stop_event.wait(0.5)  # Check every 500ms
+
+    def start(self) -> None:
+        """Start the log tailer in a background thread."""
+        if self._thread is not None:
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._thread.start()
+        self._log.debug("Log tailer started")
+
+    def stop(self) -> None:
+        """Stop the log tailer."""
+        if self._thread is None:
+            return
+        self._stop_event.set()
+        self._thread.join(timeout=2.0)
+        self._thread = None
+        self._log.debug("Log tailer stopped")
+
+    def __enter__(self) -> "LogTailer":
+        self.start()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.stop()
 
 
 def find_odt_setup_exe(custom_path: Path | None = None) -> Path | None:
