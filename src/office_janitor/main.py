@@ -155,7 +155,7 @@ def enable_vt_mode_if_possible() -> None:
     try:
         from ctypes import wintypes
 
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32
     except Exception:  # pragma: no cover - import/attribute errors on non-Windows
         return
 
@@ -462,7 +462,7 @@ def main(argv: Iterable[str] | None = None, *, start_time: float | None = None) 
     # Install signal handler for clean Ctrl+C shutdown
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
     if hasattr(signal, "SIGBREAK"):  # Windows-specific
-        signal.signal(signal.SIGBREAK, _handle_shutdown_signal)  # type: ignore[attr-defined]
+        signal.signal(signal.SIGBREAK, _handle_shutdown_signal)
 
     try:
         exit_code = _main_impl(argv_list)
@@ -1001,7 +1001,7 @@ def _build_app_state(
 
     def planner(
         inventory: Mapping[str, object], overrides: Mapping[str, object] | None = None
-    ) -> list[dict]:
+    ) -> list[dict[str, object]]:
         mode = _determine_mode(args)
         merged = dict(_collect_plan_options(args, mode))
         if overrides:
@@ -1010,7 +1010,7 @@ def _build_app_state(
         safety.perform_preflight_checks(generated_plan)
         return generated_plan
 
-    def executor(plan_data: list[dict], overrides: Mapping[str, object] | None = None) -> bool:
+    def executor(plan_data: list[dict[str, object]], overrides: Mapping[str, object] | None = None) -> bool:
         dry_run = bool(getattr(args, "dry_run", False))
         if overrides and "dry_run" in overrides:
             dry_run = bool(overrides["dry_run"])
@@ -1074,7 +1074,7 @@ def _build_app_state(
     return app_state
 
 
-def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
+def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, object]:
     """!
     @brief Translate parsed CLI arguments into planning options.
     """
@@ -1107,7 +1107,7 @@ def _run_detection(
     log_directory: pathlib.Path | str | None = None,
     *,
     limited_user: bool | None = None,
-) -> dict:
+) -> dict[str, object]:
     """!
     @brief Execute inventory gathering, persist artifacts, and emit telemetry.
     """
@@ -1416,7 +1416,7 @@ def _current_process_is_admin() -> bool:
 
     if os.name == "nt":
         try:
-            shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+            shell32 = ctypes.windll.shell32
             return bool(shell32.IsUserAnAdmin())
         except Exception:
             return False

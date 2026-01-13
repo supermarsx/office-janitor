@@ -9,7 +9,7 @@ respecting dry-run and timeout safeguards.
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 
 from . import constants, exec_utils, logging_ext
@@ -149,7 +149,7 @@ def reboot_recommendations_suppressed() -> bool:
 
 
 @contextmanager
-def suppress_reboot_recommendations(enabled: bool = True):
+def suppress_reboot_recommendations(enabled: bool = True) -> Iterator[None]:
     """!
     @brief Temporarily suppress recording of reboot recommendations.
     @details Mirrors legacy ``/NOREBOOT`` behaviour by preventing
@@ -451,12 +451,16 @@ def validate_ose_service_state(
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
+    disabled_fixed: list[str] = []
+    account_fixed: list[str] = []
+    errors: list[dict[str, object]] = []
+
     results: dict[str, object] = {
         "ose_found": False,
         "ose64_found": False,
-        "disabled_fixed": [],
-        "account_fixed": [],
-        "errors": [],
+        "disabled_fixed": disabled_fixed,
+        "account_fixed": account_fixed,
+        "errors": errors,
     }
 
     ose_services = ["ose", "ose64"]
@@ -510,14 +514,18 @@ def validate_ose_service_state(
                     extra={"service": service, "start_mode": "demand"},
                 )
                 if fix_result.returncode == 0:
-                    results["disabled_fixed"].append(service)  # type: ignore[union-attr]
+                    disabled_fixed.append(service)
                     human_logger.info("Changed %s to Manual start", service)
                 else:
-                    results["errors"].append(  # type: ignore[union-attr]
-                        {"service": service, "operation": "change_start", "code": fix_result.returncode}
+                    errors.append(
+                        {
+                            "service": service,
+                            "operation": "change_start",
+                            "code": fix_result.returncode,
+                        }
                     )
             else:
-                results["disabled_fixed"].append(service)  # type: ignore[union-attr]
+                disabled_fixed.append(service)
 
         # Parse SERVICE_START_NAME (account)
         is_localsystem = "LOCALSYSTEM" in output.upper()
@@ -551,14 +559,18 @@ def validate_ose_service_state(
                     extra={"service": service, "account": "LocalSystem"},
                 )
                 if fix_result.returncode == 0:
-                    results["account_fixed"].append(service)  # type: ignore[union-attr]
+                    account_fixed.append(service)
                     human_logger.info("Changed %s to run as LocalSystem", service)
                 else:
-                    results["errors"].append(  # type: ignore[union-attr]
-                        {"service": service, "operation": "change_account", "code": fix_result.returncode}
+                    errors.append(
+                        {
+                            "service": service,
+                            "operation": "change_account",
+                            "code": fix_result.returncode,
+                        }
                     )
             else:
-                results["account_fixed"].append(service)  # type: ignore[union-attr]
+                account_fixed.append(service)
 
     if not results["ose_found"] and not results["ose64_found"]:
         human_logger.debug("No OSE service found (may not be installed)")

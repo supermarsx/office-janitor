@@ -1071,6 +1071,7 @@ def unregister_all_c2r_integrations(*, dry_run: bool = False) -> int:
 
 # License reinstallation support for C2R products
 
+
 def get_c2r_product_release_ids() -> list[str]:
     """!
     @brief Get Office C2R product release IDs (SKUs) from registry.
@@ -1208,8 +1209,8 @@ def reinstall_c2r_license(
         "/R",
         "/License",
         f"PRIDName={prid_name}",
-        f'PackageGUID={package_guid}',
-        f'PackageRoot={package_root}',
+        f"PackageGUID={package_guid}",
+        f"PackageRoot={package_root}",
     ]
 
     if dry_run:
@@ -1317,9 +1318,7 @@ def reinstall_c2r_licenses(*, dry_run: bool = False, timeout: int = 120) -> dict
     successes = sum(1 for code in results.values() if code == 0)
     failures = len(results) - successes
 
-    human_logger.info(
-        "License reinstall complete: %d succeeded, %d failed", successes, failures
-    )
+    human_logger.info("License reinstall complete: %d succeeded, %d failed", successes, failures)
     machine_logger.info(
         "c2r_licenses_reinstall_complete",
         extra={

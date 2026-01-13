@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
+import logging
 import os
 import re
 import shutil
 import stat
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from . import constants, exec_utils, logging_ext
 
@@ -296,7 +297,7 @@ def discover_paths(
 
 
 def _handle_readonly(
-    function, path: str, exc_info
+    function: Callable[[str], None], path: str, exc_info: tuple[type[BaseException], BaseException, Any]
 ) -> None:  # pragma: no cover - defensive callback
     """!
     @brief Clear read-only attributes before retrying removal.
@@ -377,8 +378,8 @@ def _schedule_delete_on_reboot(
     path: Path,
     *,
     dry_run: bool = False,
-    human_logger=None,
-    machine_logger=None,
+    human_logger: logging.Logger | None = None,
+    machine_logger: logging.Logger | None = None,
 ) -> bool:
     """!
     @brief Queue ``path`` for removal during the next system reboot.

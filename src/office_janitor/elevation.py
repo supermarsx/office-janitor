@@ -36,12 +36,14 @@ def current_username() -> str:
     """!
     @brief Return the current user name best-effort.
     """
+    from typing import Callable
 
-    for candidate in (
+    candidates: tuple[Callable[[], str | None], ...] = (
         os.getlogin,
         lambda: os.environ.get("USERNAME"),
         lambda: os.environ.get("USER"),
-    ):
+    )
+    for candidate in candidates:
         try:
             value = candidate()
         except Exception:

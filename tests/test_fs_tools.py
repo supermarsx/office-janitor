@@ -418,7 +418,9 @@ class TestAppxPackageRemoval:
             lambda: _NullLogger(),
         )
 
-        result = fs_tools.remove_appx_package("Microsoft.Office.Desktop_16001.14326.20544.0_x86__8wekyb3d8bbwe")
+        result = fs_tools.remove_appx_package(
+            "Microsoft.Office.Desktop_16001.14326.20544.0_x86__8wekyb3d8bbwe"
+        )
 
         assert result is True
         assert len(commands_run) == 1
@@ -437,7 +439,10 @@ class TestAppxPackageRemoval:
     def test_remove_office_appx_packages_dry_run(self, monkeypatch) -> None:
         """Dry run should process packages without actual removal."""
         mock_packages = [
-            {"package_full_name": "Microsoft.Office.Desktop_1.0_x64__abc", "name": "Office Desktop"},
+            {
+                "package_full_name": "Microsoft.Office.Desktop_1.0_x64__abc",
+                "name": "Office Desktop",
+            },
             {"package_full_name": "Microsoft.365_2.0_x64__def", "name": "Microsoft 365"},
         ]
 

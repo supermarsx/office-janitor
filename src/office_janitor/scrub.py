@@ -557,7 +557,7 @@ class StepExecutor:
                 parsed = int(value)
             except (TypeError, ValueError):
                 continue
-            return max(0, parsed)
+            return int(max(0, parsed))
         return DEFAULT_RETRY_COUNT
 
     @staticmethod
@@ -577,7 +577,7 @@ class StepExecutor:
                 parsed = int(value)
             except (TypeError, ValueError):
                 continue
-            return max(0, parsed)
+            return int(max(0, parsed))
         return DEFAULT_RETRY_DELAY_BASE
 
     @staticmethod

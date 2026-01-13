@@ -12,7 +12,7 @@ import argparse
 import logging
 import os
 import sys
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Iterator, Mapping, MutableMapping, Sequence
 from contextlib import contextmanager
 
 from . import (
@@ -139,7 +139,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 @contextmanager
-def _quiet_logging(enabled: bool, human_logger: logging.Logger):
+def _quiet_logging(enabled: bool, human_logger: logging.Logger) -> Iterator[None]:
     """!
     @brief Temporarily raise the human logger threshold when quiet mode is set.
     """
@@ -155,7 +155,7 @@ def _quiet_logging(enabled: bool, human_logger: logging.Logger):
 
 
 def _log_flag_effects(
-    legacy: LegacyInvocation, directives: ExecutionDirectives, human_logger
+    legacy: LegacyInvocation, directives: ExecutionDirectives, human_logger: logging.Logger
 ) -> None:
     """!
     @brief Emit informational logs describing how legacy flags are applied.

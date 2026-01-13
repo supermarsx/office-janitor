@@ -23,9 +23,9 @@ from . import constants, version
 from . import plan as plan_module
 
 try:  # pragma: no cover - Windows specific
-    import msvcrt as _msvcrt  # type: ignore[import-not-found]
+    import msvcrt as _msvcrt
 except ImportError:  # pragma: no cover - non-Windows hosts
-    _msvcrt = None  # type: ignore[assignment]
+    _msvcrt = None
 
 msvcrt: Any = _msvcrt
 
@@ -62,13 +62,13 @@ class OfficeJanitorTUI:
         self.app_state: MutableMapping[str, object] = dict(app_state)
         self.human_logger = self.app_state.get("human_logger")
         self.machine_logger = self.app_state.get("machine_logger")
-        self.detector: Callable[[], Mapping[str, object]] = self.app_state["detector"]  # type: ignore[assignment]
-        self.planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict]] = (
+        self.detector: Callable[[], Mapping[str, object]] = self.app_state["detector"]
+        self.planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict[str, object]]] = (
             self.app_state["planner"]
-        )  # type: ignore[assignment]
-        self.executor: Callable[[list[dict], Mapping[str, object] | None], bool | None] = (
+        )
+        self.executor: Callable[[list[dict[str, object]], Mapping[str, object] | None], bool | None] = (
             self.app_state["executor"]
-        )  # type: ignore[assignment]
+        )
         confirm_callable = self.app_state.get("confirm")
         self._confirm_requestor: Callable[..., bool] | None = (
             confirm_callable if callable(confirm_callable) else None
@@ -81,14 +81,14 @@ class OfficeJanitorTUI:
             self.app_state["event_queue"] = self.event_queue
         self.emit_event = self.app_state.get("emit_event")
         self.last_inventory: Mapping[str, object] | None = None
-        self.last_plan: list[dict] | None = None
+        self.last_plan: list[dict[str, object]] | None = None
         self.status_lines: list[str] = []
         self.progress_message = "Ready"
         self.log_lines: list[str] = []
         self.ansi_supported = _supports_ansi() and not bool(
             getattr(self.app_state.get("args"), "no_color", False)
         )
-        self._key_reader: Callable[[], str] | None = self.app_state.get("key_reader")  # type: ignore[assignment]
+        self._key_reader: Callable[[], str] | None = self.app_state.get("key_reader")
         args = self.app_state.get("args")
         refresh_ms = getattr(args, "tui_refresh", 120) if args is not None else 120
         try:
@@ -1047,7 +1047,7 @@ class OfficeJanitorTUI:
 
         if callable(self.emit_event):
             try:
-                self.emit_event(event, message=message, **payload)  # type: ignore[misc]
+                self.emit_event(event, message=message, **payload)
             except Exception:  # pragma: no cover - defensive path
                 self.event_queue.append(record)
         else:
@@ -1078,7 +1078,7 @@ class OfficeJanitorTUI:
                     self.last_inventory = inventory
                 plan_data = data.get("plan")
                 if isinstance(plan_data, list):
-                    self.last_plan = plan_data  # type: ignore[assignment]
+                    self.last_plan = list(plan_data)
                 log_line = data.get("log_line")
                 if log_line:
                     self._append_log(str(log_line))
@@ -1149,7 +1149,7 @@ def _supports_ansi(stream: object | None = None) -> bool:
     if not hasattr(target, "isatty"):
         return False
     try:
-        if not target.isatty():  # type: ignore[operator]
+        if not target.isatty():
             return False
     except Exception:
         return False
@@ -1287,15 +1287,18 @@ def _stringify_inventory_value(value: object) -> str:
 def _summarize_inventory(inventory: Mapping[str, object]) -> dict[str, int]:
     summary: dict[str, int] = {}
     for key, items in inventory.items():
-        try:
-            count = len(items)  # type: ignore[arg-type]
-        except TypeError:
-            count = len(list(items))  # type: ignore[arg-type]
+        if hasattr(items, "__len__"):
+            count = len(items)
+        else:
+            try:
+                count = len(list(items))
+            except TypeError:
+                count = 1
         summary[str(key)] = count
     return summary
 
 
-def _format_plan(plan_data: list[dict] | None) -> list[str]:
+def _format_plan(plan_data: list[dict[str, object]] | None) -> list[str]:
     if not plan_data:
         return ["Plan not created"]
 

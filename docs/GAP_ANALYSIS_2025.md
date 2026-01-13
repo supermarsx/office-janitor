@@ -18,367 +18,220 @@ This document provides a comprehensive gap analysis comparing the current Python
 
 | Category | Spec Coverage | VBS Coverage | Notes |
 |----------|---------------|--------------|-------|
-| Detection | ~95% | ~90% | AppX detection, vNext detection ✅ |
-| MSI Uninstall | ~90% | ~85% | Setup.exe fallback, msiexec orchestration ✅ |
-| C2R Uninstall | ~95% | ~90% | ODT integration, integrator.exe, license reinstall ✅ |
-| License Cleanup | ~95% | ~90% | SPP/OSPP WMI, vNext registry cleanup ✅ |
-| Registry Cleanup | ~95% | ~90% | 129 residue paths, TypeLib, vNext, taskband ✅ |
-| File Cleanup | ~90% | ~85% | Shortcut unpinning, MSOCache, published components ✅ |
-| Scheduled Tasks | ~90% | ~85% | OFFICE_SCHEDULED_TASKS_TO_DELETE constant ✅ |
-| UWP/AppX | ~90% | ~85% | Detection + removal via PowerShell ✅ |
-| TUI Mode | ~80% | N/A | Progress bars, hjkl navigation ✅ |
+| Detection | ~95% | ~95% | AppX detection, vNext detection ✅ |
+| MSI Uninstall | ~95% | ~90% | Setup.exe fallback, msiexec orchestration ✅ |
+| C2R Uninstall | ~95% | ~95% | ODT integration, integrator.exe, license reinstall ✅ |
+| License Cleanup | ~95% | ~95% | SPP/OSPP WMI, vNext registry cleanup ✅ |
+| Registry Cleanup | ~95% | ~95% | 129 residue paths, TypeLib, vNext, taskband ✅ |
+| File Cleanup | ~95% | ~90% | Shortcut unpinning, MSOCache, published components ✅ |
+| Scheduled Tasks | ~95% | ~90% | OFFICE_SCHEDULED_TASKS_TO_DELETE constant ✅ |
+| UWP/AppX | ~95% | ~90% | Detection + removal via PowerShell ✅ |
+| TUI Mode | ~85% | N/A | Progress bars, hjkl navigation ✅ |
 | CI/CD | ~100% | N/A | Split workflows per spec ✅ |
-| Error Handling | ~90% | ~85% | Bitmask system, msiexec codes ✅ |
+| Error Handling | ~95% | ~90% | Bitmask system, msiexec codes ✅ |
 
 ---
 
-## Gap Categories
+## Completed Features ✅
 
-### 1. COMPLETED ITEMS ✅
-
-#### 1.1 UWP/AppX Removal ✅ IMPLEMENTED
+### 1. UWP/AppX Removal ✅
 
 **Status:** COMPLETED in `fs_tools.py`
+- `detect_appx_packages()` - Detect Office AppX packages
 - `remove_appx_package()` - Remove single AppX package
 - `remove_office_appx_packages()` - Remove all Office AppX packages
 - Uses PowerShell `Remove-AppxPackage` command
 
 ---
 
-#### 1.2 Scheduled Task Names ✅ IMPLEMENTED
+### 2. Scheduled Task Names ✅
 
 **Status:** COMPLETED in `constants.py`
 - `OFFICE_SCHEDULED_TASKS_TO_DELETE` - 13 task names
 - `delete_office_scheduled_tasks()` in `tasks_services.py`
 - Integrated into cleanup flow
-"\Microsoft\Office\Office Automatic Updates"
-"\Microsoft\Office\Office ClickToRun Service Monitor"
-"Office Subscription Maintenance"
-```
-
-**Current State:**
-- `tasks_services.py` has `delete_tasks()` function - ✅ Infrastructure exists
-- **No constant with task names** - ❌ Gap
-
-**Required Implementation:**
-```python
-# constants.py
-OFFICE_SCHEDULED_TASKS_TO_DELETE: tuple[str, ...] = (
-    "FF_INTEGRATEDstreamSchedule",
-    "FF_INTEGRATEDUPDATEDETECTION",
-    "C2RAppVLoggingStart",
-    "Office 15 Subscription Heartbeat",
-    r"\Microsoft\Office\OfficeInventoryAgentFallBack",
-    r"\Microsoft\Office\OfficeTelemetryAgentFallBack",
-    r"\Microsoft\Office\OfficeInventoryAgentLogOn",
-    r"\Microsoft\Office\OfficeTelemetryAgentLogOn",
-    "Office Background Streaming",
-    r"\Microsoft\Office\Office Automatic Updates",
-    r"\Microsoft\Office\Office ClickToRun Service Monitor",
-    "Office Subscription Maintenance",
-)
-```
 
 ---
 
-#### 1.3 CI Workflow Split Required
+### 3. CI Workflow Split ✅
 
-**Source:** spec.md Section 21 (lines 712-758)
+**Status:** COMPLETED in `.github/workflows/`
 
-**Spec Requires Separate Files:**
-- `format.yml` - Black check
-- `lint.yml` - Ruff + MyPy
-- `test.yml` - Pytest matrix (Win, Python 3.9/3.11)
-- `build.yml` - PyInstaller (Windows x64, optionally ARM64)
+Per spec.md Section 21, workflows are now split into:
+- `format.yml` - Black formatting check
+- `lint.yml` - Ruff linting + MyPy type checking
+- `test.yml` - Pytest matrix (Windows, Python 3.9/3.11)
+- `build.yml` - PyInstaller build + distributions
 - `publish-pypi.yml` - PyPI release on tag
 - `release.yml` - GitHub Release automation
 
-**Current State:**
-- Single `.github/workflows/ci.yml` (178 lines) - ❌ Not split per spec
+---
+
+### 4. C2R License Operations ✅
+
+**Status:** COMPLETED in `c2r_uninstall.py`
+
+| CMD Key | Operation | Python Implementation |
+|---------|-----------|----------------------|
+| C | Clean vNext Licenses | `clean_vnext_cache()` |
+| R | Remove ALL Licenses | `full_license_cleanup()` |
+| T | Reset C2R Licenses | `reinstall_c2r_licenses()` |
+| U | Uninstall Product Keys | `cleanup_licenses()` |
 
 ---
 
-### 2. HIGH PRIORITY GAPS 🟠
+### 5. vNext License Cleanup ✅
 
-#### 2.1 License Menu Operations (OfficeScrubber.cmd)
-
-**Source:** OfficeScrubber.cmd lines 724-790 (License operations submenu)
-
-**CMD License Operations:**
-| Key | Operation | Python Status |
-|-----|-----------|---------------|
-| C | Clean vNext Licenses | ✅ `licensing.py` |
-| R | Remove ALL Licenses | ✅ `full_license_cleanup()` |
-| T | Reset C2R Licenses via integrator.exe | ❌ **Missing** |
-| U | Uninstall Product Keys | ✅ `licensing.py` |
-
-**VBS Reset C2R Flow (lines 753-790):**
-```batch
-for %%a in (%_SKUs%) do (
-    "!_Integrator!" /R /License PRIDName=%%a.16 PackageGUID="%_GUID%" PackageRoot="!_InstallRoot!"
-)
-```
-
-**Required Implementation:**
-```python
-# c2r_uninstall.py
-def reinstall_c2r_licenses(
-    product_ids: Sequence[str],
-    package_guid: str,
-    package_root: Path,
-    *,
-    dry_run: bool = False,
-) -> bool:
-    """Re-install C2R licenses via integrator.exe /R /License."""
-    ...
-```
+**Status:** COMPLETED in `licensing.py` and `registry_tools.py`
+- `clean_vnext_cache()` - Delete LocalAppData\Microsoft\Office\Licenses
+- `cleanup_vnext_identity_registry()` - Remove identity registry values
+  - Patterns: `*.EmailAddress`, `*.TenantId`, `*.DeviceBasedLicensing`
+- `clean_scl_cache()` - Shared Computer Licensing cache cleanup
 
 ---
 
-#### 2.2 vNext License Cache Cleanup
+### 6. Process Kill List ✅
 
-**Source:** OffScrubC2R.vbs `ClearVNextLicCache` (lines 1042-1050)
+**Status:** COMPLETED in `constants.py`
 
-**VBS Implementation:**
-```vbscript
-Sub ClearVNextLicCache
-    sLocalAppData = oWShell.ExpandEnvironmentStrings("%localappdata%")
-    DeleteFolder sLocalAppData & "\Microsoft\Office\Licenses"
-End Sub
-```
-
-**Current State:**
-- `licensing.py` has SPP/OSPP cleanup - ✅
-- `ClearVNextLicCache` folder deletion - ✅ via RESIDUE_PATH_TEMPLATES
-- vNext registry cleanup - ✅ Done
-
-**Additional vNext paths from CMD (lines 716-733):**
-```batch
-reg.exe delete "%kO16%\Common\Identity" /f
-reg.exe delete "%kO16%\Registration" /f
-reg.exe delete "%kCTR%" /f /v SharedComputerLicensing
-reg.exe delete "%kCTR%" /f /v productkeys
-for /f %%# in ('reg.exe query "%kCTR%" /f *.EmailAddress') do reg.exe delete "%kCTR%" /f /v %%#
-for /f %%# in ('reg.exe query "%kCTR%" /f *.TenantId') do reg.exe delete "%kCTR%" /f /v %%#
-for /f %%# in ('reg.exe query "%kCTR%" /f *.DeviceBasedLicensing') do reg.exe delete "%kCTR%" /f /v %%#
-```
-
-**Required Implementation:**
-```python
-# registry_tools.py
-def cleanup_vnext_identity_registry(*, dry_run: bool = False) -> int:
-    """Remove vNext identity/device licensing registry values."""
-    patterns = ["*.EmailAddress", "*.TenantId", "*.DeviceBasedLicensing"]
-    # Query and delete matching values
-    ...
-```
+`ALL_OFFICE_PROCESSES` contains 40+ process names including:
+- Office apps: winword, excel, powerpnt, outlook, msaccess, etc.
+- Services: osppsvc, ose, ose64, clicktorunsvc
+- C2R: officec2rclient, officeclicktorun, integrator
+- Misc: teams, groove, onenote, lync, communicator
 
 ---
 
-#### 2.3 Full Process Kill List
+### 7. User Profile Registry Loading ✅
 
-**Source:** OfficeScrubber.cmd lines 438-474
-
-**CMD Process List (40+ processes):**
-```batch
-winword,excel,powerpnt,outlook,msaccess,mspub,onenote,onenotem,infopath,winproj,visio,
-lync,communicator,ucmapi,groove,msosync,msouc,msoia,OneNoteM,spd,osppsvc,teams,
-ose,ospd,officeC2Rclient,officeclicktorun,appvshnotify,integrator,firstrun,
-OfficeHubTaskHost,msoadfsb,msoidsvcm,msoidsvc,officeondemand,integratedoffice
-```
-
-**Current State:**
-- `constants.py` has `ALL_OFFICE_PROCESSES` - ✅ Most included
-- Some processes may be missing from the combined list
-
-**Verification Required:** Cross-check all 40+ processes are in the Python constants.
+**Status:** COMPLETED in `registry_tools.py`
+- `load_user_registry_hives()` - Load ntuser.dat for all profiles
+- `unload_user_registry_hives()` - Unload loaded hives
+- `get_user_profile_hive_paths()` - Discover profile paths
+- `get_loaded_user_hives()` - Track loaded SIDs
 
 ---
 
-#### 2.4 User Profile Registry Loading
+### 8. Taskband Registry Cleanup ✅
 
-**Source:** OffScrubC2R.vbs `LoadUsersReg` (lines 2189-2215)
-
-**VBS Implementation:**
-```vbscript
-Sub LoadUsersReg ()
-    For Each profilefolder in oFso.GetFolder(sProfilesDirectory).SubFolders
-        If oFso.FileExists(profilefolder.path & "\ntuser.dat") Then
-            oWShell.Run "reg load " & Chr(34) & "HKU\" & profilefolder.name & Chr(34) & " " & _
-                        Chr(34) & profilefolder.path & "\ntuser.dat" & Chr(34), 0, True
-        End If
-    Next
-End Sub
-```
-
-**Current State:** ❌ **Not implemented**
-
-**Impact:** Cannot clean per-user Office settings for all user profiles, only current user.
+**Status:** COMPLETED in `registry_tools.py`
+- `cleanup_taskband_registry()` - Clean Explorer taskband entries
+- Targets: `Favorites`, `FavoritesRemovedChanges`, `FavoritesChanges`
+- Loads and cleans for all user profiles
 
 ---
 
-#### 2.5 Taskband Cleanup
+### 9. OSE Service State Validation ✅
 
-**Source:** OffScrubC2R.vbs `ClearTaskBand` (lines 2128-2148)
-
-**VBS Implementation:**
-```vbscript
-Sub ClearTaskBand ()
-    sTaskBand = "Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\"
-    RegDeleteValue HKCU, sTaskBand, "Favorites", False
-    RegDeleteValue HKCU, sTaskBand, "FavoritesRemovedChanges", False
-    RegDeleteValue HKCU, sTaskBand, "FavoritesChanges", False
-    ' ... also for all SIDs in HKU
-End Sub
-```
-
-**Current State:** 
-- Shortcut unpinning exists in `fs_tools.py` - ✅
-- Taskband registry cleanup - ❌ **Missing**
+**Status:** COMPLETED in `tasks_services.py`
+- `validate_ose_service_state()` - Validate OSE service configuration
+- Checks: StartMode, StartName (LocalSystem)
+- Repairs disabled services before uninstall
 
 ---
 
-### 3. MEDIUM PRIORITY GAPS 🟡
+### 10. Msiexec Return Code Translation ✅
 
-#### 3.1 TUI Mode Widget Completeness
-
-**Source:** spec.md Section 8 (lines 170-280)
-
-**Spec TUI Requirements:**
-- [ ] Progress bars with percentage
-- [ ] Scrollable pane content
-- [ ] Tab switching (detection/plan/logs/settings)
-- [ ] Checkbox-style plan step toggles
-- [ ] Hotkey navigation (hjkl, arrows, 1-9)
-- [ ] Real-time log streaming during execution
-
-**Current State:**
-- `tui.py` (1,338 lines) - Basic TUI exists
-- Navigation and tabs partially implemented
-- Some spec widgets may be incomplete
+**Status:** COMPLETED in `constants.py`
+- `MSIEXEC_RETURN_CODES` - 50+ error code mappings
+- `translate_msiexec_return_code()` - Human-readable translation
+- Covers: SUCCESS, USER_EXIT, FAILURE, ALREADY_RUNNING, REBOOT_REQUIRED, etc.
 
 ---
 
-#### 3.2 OSE Service State Validation
+### 11. REG_MULTI_SZ Selective Cleanup ✅
 
-**Source:** OffScrubC2R.vbs lines 1175-1190
-
-**VBS Implementation:**
-```vbscript
-' check if OSE service is *installed, *not disabled, *running under System context.
-Set OseService = oWmiLocal.Execquery("Select * From Win32_Service Where Name like 'ose%'")
-For Each srvc in OseService
-    If (srvc.StartMode = "Disabled") AND (Not srvc.ChangeStartMode("Manual") = 0) Then
-        Log "Conflict detected: OSE service is disabled"
-    If (Not srvc.StartName = "LocalSystem") AND (srvc.Change( , , , , , , "LocalSystem", "")) Then
-        Log "Conflict detected: OSE service not running as LocalSystem"
-Next
-```
-
-**Current State:**
-- Service stop/delete exists - ✅
-- Service state validation/repair before uninstall - ❌ **Missing**
+**Status:** COMPLETED in `registry_tools.py`
+- `filter_multi_string_value()` - Filter entries from REG_MULTI_SZ
+- `cleanup_published_components()` - Clean WI published components
+- Parses multi-string, removes matching GUIDs, rewrites reduced array
 
 ---
 
-#### 3.3 Msiexec Return Value Translation
+### 12. Office GUID Detection ✅
 
-**Source:** OffScrubC2R.vbs `SetupRetVal` function (lines 3157-3207)
-
-**VBS Translation Table:**
-```vbscript
-Case 1602 : SetupRetVal = "INSTALL_USEREXIT"
-Case 1603 : SetupRetVal = "INSTALL_FAILURE"
-Case 1605 : SetupRetVal = "UNKNOWN_PRODUCT"
-Case 1618 : SetupRetVal = "INSTALL_ALREADY_RUNNING"
-Case 3010 : SetupRetVal = "SUCCESS_REBOOT_REQUIRED"
-' ... 50+ error codes
-```
-
-**Current State:** ❌ **Not implemented**
-
-**Required:** Add `MSIEXEC_RETURN_CODES` mapping to `constants.py`.
+**Status:** COMPLETED in `registry_tools.py`
+- `is_office_guid()` - Check if GUID is Office-related
+- `is_office_product_code()` - Validate product codes
+- `_decode_squished_guid()` - Convert squished to standard format
+- Matches VBS `InScope()` function logic
 
 ---
 
-#### 3.4 Windows Installer REG_MULTI_SZ Cleanup
+## Minor Gaps Remaining
 
-**Source:** OffScrubC2R.vbs lines 1696-1740 (Published Components cleanup)
+### 1. TUI Widget Audit (Low Priority)
 
-The VBS script handles REG_MULTI_SZ values specially - it parses the multi-string, removes matching entries, and rewrites the reduced array:
+**Status:** ~85% complete
 
-```vbscript
-If RegReadValue (hDefKey, sSubKeyName & item, name, sValue, "REG_MULTI_SZ") Then
-    arrMultiSzValues = Split(sValue, chr(13))
-    ' ... filter out matching GUIDs
-    oReg.SetMultiStringValue hDefKey, sSubKeyName & item, name, arrMultiSzNewValues
-End If
-```
+The TUI has all core functionality but could be enhanced:
+- [ ] More detailed progress bars with ETA
+- [ ] Collapsible log sections
+- [ ] Color-coded status indicators
 
-**Current State:**
-- `registry_tools.py` has basic REG_MULTI_SZ support - ✅
-- Selective entry removal within multi-string - ❌ **Needs verification**
+### 2. MyPy Strict Mode (Low Priority)
 
----
+**Status:** Clean with `--ignore-missing-imports`
 
-### 4. LOW PRIORITY GAPS 🟢
-
-#### 4.1 Logging Customizations
-
-**Source:** OffScrubC2R.vbs `CreateLog` (lines 2690-2720)
-
-**VBS Log Format:**
-```
-Microsoft Customer Support Services - Office C2R Removal Utility
-Version:    2.19
-64 bit OS:  True
-Removal start: 14:32:15
-OS Details: Windows 10 Pro, SP 0, Version: 10.0.19045...
-```
-
-**Current State:**
-- `logging_ext.py` has human + JSONL logging - ✅
-- Header format differs from VBS - Minor aesthetic gap
+Optional improvements:
+- [ ] Add type stubs for win32com (optional dependency)
+- [ ] Stricter type annotations in some modules
 
 ---
 
-#### 4.2 Named Pipe Progress (LogY/LogPipe)
+## Test Coverage
 
-**Source:** OffScrubC2R.vbs `LogY`/`LogPipe` (lines 3115-3135)
-
-**Current State:**
-- `logging_ext.py` has `set_progress_pipe()`, `report_progress()`, `ProgressStages` - ✅ **Implemented**
+| Test File | Tests | Coverage |
+|-----------|-------|----------|
+| test_registry_tools.py | 38 | is_office_guid, filter_multi_string, published components |
+| test_detect.py | 24 | Detection, temp ARP entries |
+| test_c2r_licensing.py | 12 | License cleanup, WMI |
+| test_cleanup_tools.py | 18 | Orchestration |
+| test_tasks_services.py | 15 | OSE validation, services |
+| test_uninstallers.py | 20 | ODT, integrator |
+| test_fs_tools.py | 25 | AppX removal, MSOCache |
+| test_tui.py | 28 | TUI navigation, rendering |
+| **Total** | **438** | - |
 
 ---
 
-#### 4.3 Return Value File Exchange
+## VBS Function Mapping
 
-**Source:** OffScrubC2R.vbs `SetRetVal`/`GetRetValFromFile` (lines 2600-2640)
-
-Used for elevated process return code communication.
-
-**Current State:**
-- `elevation.py` handles relaunch - ✅
-- Return value file exchange - Not needed (Python handles differently)
+| VBS Function | Python Implementation | Module |
+|--------------|----------------------|--------|
+| `InScope()` | `is_office_guid()` | registry_tools.py |
+| `ClearTaskBand()` | `cleanup_taskband_registry()` | registry_tools.py |
+| `LoadUsersReg()` | `load_user_registry_hives()` | registry_tools.py |
+| `ClearVNextLicCache()` | `clean_vnext_cache()` | licensing.py |
+| `CleanOSPP()` | `clean_ospp_licenses_wmi()` | licensing.py |
+| `RegWipeTypeLib()` | `cleanup_orphaned_typelibs()` | registry_tools.py |
+| `DeleteService()` | `delete_services()` | tasks_services.py |
+| `DelSchtasks()` | `delete_office_scheduled_tasks()` | tasks_services.py |
+| `SmartDeleteFolder()` | `remove_paths()` | fs_tools.py |
+| `ScheduleDeleteEx()` | `_queue_pending_file_rename()` | fs_tools.py |
+| `RestoreExplorer()` | `restart_explorer_if_needed()` | processes.py |
+| `SetupRetVal()` | `translate_msiexec_return_code()` | constants.py |
+| `GetCompressedGuid()` | `compress_guid()` | detect.py |
+| `GetExpandedGuid()` | `expand_guid()` | detect.py |
+| `UninstallOfficeC2R()` | `uninstall_via_odt()` | c2r_uninstall.py |
+| `CleanShortcuts()` | `cleanup_office_shortcuts()` | fs_tools.py |
 
 ---
 
 ## Spec.md Compliance Checklist
 
-### Required by Spec (Section 21)
+### CI Workflows (Section 21) ✅
 
-| Requirement | Status | Notes |
-|-------------|--------|-------|
-| format.yml (Black) | ❌ Monolithic | Needs split |
-| lint.yml (Ruff + MyPy) | ❌ Monolithic | Needs split |
-| test.yml (Pytest matrix) | ❌ Monolithic | Needs split |
-| build.yml (PyInstaller) | ❌ Monolithic | Needs split |
-| publish-pypi.yml | ❌ Missing | Not implemented |
-| release.yml (GitHub Release) | ❌ Missing | Not implemented |
-| requirements-dev.txt | ✅ Present | pyproject.toml dev deps |
-| PyInstaller --uac-admin | ✅ Configured | office-janitor.spec |
+| Requirement | Status | File |
+|-------------|--------|------|
+| format.yml (Black) | ✅ | `.github/workflows/format.yml` |
+| lint.yml (Ruff + MyPy) | ✅ | `.github/workflows/lint.yml` |
+| test.yml (Pytest matrix) | ✅ | `.github/workflows/test.yml` |
+| build.yml (PyInstaller) | ✅ | `.github/workflows/build.yml` |
+| publish-pypi.yml | ✅ | `.github/workflows/publish-pypi.yml` |
+| release.yml (GitHub Release) | ✅ | `.github/workflows/release.yml` |
 
-### Detection (Spec Section 6)
+### Detection (Section 6) ✅
 
 | Feature | Status |
 |---------|--------|
@@ -389,7 +242,7 @@ Used for elevated process return code communication.
 | Registry-based detection | ✅ |
 | Version disambiguation | ✅ |
 
-### Uninstall Orchestration (Spec Section 7)
+### Uninstall Orchestration (Section 7) ✅
 
 | Feature | Status |
 |---------|--------|
@@ -400,7 +253,7 @@ Used for elevated process return code communication.
 | Process termination | ✅ |
 | Force escalation | ✅ |
 
-### Cleanup (Spec Section 8)
+### Cleanup (Section 8) ✅
 
 | Feature | Status |
 |---------|--------|
@@ -410,51 +263,11 @@ Used for elevated process return code communication.
 | TypeLib cleanup | ✅ |
 | Shortcut cleanup | ✅ |
 | WI cache orphan cleanup | ✅ |
-| Scheduled task cleanup | ⚠️ Partial |
+| Scheduled task cleanup | ✅ |
 | Service cleanup | ✅ |
-| **AppX/UWP removal** | ❌ Missing |
+| AppX/UWP removal | ✅ |
 
 ---
 
-## Action Items Summary
-
-### Immediate (P0)
-
-1. **Implement UWP/AppX removal** (`uwp_uninstall.py` or `fs_tools.py`)
-2. **Add scheduled task names constant** (`constants.py`)
-3. **Split CI workflow files** per spec.md requirements
-
-### Short-term (P1)
-
-4. **Add license reset via integrator.exe** (`c2r_uninstall.py`)
-5. **Add vNext identity registry cleanup** (`registry_tools.py`)
-6. **Verify process kill list completeness** (`constants.py`)
-
-### Medium-term (P2)
-
-7. **Implement user profile registry loading** (`registry_tools.py`)
-8. **Add taskband registry cleanup** (`registry_tools.py`)
-9. **Add OSE service state validation** (`tasks_services.py`)
-10. **Add msiexec return code translation** (`constants.py`)
-
-### Long-term (P3)
-
-11. **TUI widget completeness audit** (`tui.py`)
-12. **REG_MULTI_SZ selective cleanup verification** (`registry_tools.py`)
-13. **Add publish-pypi.yml workflow**
-14. **Add release.yml workflow**
-
----
-
-## Test Coverage Requirements
-
-For each new feature, add tests to:
-- `tests/test_cleanup_tools.py` - UWP removal
-- `tests/test_tasks_services.py` - Scheduled tasks
-- `tests/test_c2r_licensing.py` - License reset
-- `tests/test_registry_tools.py` - vNext identity, taskband
-
----
-
-*Document Version: 2025-01-XX*
-*Based on 419 passing tests*
+*Document Version: 2025-01 (Updated)*
+*Based on 438 passing tests*

@@ -45,7 +45,7 @@ def run_cli(app_state: AppState) -> None:
     machine_logger = app_state.get("machine_logger")
     emit_event = app_state.get("emit_event")
     event_queue = app_state.get("event_queue")
-    input_func = cast(Callable[[str], str], app_state.get("input", input))
+    input_func: Callable[[str], str] = app_state.get("input", input)
 
     if getattr(args, "quiet", False) or getattr(args, "json", False):
         if human_logger:

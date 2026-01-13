@@ -123,11 +123,13 @@ _OFFICE_GUID_SUFFIX = "0000000FF1CE}"
 _OFFICE_C2R_SKU_FILTERS = frozenset(("007E", "008F", "008C", "24E1", "237A", "00DD"))
 
 # Known Office infrastructure GUIDs to always include
-_OFFICE_SPECIAL_GUIDS = frozenset((
-    "{6C1ADE97-24E1-4AE4-AEDD-86D3A209CE60}",  # MOSA x64
-    "{9520DDEB-237A-41DB-AA20-F2EF2360DCEB}",  # MOSA x86
-    "{9AC08E99-230B-47E8-9721-4577B7F124EA}",  # Office shared
-))
+_OFFICE_SPECIAL_GUIDS = frozenset(
+    (
+        "{6C1ADE97-24E1-4AE4-AEDD-86D3A209CE60}",  # MOSA x64
+        "{9520DDEB-237A-41DB-AA20-F2EF2360DCEB}",  # MOSA x86
+        "{9AC08E99-230B-47E8-9721-4577B7F124EA}",  # Office shared
+    )
+)
 
 
 def is_office_guid(guid: str) -> bool:
@@ -499,9 +501,7 @@ def filter_multi_string_value(
         # Write back filtered value or delete if empty
         if new_entries:
             # Write back the filtered list
-            for mask in _iter_access_masks(
-                getattr(winreg, "KEY_WRITE", 0x20006), view
-            ):
+            for mask in _iter_access_masks(getattr(winreg, "KEY_WRITE", 0x20006), view):
                 try:
                     handle = winreg.OpenKey(root, path, 0, mask)
                     try:
@@ -522,9 +522,7 @@ def filter_multi_string_value(
         else:
             # All entries removed, delete the value
             try:
-                for mask in _iter_access_masks(
-                    getattr(winreg, "KEY_WRITE", 0x20006), view
-                ):
+                for mask in _iter_access_masks(getattr(winreg, "KEY_WRITE", 0x20006), view):
                     try:
                         handle = winreg.OpenKey(root, path, 0, mask)
                         try:
@@ -587,9 +585,7 @@ def cleanup_published_components(
         return True  # Keep non-Office entries
 
     try:
-        component_keys = list(
-            iter_subkeys(_WINREG_HKCR, components_path, view=view)
-        )
+        component_keys = list(iter_subkeys(_WINREG_HKCR, components_path, view=view))
     except FileNotFoundError:
         logger.debug("Components key not found")
         return results
@@ -1551,6 +1547,7 @@ def cleanup_vnext_identity_registry(
 # ---------------------------------------------------------------------------
 # Based on OffScrubC2R.vbs LoadUsersReg subroutine (lines 2192-2214)
 
+
 def get_user_profiles_directory() -> Path | None:
     """!
     @brief Get the path to the Windows user profiles directory.
@@ -1563,6 +1560,7 @@ def get_user_profiles_directory() -> Path | None:
         if profiles_dir:
             # Expand environment variables
             import os
+
             expanded = os.path.expandvars(profiles_dir)
             return Path(expanded)
     except (FileNotFoundError, OSError):

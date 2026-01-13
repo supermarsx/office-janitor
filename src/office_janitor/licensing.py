@@ -365,7 +365,7 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
         finally:
             if script_path is not None:
                 try:
-                    script_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+                    script_path.unlink(missing_ok=True)
                 except OSError:  # pragma: no cover - best effort cleanup
                     pass
 
