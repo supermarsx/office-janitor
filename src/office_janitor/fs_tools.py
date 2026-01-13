@@ -912,9 +912,7 @@ def cleanup_msocache(
         human_logger.debug("No MSOCache entries found for filter: %s", product_filter)
         return 0
 
-    human_logger.info(
-        "Cleaning %d MSOCache entries for product: %s", len(products), product_filter
-    )
+    human_logger.info("Cleaning %d MSOCache entries for product: %s", len(products), product_filter)
 
     paths_to_remove = [Path(p["path"]) for p in products]
 
@@ -927,17 +925,298 @@ def cleanup_msocache(
     return len(paths_to_remove)
 
 
+# ---------------------------------------------------------------------------
+# Shortcut Unpinning (VBS parity: CleanShortcuts with unpin logic)
+# ---------------------------------------------------------------------------
+
+OFFICE_SHORTCUT_NAMES = (
+    "Microsoft Word",
+    "Microsoft Excel",
+    "Microsoft PowerPoint",
+    "Microsoft Outlook",
+    "Microsoft OneNote",
+    "Microsoft Access",
+    "Microsoft Publisher",
+    "Microsoft Visio",
+    "Microsoft Project",
+    "Word",
+    "Excel",
+    "PowerPoint",
+    "Outlook",
+    "OneNote",
+    "Access",
+    "Publisher",
+    "Visio",
+    "Project",
+)
+"""!
+@brief Known Office shortcut names for cleanup.
+"""
+
+
+def unpin_shortcut(shortcut_path: str | Path, *, dry_run: bool = False) -> bool:
+    """!
+    @brief Unpin a shortcut from taskbar/start menu using Shell verbs.
+    @details VBS equivalent: Unpin subroutine in OffScrub scripts.
+    Uses Windows Shell API via PowerShell to invoke shell verbs.
+    @param shortcut_path Path to the .lnk shortcut file.
+    @param dry_run If True, only log what would be done.
+    @returns True if unpin verb was found and executed, False otherwise.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    path = Path(shortcut_path)
+    if not path.exists():
+        human_logger.debug("Shortcut not found: %s", path)
+        return False
+
+    if dry_run:
+        human_logger.info("[DRY-RUN] Would unpin shortcut: %s", path)
+        return True
+
+    # Use PowerShell to invoke shell verbs (avoids pywin32 dependency)
+    # The verb name varies by Windows locale but contains "unpin" or "pin"
+    ps_script = f"""
+$shell = New-Object -ComObject Shell.Application
+$folder = $shell.Namespace("{path.parent}")
+$item = $folder.ParseName("{path.name}")
+if ($item) {{
+    foreach ($verb in $item.Verbs()) {{
+        $verbName = $verb.Name.ToLower()
+        if ($verbName -match "unpin|lösen|désépingler|rimuovi") {{
+            $verb.DoIt()
+            Write-Output "UNPINNED"
+            exit 0
+        }}
+    }}
+}}
+Write-Output "NO_VERB"
+"""
+
+    result = exec_utils.run_command(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+        event="unpin_shortcut",
+        timeout=30,
+    )
+
+    if result.returncode == 0 and "UNPINNED" in (result.stdout or ""):
+        human_logger.info("Unpinned shortcut: %s", path)
+        return True
+
+    human_logger.debug("No unpin verb found for: %s", path)
+    return False
+
+
+def find_office_shortcuts() -> list[Path]:
+    """!
+    @brief Find Office shortcuts in common locations.
+    @returns List of paths to Office .lnk files.
+    """
+    shortcuts: list[Path] = []
+    search_locations = [
+        Path(os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs")),
+        Path(os.path.expandvars(r"%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs")),
+        Path(os.path.expandvars(r"%APPDATA%\Microsoft\Internet Explorer\Quick Launch")),
+        Path(
+            os.path.expandvars(
+                r"%APPDATA%\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
+            )
+        ),
+        Path(
+            os.path.expandvars(
+                r"%APPDATA%\Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu"
+            )
+        ),
+    ]
+
+    for location in search_locations:
+        if not location.exists():
+            continue
+        try:
+            for item in location.rglob("*.lnk"):
+                # Check if shortcut name matches known Office patterns
+                name_lower = item.stem.lower()
+                if any(office_name.lower() in name_lower for office_name in OFFICE_SHORTCUT_NAMES):
+                    shortcuts.append(item)
+        except OSError:
+            continue
+
+    return shortcuts
+
+
+def cleanup_office_shortcuts(*, dry_run: bool = False) -> int:
+    """!
+    @brief Unpin and delete Office shortcuts.
+    @details VBS equivalent: CleanShortcuts in OffScrub scripts.
+    @param dry_run If True, only log what would be done.
+    @returns Number of shortcuts processed.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    shortcuts = find_office_shortcuts()
+    if not shortcuts:
+        human_logger.debug("No Office shortcuts found")
+        return 0
+
+    human_logger.info("Found %d Office shortcut(s) to clean", len(shortcuts))
+
+    for shortcut in shortcuts:
+        # First try to unpin
+        unpin_shortcut(shortcut, dry_run=dry_run)
+
+        # Then delete the shortcut file
+        if dry_run:
+            human_logger.info("[DRY-RUN] Would delete shortcut: %s", shortcut)
+        else:
+            try:
+                shortcut.unlink()
+                human_logger.info("Deleted shortcut: %s", shortcut)
+            except OSError as exc:
+                human_logger.debug("Failed to delete shortcut %s: %s", shortcut, exc)
+
+    return len(shortcuts)
+
+
+# ---------------------------------------------------------------------------
+# Windows Installer Cache Cleanup (Orphaned .msi files)
+# ---------------------------------------------------------------------------
+
+WI_CACHE_PATH = Path(r"C:\Windows\Installer")
+"""!
+@brief Windows Installer cache directory.
+"""
+
+
+def enumerate_wi_cache_files(
+    *, pattern: str = "*.msi", office_only: bool = True
+) -> list[dict[str, object]]:
+    """!
+    @brief Enumerate files in Windows Installer cache.
+    @param pattern Glob pattern for files to find.
+    @param office_only If True, only return files that look like Office installers.
+    @returns List of dicts with path, size, and metadata.
+    """
+    human_logger = logging_ext.get_human_logger()
+    results: list[dict[str, object]] = []
+
+    if not WI_CACHE_PATH.exists():
+        return results
+
+    try:
+        for item in WI_CACHE_PATH.glob(pattern):
+            if not item.is_file():
+                continue
+
+            # Check if it's an Office-related file by name pattern
+            name_lower = item.name.lower()
+            is_office = False
+
+            if office_only:
+                # Office MSI files often have these patterns
+                office_patterns = [
+                    "office",
+                    "proplus",
+                    "standard",
+                    "visio",
+                    "project",
+                    "o365",
+                    "90160000",  # Office 2016 product code prefix
+                    "90150000",  # Office 2013 product code prefix
+                    "90140000",  # Office 2010 product code prefix
+                ]
+                is_office = any(pat in name_lower for pat in office_patterns)
+
+                if not is_office:
+                    continue
+
+            try:
+                stat_info = item.stat()
+                results.append(
+                    {
+                        "path": str(item),
+                        "name": item.name,
+                        "size": stat_info.st_size,
+                        "modified": stat_info.st_mtime,
+                    }
+                )
+            except OSError:
+                continue
+
+    except OSError as exc:
+        human_logger.debug("Error enumerating WI cache: %s", exc)
+
+    return results
+
+
+def cleanup_wi_cache_orphans(
+    *,
+    dry_run: bool = False,
+    max_age_days: int | None = None,
+) -> int:
+    """!
+    @brief Remove orphaned Office .msi files from Windows Installer cache.
+    @details VBS equivalent: WICacheCleanup in OffScrub scripts.
+    Files are considered orphans if no corresponding product is installed.
+    @param dry_run If True, only report what would be removed.
+    @param max_age_days If set, only remove files older than this many days.
+    @returns Number of files removed.
+    """
+    import time
+
+    human_logger = logging_ext.get_human_logger()
+
+    files = enumerate_wi_cache_files(office_only=True)
+    if not files:
+        human_logger.debug("No Office files found in WI cache")
+        return 0
+
+    # Filter by age if requested
+    if max_age_days is not None:
+        cutoff = time.time() - (max_age_days * 86400)
+        files = [f for f in files if f.get("modified", 0) < cutoff]
+
+    if not files:
+        human_logger.debug("No matching WI cache files after age filter")
+        return 0
+
+    human_logger.info("Found %d orphaned file(s) in WI cache", len(files))
+
+    removed = 0
+    for file_info in files:
+        file_path = Path(str(file_info["path"]))
+
+        if dry_run:
+            human_logger.info("[DRY-RUN] Would remove: %s", file_path)
+            removed += 1
+            continue
+
+        try:
+            file_path.unlink()
+            human_logger.info("Removed WI cache file: %s", file_path)
+            removed += 1
+        except OSError as exc:
+            human_logger.debug("Failed to remove %s: %s", file_path, exc)
+
+    return removed
+
+
 __all__ = [
     "FILESYSTEM_BLACKLIST",
     "FILESYSTEM_WHITELIST",
     "MSOCACHE_PATHS",
     "MSOCACHE_PRODUCT_PATTERNS",
+    "OFFICE_SHORTCUT_NAMES",
+    "WI_CACHE_PATH",
     "backup_path",
     "cleanup_msocache",
+    "cleanup_office_shortcuts",
+    "cleanup_wi_cache_orphans",
     "discover_msocache_paths",
     "discover_paths",
     "enumerate_msocache_products",
+    "enumerate_wi_cache_files",
     "filter_whitelisted_paths",
+    "find_office_shortcuts",
     "get_default_backup_directory",
     "get_default_log_directory",
     "is_path_whitelisted",
@@ -946,4 +1225,5 @@ __all__ = [
     "normalize_windows_path",
     "remove_paths",
     "reset_acl",
+    "unpin_shortcut",
 ]

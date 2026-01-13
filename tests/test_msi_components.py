@@ -121,9 +121,7 @@ def mock_installer() -> MockInstaller:
     installer.add_component(
         "{11111111-1111-1111-1111-111111111111}",
         clients=["{90160000-000F-0000-1000-0000000FF1CE}"],
-        paths={
-            "{90160000-000F-0000-1000-0000000FF1CE}": r"C:\Program Files\Office\WINWORD.EXE"
-        },
+        paths={"{90160000-000F-0000-1000-0000000FF1CE}": r"C:\Program Files\Office\WINWORD.EXE"},
     )
     installer.add_component(
         "{22222222-2222-2222-2222-222222222222}",
@@ -131,9 +129,7 @@ def mock_installer() -> MockInstaller:
             "{90160000-000F-0000-1000-0000000FF1CE}",
             "{90160000-0011-0000-0000-0000000FF1CE}",
         ],
-        paths={
-            "{90160000-000F-0000-1000-0000000FF1CE}": "02:\\SOFTWARE\\Microsoft\\Office\\16.0"
-        },
+        paths={"{90160000-000F-0000-1000-0000000FF1CE}": "02:\\SOFTWARE\\Microsoft\\Office\\16.0"},
     )
 
     # Add orphaned component (no clients)
@@ -162,9 +158,7 @@ class TestEnumerateProducts:
     def test_product_info_populated(self, mock_installer: MockInstaller) -> None:
         """Product info should be populated."""
         products = list(enumerate_products(mock_installer, office_only=True))
-        office_pro = next(
-            (p for p in products if "Professional Plus" in p.name), None
-        )
+        office_pro = next((p for p in products if "Professional Plus" in p.name), None)
         assert office_pro is not None
         assert office_pro.name == "Microsoft Office Professional Plus 2016"
         assert office_pro.version == "16.0.4266.1001"
@@ -313,9 +307,7 @@ class TestMSIComponentScanner:
         assert len(result.products) == 1
         assert result.products[0].product_code == "{90160000-000F-0000-1000-0000000FF1CE}"
 
-    def test_write_scan_logs(
-        self, mock_installer: MockInstaller, tmp_path: Path
-    ) -> None:
+    def test_write_scan_logs(self, mock_installer: MockInstaller, tmp_path: Path) -> None:
         """Should write scan log files."""
         scanner = MSIComponentScanner()
         scanner._installer = mock_installer

@@ -829,3 +829,241 @@ def uninstall_via_odt(
         human_logger.warning("ODT removal exited with code: %d", result.returncode)
 
     return result.returncode
+
+
+# ---------------------------------------------------------------------------
+# Integrator.exe C2R unregistration
+# ---------------------------------------------------------------------------
+
+INTEGRATOR_EXE_CANDIDATES = (
+    Path(r"C:\Program Files\Common Files\Microsoft Shared\ClickToRun\integrator.exe"),
+    Path(r"C:\Program Files (x86)\Common Files\Microsoft Shared\ClickToRun\integrator.exe"),
+)
+"""!
+@brief Default locations for the C2R integrator executable.
+"""
+
+
+def find_integrator_exe() -> Path | None:
+    """!
+    @brief Locate the C2R integrator.exe binary.
+    @returns Path to integrator.exe or None if not found.
+    """
+    for candidate in INTEGRATOR_EXE_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def delete_c2r_manifests(
+    package_folder: Path | str,
+    *,
+    dry_run: bool = False,
+) -> list[Path]:
+    """!
+    @brief Delete C2RManifest*.xml files from a package's Integration folder.
+    @details VBS equivalent: del command for C2RManifest*.xml in OffScrubC2R.vbs.
+    @param package_folder Root folder of the C2R package (e.g., C:\\Program Files\\Microsoft Office).
+    @param dry_run If True, only log what would be deleted.
+    @returns List of manifest files deleted (or that would be deleted in dry-run).
+    """
+    import glob
+
+    human_logger = logging_ext.get_human_logger()
+    package_folder = Path(package_folder)
+
+    integration_path = package_folder / "root" / "Integration"
+    if not integration_path.exists():
+        human_logger.debug("Integration folder not found: %s", integration_path)
+        return []
+
+    manifest_pattern = str(integration_path / "C2RManifest*.xml")
+    manifest_files = [Path(p) for p in glob.glob(manifest_pattern)]
+
+    deleted: list[Path] = []
+    for manifest in manifest_files:
+        if dry_run:
+            human_logger.info("[DRY-RUN] Would delete manifest: %s", manifest)
+            deleted.append(manifest)
+        else:
+            try:
+                manifest.unlink()
+                human_logger.debug("Deleted manifest: %s", manifest)
+                deleted.append(manifest)
+            except OSError as exc:
+                human_logger.warning("Failed to delete manifest %s: %s", manifest, exc)
+
+    return deleted
+
+
+def unregister_c2r_integration(
+    package_folder: Path | str,
+    package_guid: str,
+    *,
+    dry_run: bool = False,
+    timeout: int = 120,
+) -> int:
+    """!
+    @brief Unregister C2R integration components via integrator.exe.
+    @details VBS equivalent: integrator.exe /U /Extension call in OffScrubC2R.vbs.
+        Steps:
+        1. Delete C2RManifest*.xml files from the Integration folder
+        2. Call integrator.exe /U /Extension with PackageRoot and PackageGUID
+    @param package_folder Root folder of the C2R package.
+    @param package_guid The PackageGUID for unregistration.
+    @param dry_run If True, only log what would be done.
+    @param timeout Timeout for integrator.exe command.
+    @returns Exit code from integrator.exe (0 = success, -1 if not found).
+    """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+    package_folder = Path(package_folder)
+
+    # Step 1: Delete manifest files
+    deleted_manifests = delete_c2r_manifests(package_folder, dry_run=dry_run)
+    if deleted_manifests:
+        human_logger.info("Deleted %d C2R manifest file(s)", len(deleted_manifests))
+
+    # Step 2: Find integrator.exe
+    integrator = find_integrator_exe()
+    if integrator is None:
+        # Also check within the package folder
+        pkg_integrator = (
+            package_folder
+            / "root"
+            / "vfs"
+            / "ProgramFilesCommonX64"
+            / "Microsoft Shared"
+            / "ClickToRun"
+            / "integrator.exe"
+        )
+        if pkg_integrator.exists():
+            integrator = pkg_integrator
+        else:
+            pkg_integrator = package_folder / "root" / "Integration" / "integrator.exe"
+            if pkg_integrator.exists():
+                integrator = pkg_integrator
+
+    if integrator is None:
+        human_logger.debug("Integrator.exe not found, skipping unregistration")
+        return -1
+
+    # Step 3: Build and execute unregister command
+    # Format: integrator.exe /U /Extension PackageRoot=<path> PackageGUID=<guid>
+    command = [
+        str(integrator),
+        "/U",
+        "/Extension",
+        f"PackageRoot={package_folder}",
+        f"PackageGUID={package_guid}",
+    ]
+
+    if dry_run:
+        human_logger.info("[DRY-RUN] Would execute: %s", " ".join(command))
+        return 0
+
+    human_logger.info("Unregistering C2R integration for: %s", package_folder)
+    machine_logger.info(
+        "c2r_unregister_start",
+        extra={
+            "event": "c2r_unregister_start",
+            "package_folder": str(package_folder),
+            "package_guid": package_guid,
+        },
+    )
+
+    result = command_runner.run_command(
+        command,
+        timeout=timeout,
+        event="c2r_unregister",
+    )
+
+    machine_logger.info(
+        "c2r_unregister_complete",
+        extra={
+            "event": "c2r_unregister_complete",
+            "exit_code": result.returncode,
+        },
+    )
+
+    if result.returncode == 0:
+        human_logger.debug("C2R unregistration completed successfully")
+    else:
+        human_logger.warning("C2R unregistration exited with code: %d", result.returncode)
+
+    return result.returncode
+
+
+def find_c2r_package_guids() -> list[tuple[Path, str]]:
+    """!
+    @brief Find installed C2R package folders and their GUIDs from registry.
+    @details Scans HKLM\\SOFTWARE\\Microsoft\\Office\\ClickToRun\\Configuration for
+        PackageGUID and installation path information.
+    @returns List of (package_folder, package_guid) tuples.
+    """
+    import winreg
+
+    human_logger = logging_ext.get_human_logger()
+    results: list[tuple[Path, str]] = []
+
+    config_keys = [
+        r"SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
+        r"SOFTWARE\WOW6432Node\Microsoft\Office\ClickToRun\Configuration",
+    ]
+
+    for key_path in config_keys:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0, winreg.KEY_READ) as key:
+                try:
+                    package_guid = winreg.QueryValueEx(key, "PackageGUID")[0]
+                except FileNotFoundError:
+                    continue
+
+                # Try to get install path
+                install_path = None
+                for value_name in ("InstallationPath", "ClientFolder"):
+                    try:
+                        install_path = winreg.QueryValueEx(key, value_name)[0]
+                        break
+                    except FileNotFoundError:
+                        continue
+
+                if install_path and package_guid:
+                    results.append((Path(install_path), package_guid))
+                    human_logger.debug("Found C2R package: %s (%s)", install_path, package_guid)
+
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            human_logger.debug("Failed to read %s: %s", key_path, exc)
+            continue
+
+    return results
+
+
+def unregister_all_c2r_integrations(*, dry_run: bool = False) -> int:
+    """!
+    @brief Unregister all found C2R integration components.
+    @details Discovers all C2R packages from registry and unregisters each.
+    @param dry_run If True, only log what would be done.
+    @returns Number of packages successfully unregistered.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    packages = find_c2r_package_guids()
+    if not packages:
+        human_logger.debug("No C2R packages found for unregistration")
+        return 0
+
+    success_count = 0
+    for package_folder, package_guid in packages:
+        result = unregister_c2r_integration(
+            package_folder,
+            package_guid,
+            dry_run=dry_run,
+        )
+        if result == 0:
+            success_count += 1
+
+    human_logger.info("Unregistered %d of %d C2R packages", success_count, len(packages))
+    return success_count

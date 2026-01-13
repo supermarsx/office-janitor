@@ -70,9 +70,7 @@ class MsiReinstallMode(IntEnum):
 
 
 # Office product code suffix pattern - ends with 0000000FF1CE
-_OFFICE_SUFFIX_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"0000000FF1CE\}?$", re.IGNORECASE
-)
+_OFFICE_SUFFIX_PATTERN: Final[re.Pattern[str]] = re.compile(r"0000000FF1CE\}?$", re.IGNORECASE)
 
 
 @dataclass
@@ -178,9 +176,7 @@ def _create_installer() -> Any:
         raise WindowsInstallerError(f"Failed to create Windows Installer object: {e}") from e
 
 
-def _safe_product_info(
-    installer: Any, product_code: str, property_name: str
-) -> str:
+def _safe_product_info(installer: Any, product_code: str, property_name: str) -> str:
     """!
     @brief Safely retrieve a product property from Windows Installer.
     @param installer WI COM object.
@@ -238,12 +234,8 @@ def enumerate_products(
             product_code=product_code,
             name=_safe_product_info(installer, product_code, "ProductName"),
             version=_safe_product_info(installer, product_code, "VersionString"),
-            install_location=_safe_product_info(
-                installer, product_code, "InstallLocation"
-            ),
-            install_source=_safe_product_info(
-                installer, product_code, "InstallSource"
-            ),
+            install_location=_safe_product_info(installer, product_code, "InstallLocation"),
+            install_source=_safe_product_info(installer, product_code, "InstallSource"),
             package_code=_safe_product_info(installer, product_code, "PackageCode"),
             is_office=is_office,
         )
@@ -284,9 +276,7 @@ def enumerate_components(installer: Any | None = None) -> Iterator[str]:
         _LOGGER.warning("Failed to enumerate components: %s", e)
 
 
-def get_component_clients(
-    component_id: str, installer: Any | None = None
-) -> list[str]:
+def get_component_clients(component_id: str, installer: Any | None = None) -> list[str]:
     """!
     @brief Get all products that own a specific component.
     @param component_id Component GUID.
@@ -316,9 +306,7 @@ def get_component_clients(
     return clients
 
 
-def get_component_path(
-    product_code: str, component_id: str, installer: Any | None = None
-) -> str:
+def get_component_path(product_code: str, component_id: str, installer: Any | None = None) -> str:
     """!
     @brief Get the key path for a component within a product context.
     @param product_code Product GUID providing context.
@@ -466,13 +454,13 @@ class MSIComponentScanner:
 
             if not office_clients:
                 # Check if it matches Office pattern even without known client
-                if office_only and not any(
-                    _OFFICE_SUFFIX_PATTERN.search(c) for c in clients
-                ):
+                if office_only and not any(_OFFICE_SUFFIX_PATTERN.search(c) for c in clients):
                     continue
 
             # Get component info using first available client
-            client_for_path = office_clients[0] if office_clients else (clients[0] if clients else "")
+            client_for_path = (
+                office_clients[0] if office_clients else (clients[0] if clients else "")
+            )
 
             key_path = ""
             if client_for_path:

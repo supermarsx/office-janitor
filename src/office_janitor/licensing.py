@@ -641,7 +641,9 @@ def clean_activation_tokens(*, dry_run: bool = False) -> int:
 
     token_paths = [
         Path(os.path.expandvars(r"%PROGRAMDATA%\Microsoft\OfficeSoftwareProtectionPlatform")),
-        Path(os.path.expandvars(r"%PROGRAMDATA%\Microsoft\OfficeSoftwareProtectionPlatform\Backup")),
+        Path(
+            os.path.expandvars(r"%PROGRAMDATA%\Microsoft\OfficeSoftwareProtectionPlatform\Backup")
+        ),
         Path(os.path.expandvars(r"%ALLUSERSPROFILE%\Microsoft\OfficeSoftwareProtectionPlatform")),
     ]
 

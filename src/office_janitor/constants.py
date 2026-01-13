@@ -9,6 +9,7 @@ artifacts.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from enum import IntFlag
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:  # pragma: no cover - type checking only
@@ -40,6 +41,47 @@ REGISTRY_ROOTS: dict[str, int] = {
     "HKCR": HKCR,
     "HKU": HKU,
 }
+
+
+# ---------------------------------------------------------------------------
+# Error Bitmask System (VBS-compatible return codes)
+# ---------------------------------------------------------------------------
+
+
+class ScrubErrorCode(IntFlag):
+    """!
+    @brief Bitmask error codes for scrub operations.
+    @details VBS-compatible return codes from OffScrub*.vbs scripts.
+        Multiple flags can be combined to indicate multiple error conditions.
+    """
+
+    SUCCESS = 0
+    """No errors."""
+    FAIL = 1
+    """General failure."""
+    REBOOT_REQUIRED = 2
+    """Reboot needed to complete removal."""
+    USER_CANCEL = 4
+    """User cancelled the operation."""
+    MSIEXEC_FAILED = 8
+    """MSI uninstall stage failed."""
+    CLEANUP_FAILED = 16
+    """Post-uninstall cleanup failed."""
+    INCOMPLETE = 32
+    """Pending file renames require reboot."""
+    RETRY_FAILED = 64
+    """Second attempt (DCAF) also failed."""
+    ELEVATION_DECLINED = 128
+    """User declined elevation prompt."""
+    ELEVATION_ERROR = 256
+    """UAC elevation failed."""
+    INIT_ERROR = 512
+    """Script initialization failed."""
+    RELAUNCH_ERROR = 1024
+    """Elevated relaunch failed."""
+    UNKNOWN = 2048
+    """Unknown/unexpected error."""
+
 
 SUPPORTED_VERSIONS = (
     "2003",
@@ -339,21 +381,57 @@ _SHELL_INTEGRATION_PATHS: list[tuple[int, str]] = [
     (HKCU, r"SOFTWARE\Classes\osf"),
     (HKCU, r"SOFTWARE\Classes\osf-roaming.16"),
     # Shell icon overlays (OneDrive, Groove sync overlays)
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveSyncedOverlay"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveSyncingOverlay"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDrivePausedOverlay"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveWarningOverlay"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveErrorOverlay"),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveSyncedOverlay",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveSyncingOverlay",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDrivePausedOverlay",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveWarningOverlay",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveErrorOverlay",
+    ),
     # Explorer namespace extensions
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"),
-    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{018D5C66-4533-4307-9B53-224DE2ED1FE6}",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{018D5C66-4533-4307-9B53-224DE2ED1FE6}",
+    ),
     # Browser helper objects
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}"),
-    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}"),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}",
+    ),
     # Shell approved extensions
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{42042206-2D85-11D3-8CFF-005004838597}"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{993BE281-6695-4BA5-8A2A-7AACBFAAB69E}"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{0006F045-0000-0000-C000-000000000046}"),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{42042206-2D85-11D3-8CFF-005004838597}",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{993BE281-6695-4BA5-8A2A-7AACBFAAB69E}",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{0006F045-0000-0000-C000-000000000046}",
+    ),
     # Context menu handlers
     (HKLM, r"SOFTWARE\Classes\*\shellex\ContextMenuHandlers\GrooveShellExtensions"),
     (HKLM, r"SOFTWARE\Classes\Directory\shellex\ContextMenuHandlers\GrooveShellExtensions"),
@@ -432,6 +510,19 @@ _SERVICE_REGISTRY_PATHS: list[tuple[int, str]] = [
     (HKLM, r"SYSTEM\CurrentControlSet\Services\osppobject"),
 ]
 # Services are not deleted via registry - handled by tasks_services module
+
+# Office service names for deletion (from VBS DeleteService)
+OFFICE_SERVICES_TO_DELETE: tuple[str, ...] = (
+    "ClickToRunSvc",  # C2R main service
+    "OfficeSvc",  # Office service
+    "ose",  # Office Source Engine (32-bit)
+    "ose64",  # Office Source Engine (64-bit)
+    "osppsvc",  # Office Software Protection Platform
+)
+"""!
+@brief Service names to stop and delete during Office removal.
+@details Based on VBS DeleteService calls in OffScrubC2R.vbs.
+"""
 
 # C2R-specific residue paths (from OffScrubC2R.vbs RegWipe)
 _C2R_REGISTRY_RESIDUE: list[tuple[int, str]] = [

@@ -303,9 +303,7 @@ class TestDiscoverMsocachePaths:
     def test_returns_empty_when_no_cache(self, monkeypatch) -> None:
         """Should return empty list when no MSOCache exists."""
         # Patch Path.exists to return False for all
-        monkeypatch.setattr(
-            pathlib.Path, "exists", lambda self: False
-        )
+        monkeypatch.setattr(pathlib.Path, "exists", lambda self: False)
         result = fs_tools.discover_msocache_paths()
         assert result == []
 

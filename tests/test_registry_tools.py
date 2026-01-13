@@ -510,9 +510,11 @@ class TestShellIntegrationCleanup:
 
         def fake_iter_values(hive, path):
             if "Approved" in path:
-                return iter([
-                    ("{12345678-1234-1234-1234-123456789ABC}", "Office Component"),
-                ])
+                return iter(
+                    [
+                        ("{12345678-1234-1234-1234-123456789ABC}", "Office Component"),
+                    ]
+                )
             return iter([])
 
         def fake_key_exists(path):

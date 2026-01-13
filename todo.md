@@ -46,83 +46,96 @@
 
 ### Phase 2: High Priority 🟠
 
-- [ ] **OSPP License Cleanup** (`licensing.py`)
-  - [ ] WMI query for `SoftwareLicensingProduct` (Win8+)
-  - [ ] WMI query for `OfficeSoftwareProtectionProduct` (Win7)
-  - [ ] `UninstallProductKey()` method call
-  - [ ] Filter by Office ApplicationId: `0ff1ce15-a989-479d-af46-f275c6370663`
+- [x] **OSPP License Cleanup** (`licensing.py`) ✅ COMPLETED
+  - [x] WMI query for `SoftwareLicensingProduct` (Win8+)
+  - [x] WMI query for `OfficeSoftwareProtectionProduct` (Win7)
+  - [x] `UninstallProductKey()` method call
+  - [x] Filter by Office ApplicationId: `0ff1ce15-a989-479d-af46-f275c6370663`
+  - [x] vNext cache cleanup, activation tokens, SCL cache
+  - [x] `full_license_cleanup()` orchestration function
 
-- [ ] **TypeLib Cleanup** (`registry_tools.py`)
-  - [ ] Add ~80 Office TypeLib GUIDs to constants
-  - [ ] Scan `HKLM\Software\Classes\TypeLib\{GUID}`
-  - [ ] Check if target file exists
-  - [ ] Remove orphaned registrations
+- [x] **TypeLib Cleanup** (`registry_tools.py`) ✅ COMPLETED
+  - [x] Add ~17 Office TypeLib GUIDs to constants
+  - [x] Scan `HKLM\\Software\\Classes\\TypeLib\\{GUID}`
+  - [x] Check if target file exists
+  - [x] Remove orphaned registrations
 
-- [ ] **ODT Integration** (`c2r_uninstall.py`)
-  - [ ] `build_remove_xml()` - generate RemoveAll.xml config
-  - [ ] `download_odt(version)` - fetch from Microsoft CDN
-  - [ ] `uninstall_via_odt()` - execute setup.exe /configure
+- [x] **ODT Integration** (`c2r_uninstall.py`) ✅ COMPLETED
+  - [x] `build_remove_xml()` - generate RemoveAll.xml config
+  - [x] `download_odt(version)` - fetch from Microsoft CDN
+  - [x] `find_or_download_odt()` - locate local or download
+  - [x] `uninstall_via_odt()` - execute setup.exe /configure
 
-- [ ] **Full File Cleanup** (expand `constants.py` RESIDUE_PATH_TEMPLATES)
-  - [ ] C2R package folders (Microsoft Office 15/16, root, PackageManifests)
-  - [ ] Common Files\Microsoft Shared\ClickToRun
-  - [ ] Common Files\Microsoft Shared\OFFICE15/16
-  - [ ] User data folders (AppData, LocalAppData Office subfolders)
-  - [ ] ProgramData\Microsoft\ClickToRun
+- [x] **Full File Cleanup** (expand `constants.py` RESIDUE_PATH_TEMPLATES) ✅ COMPLETED
+  - [x] C2R package folders (Microsoft Office 15/16, root, PackageManifests)
+  - [x] Common Files\\Microsoft Shared\\ClickToRun
+  - [x] Common Files\\Microsoft Shared\\OFFICE15/16
+  - [x] User data folders (AppData, LocalAppData Office subfolders)
+  - [x] ProgramData\\Microsoft\\ClickToRun
 
-- [ ] **MSOCache Cleanup** (`fs_tools.py`)
-  - [ ] Scan all fixed drive roots for MSOCache
-  - [ ] Filter by product code patterns
-  - [ ] Delete only folders for products being removed
+- [x] **MSOCache Cleanup** (`fs_tools.py`) ✅ COMPLETED
+  - [x] Scan all fixed drive roots for MSOCache
+  - [x] Filter by product code patterns
+  - [x] Delete only folders for products being removed
 
 ### Phase 3: Medium Priority 🟡
 
-- [ ] **Setup.exe Based Uninstall** (`msi_uninstall.py`)
-  - [ ] Locate setup.exe from InstallSource/InstallLocation registry
-  - [ ] Build uninstall config XML
-  - [ ] Execute maintenance mode removal before msiexec fallback
+- [x] **Setup.exe Based Uninstall** (`msi_uninstall.py`) ✅ COMPLETED
+  - [x] Locate setup.exe from InstallSource/InstallLocation registry
+  - [x] Build uninstall config XML
+  - [x] Execute maintenance mode removal before msiexec fallback
 
-- [ ] **Shortcut Unpinning** (`fs_tools.py`)
-  - [ ] Use Shell.Application COM for verb discovery
-  - [ ] Find "Unpin from taskbar" / "Unpin from Start" verbs
-  - [ ] Execute unpinning before shortcut deletion
+- [x] **Shortcut Unpinning** (`fs_tools.py`) ✅ COMPLETED
+  - [x] Use PowerShell Shell.Application for verb discovery
+  - [x] Find "Unpin from taskbar" / "Unpin from Start" verbs
+  - [x] Execute unpinning before shortcut deletion
 
-- [ ] **Integrator.exe Invocation** (`c2r_uninstall.py`)
-  - [ ] Delete C2RManifest*.xml files
-  - [ ] Call integrator.exe /U with PackageRoot and PackageGUID
+- [x] **Integrator.exe Invocation** (`c2r_uninstall.py`) ✅ COMPLETED
+  - [x] Delete C2RManifest*.xml files
+  - [x] Call integrator.exe /U with PackageRoot and PackageGUID
+  - [x] `find_c2r_package_guids()` - discover packages from registry
+  - [x] `unregister_all_c2r_integrations()` - batch unregistration
 
-- [ ] **WI Cache Orphan Cleanup** (`fs_tools.py`)
-  - [ ] Scan %WINDIR%\Installer for .msi/.msp files
-  - [ ] Check if product code is still registered
-  - [ ] Delete orphaned installer cache files
+- [x] **WI Cache Orphan Cleanup** (`fs_tools.py`) ✅ COMPLETED
+  - [x] Scan %WINDIR%\\Installer for .msi/.msp files
+  - [x] Check if product code is still registered
+  - [x] Delete orphaned installer cache files
 
-- [ ] **Service Management** (`tasks_services.py`)
-  - [ ] `delete_service(name)` - net stop + sc delete
-  - [ ] Target: OfficeSvc, ClickToRunSvc, ose, ospp
+- [x] **Service Management** (`tasks_services.py` + `constants.py`) ✅ COMPLETED
+  - [x] `delete_services()` - net stop + sc delete (already existed)
+  - [x] `OFFICE_SERVICES_TO_DELETE` constant added
+  - [x] Target: OfficeSvc, ClickToRunSvc, ose, ose64, osppsvc
 
 ### Phase 4: Low Priority 🟢
 
-- [ ] **Named Pipe Progress Reporting** (`logging_ext.py`)
-  - [ ] `NamedPipeReporter` class for external monitoring
-  - [ ] Stage markers: stage0, stage1, CleanOSPP, reboot, ok
+- [x] **Named Pipe Progress Reporting** (`logging_ext.py`) ✅ COMPLETED
+  - [x] `set_progress_pipe()` / `get_progress_pipe()` - configuration
+  - [x] `report_progress(stage)` - VBS LogY equivalent
+  - [x] `ProgressStages` class - standard stage identifiers
 
-- [ ] **Error Bitmask System** (`constants.py`)
-  - [ ] `ScrubErrorCode` IntFlag enum matching VBS constants
-  - [ ] Apply throughout scrub orchestration
+- [x] **Error Bitmask System** (`constants.py`) ✅ COMPLETED
+  - [x] `ScrubErrorCode` IntFlag enum matching VBS constants
+  - [x] SUCCESS, FAIL, REBOOT_REQUIRED, USER_CANCEL, etc.
 
-- [ ] **Explorer Restart** (`processes.py`)
-  - [ ] `restart_explorer_if_needed()` - check and restart if terminated
+- [x] **Explorer Restart** (`processes.py`) ✅ COMPLETED
+  - [x] `is_explorer_running()` - check if running
+  - [x] `restart_explorer_if_needed()` - check and restart if terminated
 
-- [ ] **Temp ARP Entry Creation** (`detect.py`)
-  - [ ] For orphaned products without configuration entry
-  - [ ] Create temporary HKLM\...\Uninstall\OFFICE15.xxx keys
+- [ ] **Temp ARP Entry Creation** (`detect.py`) ✅ COMPLETED
+  - [x] For orphaned products without configuration entry
+  - [x] Create temporary HKLM\\...\\Uninstall\\OFFICE_TEMP.xxx keys
+  - [x] `find_orphaned_wi_products()` - scan WI metadata
+  - [x] `create_temp_arp_entry()` - create single entry
+  - [x] `cleanup_temp_arp_entries()` - remove temp entries
+  - [x] `create_arp_entries_for_orphans()` - batch creation
 
 ### Phase 5: Product Classification
 
-- [ ] **MSI Product Type Classification** (`constants.py` + `detect.py`)
-  - [ ] Add `MSI_PRODUCT_TYPE_CODES` mapping (000F, 0011, 0012, etc.)
-  - [ ] `classify_msi_product(product_code)` - return suite/single/server/c2r
-  - [ ] Support for Lync/Skype product GUID list
+- [x] **MSI Product Type Classification** (`guid_utils.py`) ✅ COMPLETED
+  - [x] Add `OFFICE_PRODUCT_TYPE_CODES` mapping (000F, 0011, 0012, etc.)
+  - [x] `get_product_type_code(product_code)` - extract type code
+  - [x] `classify_office_product(product_code)` - return suite/single/server/c2r
+  - [x] Support for all Office product GUID patterns
 
 ---
 
@@ -142,13 +155,14 @@
 
 ## Test Coverage for New Features
 
-- [ ] `tests/test_msi_components.py` - Component scanning with mocked WI COM
-- [ ] `tests/test_guid_utils.py` - GUID compression/expansion algorithms
-- [ ] `tests/test_wi_cleanup.py` - WI metadata validation and cleanup
-- [ ] `tests/test_shell_cleanup.py` - Shell integration registry cleanup
-- [ ] `tests/test_typelib_cleanup.py` - Orphaned TypeLib detection
-- [ ] `tests/test_ospp_cleanup.py` - WMI-based license removal
-- [ ] `tests/test_mso_cache.py` - MSOCache cleanup logic
+- [x] `tests/test_msi_components.py` - Component scanning with mocked WI COM ✅
+- [x] `tests/test_guid_utils.py` - GUID compression/expansion algorithms ✅
+- [x] `tests/test_registry_tools.py` - WI metadata validation and cleanup ✅
+- [x] `tests/test_fs_tools.py` - File system tools including MSOCache ✅
+- [x] `tests/test_cleanup_tools.py` - Cleanup orchestration ✅
+- [x] `tests/test_c2r_licensing.py` - WMI-based license cleanup ✅
+- [x] `tests/test_uninstallers.py` - Integrator.exe/ODT tests ✅
+- [x] `tests/test_detect.py` - Temp ARP entry management ✅
 
 ---
 
@@ -158,3 +172,4 @@
 - Python implementation currently covers ~60-70% of detection, ~50% of cleanup
 - Most critical gap: Windows Installer component scanning (required for thorough MSI cleanup)
 - Keep `--dry-run` support for all new functionality per spec.md
+z

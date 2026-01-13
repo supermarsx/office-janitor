@@ -557,3 +557,93 @@ def _merge_mapping(existing: object, defaults: Mapping[str, object | None]) -> d
             continue
         result.setdefault(key, value)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Named Pipe Progress Reporting (VBS LogY equivalent)
+# ---------------------------------------------------------------------------
+
+_PROGRESS_PIPE_PATH: str | None = None
+"""!
+@brief Path to named pipe for progress reporting.
+@details When set, progress stages are written to this pipe for external monitoring.
+"""
+
+
+def set_progress_pipe(pipe_path: str | None) -> None:
+    """!
+    @brief Set the named pipe path for progress reporting.
+    @details VBS equivalent: pipename variable in OffScrub*.vbs.
+    @param pipe_path Path to named pipe, or None to disable.
+    """
+    global _PROGRESS_PIPE_PATH
+    _PROGRESS_PIPE_PATH = pipe_path
+
+
+def get_progress_pipe() -> str | None:
+    """!
+    @brief Get the current named pipe path.
+    @returns Current pipe path or None if not set.
+    """
+    return _PROGRESS_PIPE_PATH
+
+
+def report_progress(stage: str) -> bool:
+    """!
+    @brief Report progress stage via named pipe.
+    @details VBS equivalent: LogY subroutine in OffScrub*.vbs.
+        Writes a stage identifier to the configured named pipe for external
+        monitoring tools to track progress.
+
+        Common stages (per VBS scripts):
+        - "stage0": Initialization
+        - "stage1": MSI uninstall phase
+        - "stage2": Cleanup phase
+        - "CleanOSPP": License cleanup
+        - "reboot": Reboot required
+        - "ok": Completed successfully
+
+    @param stage Progress stage identifier to report.
+    @returns True if successfully written, False otherwise.
+    """
+    if not _PROGRESS_PIPE_PATH:
+        return False
+
+    human_logger = get_human_logger()
+
+    try:
+        # Windows named pipes are accessed as files
+        with open(_PROGRESS_PIPE_PATH, "w", encoding="utf-8") as pipe:
+            pipe.write(f"{stage}\n")
+            pipe.flush()
+        human_logger.debug("Progress reported: %s", stage)
+        return True
+    except OSError as exc:
+        human_logger.debug("Failed to report progress '%s': %s", stage, exc)
+        return False
+
+
+class ProgressStages:
+    """!
+    @brief Standard progress stage identifiers.
+    @details Constants for VBS-compatible progress stage names.
+    """
+
+    INIT = "stage0"
+    """Initialization stage."""
+    MSI_UNINSTALL = "stage1"
+    """MSI uninstall phase."""
+    CLEANUP = "stage2"
+    """Post-uninstall cleanup phase."""
+    LICENSE_CLEANUP = "CleanOSPP"
+    """License cleanup stage."""
+    REGISTRY_CLEANUP = "RegClean"
+    """Registry cleanup stage."""
+    FILE_CLEANUP = "FileClean"
+    """File cleanup stage."""
+    REBOOT_REQUIRED = "reboot"
+    """Reboot is required."""
+    COMPLETED = "ok"
+    """Operation completed successfully."""
+    FAILED = "fail"
+    """Operation failed."""

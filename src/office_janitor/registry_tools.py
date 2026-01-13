@@ -128,9 +128,7 @@ def _ensure_winreg() -> None:
     """
 
     if winreg is None:  # pragma: no cover - simplifies non-Windows test runs.
-        raise FileNotFoundError(
-            "Windows registry APIs are unavailable on this platform"
-        )
+        raise FileNotFoundError("Windows registry APIs are unavailable on this platform")
 
 
 def _normalize_registry_key(key: str) -> str:
@@ -187,9 +185,7 @@ def _validate_registry_keys(keys: Iterable[str]) -> list[str]:
     for key in keys:
         canonical = _normalize_registry_key(key)
         if not _is_registry_path_allowed(canonical):
-            raise RegistryError(
-                f"Refusing to operate on non-whitelisted registry key: {key}"
-            )
+            raise RegistryError(f"Refusing to operate on non-whitelisted registry key: {key}")
         canonical_keys.append(canonical)
     return canonical_keys
 
@@ -296,9 +292,7 @@ def iter_subkeys(root: int, path: str, *, view: str | None = None) -> Iterator[s
         raise FileNotFoundError(path)
 
 
-def iter_values(
-    root: int, path: str, *, view: str | None = None
-) -> Iterator[tuple[str, Any]]:
+def iter_values(root: int, path: str, *, view: str | None = None) -> Iterator[tuple[str, Any]]:
     """!
     @brief Yield value name/value pairs for ``root``/``path`` across WOW64 views.
     """
@@ -842,7 +836,9 @@ def cleanup_orphaned_typelibs(
 
         # Check each version subkey
         try:
-            versions = list(iter_subkeys(_WINREG_HKLM, f"SOFTWARE\\Classes\\TypeLib\\{typelib_guid}"))
+            versions = list(
+                iter_subkeys(_WINREG_HKLM, f"SOFTWARE\\Classes\\TypeLib\\{typelib_guid}")
+            )
         except (FileNotFoundError, OSError):
             continue
 
@@ -1007,9 +1003,7 @@ def cleanup_protocol_handlers(
                                 if protocol not in removed:
                                     removed.append(protocol)
                             except Exception as e:
-                                logger.warning(
-                                    "Failed to delete protocol %s: %s", protocol, e
-                                )
+                                logger.warning("Failed to delete protocol %s: %s", protocol, e)
                         else:
                             if protocol not in removed:
                                 removed.append(protocol)

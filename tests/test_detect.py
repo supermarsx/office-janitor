@@ -273,9 +273,9 @@ class TestRegistryDetectionScenarios:
         assert "msoffice_root_x86" in labels
         assert "office16_x86" in labels
         # Verify labels come from either INSTALL_ROOT_TEMPLATES or RESIDUE_PATH_TEMPLATES
-        all_known_labels = {
-            t["label"] for t in constants.INSTALL_ROOT_TEMPLATES
-        } | {t["label"] for t in constants.RESIDUE_PATH_TEMPLATES}
+        all_known_labels = {t["label"] for t in constants.INSTALL_ROOT_TEMPLATES} | {
+            t["label"] for t in constants.RESIDUE_PATH_TEMPLATES
+        }
         assert labels.issubset(all_known_labels)
         assert {entry.get("architecture", "x86") for entry in inventory["filesystem"]} >= {"x86"}
         assert inventory["processes"] == [{"name": "winword.exe", "pid": "1234"}]
@@ -443,3 +443,126 @@ def test_detect_c2r_installations_with_registry(monkeypatch: pytest.MonkeyPatch)
     assert found is not None
     assert found.source == "C2R"
     assert found.version == "16.0.12345.67890"
+
+
+# ---------------------------------------------------------------------------
+# Tests for Temporary ARP Entry Management
+# ---------------------------------------------------------------------------
+
+
+class TestTempArpKeyGeneration:
+    """Tests for _generate_temp_arp_key function."""
+
+    def test_generates_valid_key_name(self) -> None:
+        """Should generate key with correct prefix and product code."""
+        key = detect._generate_temp_arp_key("{90160000-0011-0000-0000-0000000FF1CE}")
+        assert key.startswith(detect.TEMP_ARP_KEY_PREFIX)
+        assert "{90160000-0011-0000-0000-0000000FF1CE}" in key
+
+    def test_normalizes_product_code(self) -> None:
+        """Should add braces if missing."""
+        key = detect._generate_temp_arp_key("90160000-0011-0000-0000-0000000FF1CE")
+        assert "{90160000-0011-0000-0000-0000000FF1CE}" in key
+
+    def test_includes_version(self) -> None:
+        """Should include version in key name."""
+        key = detect._generate_temp_arp_key("{GUID}", version="15")
+        assert "15" in key
+
+
+class TestCreateTempArpEntry:
+    """Tests for create_temp_arp_entry function."""
+
+    def test_dry_run_returns_path(self) -> None:
+        """Dry run should return path without creating entry."""
+        result = detect.create_temp_arp_entry(
+            "{90160000-0011-0000-0000-0000000FF1CE}",
+            "Microsoft Office",
+            dry_run=True,
+        )
+        assert result is not None
+        assert "HKLM" in result
+        assert detect.TEMP_ARP_KEY_PREFIX in result
+
+    def test_includes_product_code(self) -> None:
+        """Should include product code in registry path."""
+        result = detect.create_temp_arp_entry(
+            "{90160000-0011-0000-0000-0000000FF1CE}",
+            "Test Product",
+            dry_run=True,
+        )
+        assert "90160000-0011-0000-0000-0000000FF1CE" in result
+
+
+class TestCleanupTempArpEntries:
+    """Tests for cleanup_temp_arp_entries function."""
+
+    def test_dry_run_returns_count(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Dry run should return count without deleting."""
+        import winreg
+
+        # Mock EnumKey to return a temp key
+        call_count = [0]
+
+        def fake_enum(key, index):
+            if call_count[0] == 0:
+                call_count[0] += 1
+                return f"{detect.TEMP_ARP_KEY_PREFIX}16.{{TEST}}"
+            raise OSError("No more keys")
+
+        def fake_open(*args, **kwargs):
+            return MagicMock()
+
+        class FakeContext:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        from unittest.mock import MagicMock
+
+        mock_key = MagicMock()
+        mock_key.__enter__ = lambda self: mock_key
+        mock_key.__exit__ = lambda self, *args: None
+
+        monkeypatch.setattr(winreg, "OpenKey", lambda *a, **kw: mock_key)
+        monkeypatch.setattr(winreg, "EnumKey", fake_enum)
+        monkeypatch.setattr(winreg, "DeleteKey", lambda *a, **kw: None)
+
+        result = detect.cleanup_temp_arp_entries(dry_run=True)
+        assert result >= 0
+
+
+class TestFindOrphanedWiProducts:
+    """Tests for find_orphaned_wi_products function."""
+
+    def test_returns_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Should return list of orphan dicts."""
+        import winreg
+
+        # Mock to return empty (no orphans)
+        def fake_open(*args, **kwargs):
+            raise FileNotFoundError("No keys")
+
+        monkeypatch.setattr(winreg, "OpenKey", fake_open)
+
+        result = detect.find_orphaned_wi_products()
+        assert isinstance(result, list)
+
+
+class TestCreateArpEntriesForOrphans:
+    """Tests for create_arp_entries_for_orphans function."""
+
+    def test_dry_run_calls_find_orphans(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Should call find_orphaned_wi_products."""
+        called = [False]
+
+        def fake_find():
+            called[0] = True
+            return []
+
+        monkeypatch.setattr(detect, "find_orphaned_wi_products", fake_find)
+
+        detect.create_arp_entries_for_orphans(dry_run=True)
+        assert called[0]

@@ -1438,6 +1438,291 @@ def gather_activation_state() -> dict[str, Any]:
     return {"path": registry_path, "values": serialised}
 
 
+# ---------------------------------------------------------------------------
+# Temporary ARP Entry Management (for orphaned MSI products)
+# ---------------------------------------------------------------------------
+
+TEMP_ARP_KEY_PREFIX = "OFFICE_TEMP"
+"""!
+@brief Prefix for temporary ARP entries created by the scrubber.
+@details These entries enable msiexec uninstall for products that have lost
+their Add/Remove Programs registration but still have WI metadata.
+"""
+
+
+def _generate_temp_arp_key(product_code: str, version: str = "16") -> str:
+    """!
+    @brief Generate a unique temporary ARP key name.
+    @param product_code The MSI product code.
+    @param version Office version (15, 16, etc.).
+    @returns Key name like "OFFICE_TEMP.{GUID}".
+    """
+    # Normalize the product code
+    code = product_code.strip().upper()
+    if not code.startswith("{"):
+        code = f"{{{code}}}"
+    if not code.endswith("}"):
+        code = f"{code}}}"
+    return f"{TEMP_ARP_KEY_PREFIX}{version}.{code}"
+
+
+def create_temp_arp_entry(
+    product_code: str,
+    product_name: str,
+    *,
+    version: str = "16",
+    install_location: str | None = None,
+    dry_run: bool = False,
+) -> str | None:
+    """!
+    @brief Create a temporary ARP entry for an orphaned MSI product.
+    @details VBS equivalent: arrTmpSKUs population in FindInstalledOProducts.
+        This allows msiexec to find and uninstall products that have lost
+        their Add/Remove Programs registration but still exist in WI metadata.
+    @param product_code The MSI product code (GUID).
+    @param product_name Display name for the product.
+    @param version Office major version (15, 16, etc.).
+    @param install_location Optional install path.
+    @param dry_run If True, only log what would be created.
+    @returns The registry path of the created entry, or None on failure.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    # Validate product code format
+    code = product_code.strip().upper()
+    if not code.startswith("{"):
+        code = f"{{{code}}}"
+
+    # Generate key name
+    key_name = _generate_temp_arp_key(code, version)
+
+    # Build registry path
+    base_path = r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
+    full_path = f"HKLM\\{base_path}\\{key_name}"
+
+    if dry_run:
+        human_logger.info("[DRY-RUN] Would create temp ARP entry: %s", full_path)
+        return full_path
+
+    human_logger.info("Creating temporary ARP entry: %s", key_name)
+
+    # Create the registry key with required values
+    try:
+        import winreg
+
+        with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, f"{base_path}\\{key_name}") as key:
+            winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, product_name)
+            winreg.SetValueEx(
+                key,
+                "UninstallString",
+                0,
+                winreg.REG_SZ,
+                f"msiexec.exe /X{code} /qn",
+            )
+            winreg.SetValueEx(key, "SystemComponent", 0, winreg.REG_DWORD, 0)
+            winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "Microsoft Corporation")
+            winreg.SetValueEx(
+                key, "Comments", 0, winreg.REG_SZ, "Temporary entry for Office cleanup"
+            )
+            # Mark as temporary so we can clean it up later
+            winreg.SetValueEx(key, "OfficeJanitorTemp", 0, winreg.REG_DWORD, 1)
+            if install_location:
+                winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, install_location)
+
+        human_logger.debug("Created temp ARP entry: %s", full_path)
+        return full_path
+
+    except OSError as exc:
+        human_logger.warning("Failed to create temp ARP entry %s: %s", key_name, exc)
+        return None
+
+
+def cleanup_temp_arp_entries(*, dry_run: bool = False) -> int:
+    """!
+    @brief Remove all temporary ARP entries created by the scrubber.
+    @details Cleans up entries with the OFFICE_TEMP prefix or OfficeJanitorTemp marker.
+    @param dry_run If True, only log what would be deleted.
+    @returns Number of entries removed.
+    """
+    human_logger = logging_ext.get_human_logger()
+    removed = 0
+
+    try:
+        import winreg
+
+        base_path = r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
+
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base_path, 0, winreg.KEY_READ) as base_key:
+            index = 0
+            keys_to_delete: list[str] = []
+
+            while True:
+                try:
+                    subkey_name = winreg.EnumKey(base_key, index)
+                    index += 1
+
+                    # Check if it's a temp key by prefix
+                    if subkey_name.startswith(TEMP_ARP_KEY_PREFIX):
+                        keys_to_delete.append(subkey_name)
+                        continue
+
+                    # Also check for our marker value
+                    try:
+                        with winreg.OpenKey(base_key, subkey_name, 0, winreg.KEY_READ) as subkey:
+                            try:
+                                value, _ = winreg.QueryValueEx(subkey, "OfficeJanitorTemp")
+                                if value:
+                                    keys_to_delete.append(subkey_name)
+                            except FileNotFoundError:
+                                pass
+                    except OSError:
+                        pass
+
+                except OSError:
+                    break
+
+        # Delete the identified keys
+        for key_name in keys_to_delete:
+            full_path = f"HKLM\\{base_path}\\{key_name}"
+            if dry_run:
+                human_logger.info("[DRY-RUN] Would delete temp ARP: %s", key_name)
+                removed += 1
+            else:
+                try:
+                    winreg.DeleteKey(winreg.HKEY_LOCAL_MACHINE, f"{base_path}\\{key_name}")
+                    human_logger.debug("Deleted temp ARP entry: %s", key_name)
+                    removed += 1
+                except OSError as exc:
+                    human_logger.warning("Failed to delete temp ARP %s: %s", key_name, exc)
+
+    except OSError as exc:
+        human_logger.debug("Failed to enumerate ARP entries: %s", exc)
+
+    if removed:
+        human_logger.info("Cleaned up %d temporary ARP entries", removed)
+
+    return removed
+
+
+def find_orphaned_wi_products() -> list[dict[str, str]]:
+    """!
+    @brief Find MSI products in WI metadata without ARP entries.
+    @details VBS equivalent: fTryReconcile logic in FindInstalledOProducts.
+        Scans Windows Installer product registry for Office products that
+        have no corresponding Add/Remove Programs entry.
+    @returns List of orphaned products with product_code, name, and version.
+    """
+    from . import guid_utils
+
+    human_logger = logging_ext.get_human_logger()
+    orphans: list[dict[str, str]] = []
+
+    try:
+        import winreg
+
+        # Get all ARP entries for comparison
+        arp_codes: set[str] = set()
+        arp_base = r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, arp_base, 0, winreg.KEY_READ) as arp_key:
+                index = 0
+                while True:
+                    try:
+                        subkey = winreg.EnumKey(arp_key, index)
+                        index += 1
+                        # Check if subkey looks like a product code
+                        if subkey.startswith("{") and subkey.endswith("}"):
+                            arp_codes.add(subkey.upper())
+                    except OSError:
+                        break
+        except OSError:
+            pass
+
+        # Scan WI Products
+        wi_products_path = r"SOFTWARE\\Classes\\Installer\\Products"
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE, wi_products_path, 0, winreg.KEY_READ
+            ) as wi_key:
+                index = 0
+                while True:
+                    try:
+                        compressed = winreg.EnumKey(wi_key, index)
+                        index += 1
+
+                        # Try to expand the compressed GUID
+                        try:
+                            product_code = guid_utils.expand_guid(compressed)
+                        except guid_utils.GuidError:
+                            continue
+
+                        # Check if this is an Office product
+                        if not guid_utils.is_office_guid(product_code):
+                            continue
+
+                        # Check if it has an ARP entry
+                        if product_code.upper() in arp_codes:
+                            continue
+
+                        # Read product name from WI
+                        product_name = "Unknown Office Product"
+                        try:
+                            with winreg.OpenKey(wi_key, compressed, 0, winreg.KEY_READ) as prod_key:
+                                try:
+                                    product_name, _ = winreg.QueryValueEx(prod_key, "ProductName")
+                                except FileNotFoundError:
+                                    pass
+                        except OSError:
+                            pass
+
+                        orphans.append(
+                            {
+                                "product_code": product_code,
+                                "compressed_guid": compressed,
+                                "name": product_name,
+                                "version": guid_utils.get_office_version_from_guid(product_code)
+                                or "unknown",
+                            }
+                        )
+
+                    except OSError:
+                        break
+
+        except OSError:
+            pass
+
+    except ImportError:
+        human_logger.debug("winreg not available, skipping orphan scan")
+
+    if orphans:
+        human_logger.info("Found %d orphaned WI products", len(orphans))
+
+    return orphans
+
+
+def create_arp_entries_for_orphans(*, dry_run: bool = False) -> int:
+    """!
+    @brief Create temporary ARP entries for all orphaned WI products.
+    @details Enables msiexec uninstall for products that lost their ARP registration.
+    @param dry_run If True, only log what would be created.
+    @returns Number of entries created.
+    """
+    orphans = find_orphaned_wi_products()
+    created = 0
+
+    for orphan in orphans:
+        result = create_temp_arp_entry(
+            orphan["product_code"],
+            orphan["name"],
+            version=orphan.get("version", "16"),
+            dry_run=dry_run,
+        )
+        if result:
+            created += 1
+
+    return created
+
+
 def gather_registry_residue() -> list[dict[str, str]]:
     """!
     @brief Identify registry hives that likely require cleanup.

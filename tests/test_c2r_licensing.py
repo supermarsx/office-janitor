@@ -51,7 +51,9 @@ class TestQueryWmiLicenses:
         """Should return list of license dicts when WMI returns data."""
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = '[{"ID": "1", "Name": "Test", "PartialProductKey": "ABC", "ProductKeyID": "123"}]'
+        mock_result.stdout = (
+            '[{"ID": "1", "Name": "Test", "PartialProductKey": "ABC", "ProductKeyID": "123"}]'
+        )
 
         monkeypatch.setattr(
             "office_janitor.licensing.exec_utils.run_command",
@@ -81,7 +83,9 @@ class TestQueryWmiLicenses:
         """Should handle PowerShell returning single object instead of array."""
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = '{"ID": "1", "Name": "Single", "PartialProductKey": "XYZ", "ProductKeyID": "456"}'
+        mock_result.stdout = (
+            '{"ID": "1", "Name": "Single", "PartialProductKey": "XYZ", "ProductKeyID": "456"}'
+        )
 
         monkeypatch.setattr(
             "office_janitor.licensing.exec_utils.run_command",

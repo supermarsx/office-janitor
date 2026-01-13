@@ -259,10 +259,7 @@ def decode_squished_guid(squished: str) -> str:
 
     # Reconstruct GUID from hex string
     hex_str = "".join(hex_parts)
-    return (
-        f"{{{hex_str[0:8]}-{hex_str[8:12]}-{hex_str[12:16]}-"
-        f"{hex_str[16:20]}-{hex_str[20:32]}}}"
-    )
+    return f"{{{hex_str[0:8]}-{hex_str[8:12]}-{hex_str[12:16]}-{hex_str[16:20]}-{hex_str[20:32]}}}"
 
 
 def guid_to_registry_path(guid: str, base_path: str) -> str:
@@ -402,6 +399,66 @@ def is_office_product_code(product_code: str) -> bool:
     return g5.endswith("FF1CE") or g5.endswith("F1CE0")
 
 
+# Alias for backward compatibility
+is_office_guid = is_office_product_code
+"""!
+@brief Alias for is_office_product_code.
+"""
+
+
+def get_office_version_from_guid(product_code: str) -> str | None:
+    """!
+    @brief Extract the Office major version from a product GUID.
+    @param product_code Standard product GUID.
+    @return Version string (e.g., "15", "16") or None if not an Office product.
+
+    @details Office product codes encode the version in positions 5-6 (after the brace):
+        - 90 = Office 2003
+        - 91 = Office 2007
+        - 92 = Office 2010 (Volume License)
+        - 93 = Office 2010 (Retail)
+        - 94 = Office 2013 (Click-to-Run)
+        - 95 = Office 2013 (MSI)
+        - A1 = Office 2016/365 (Click-to-Run)
+        - 90140 = Office 2010
+        - 15.0 = Office 2013
+        - 16.0 = Office 2016+
+    """
+    if not is_office_product_code(product_code):
+        return None
+
+    match = _GUID_PATTERN.match(product_code)
+    if not match:
+        return None
+
+    # Extract first group and get version indicator
+    g1 = match.group(1).upper()
+
+    # Office 2016+ (16.0) typically starts with 9
+    # but we look at specific patterns
+    version_map = {
+        "90": "11",  # Office 2003
+        "91": "12",  # Office 2007
+        "92": "14",  # Office 2010 VL
+        "93": "14",  # Office 2010 Retail
+        "94": "15",  # Office 2013 C2R
+        "95": "15",  # Office 2013 MSI
+        "A1": "16",  # Office 2016+ C2R
+    }
+
+    # Check first 2 chars of first group
+    prefix = g1[:2]
+    if prefix in version_map:
+        return version_map[prefix]
+
+    # Try to infer from other patterns
+    # Most modern Office uses patterns starting with 9
+    if g1.startswith("9"):
+        return "16"
+
+    return None
+
+
 __all__ = [
     "GuidError",
     "classify_office_product",
@@ -409,9 +466,11 @@ __all__ = [
     "decode_squished_guid",
     "expand_guid",
     "extract_guid_from_path",
+    "get_office_version_from_guid",
     "get_product_type_code",
     "guid_to_registry_path",
     "is_compressed_guid",
+    "is_office_guid",
     "is_office_product_code",
     "is_squished_guid",
     "is_valid_guid",

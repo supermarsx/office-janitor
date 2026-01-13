@@ -549,9 +549,7 @@ class TestFindOrDownloadOdt:
         setup_path = tmp_path / "setup.exe"
         setup_path.write_text("fake")
 
-        monkeypatch.setattr(
-            c2r_uninstall, "C2R_SETUP_CANDIDATES", (setup_path,)
-        )
+        monkeypatch.setattr(c2r_uninstall, "C2R_SETUP_CANDIDATES", (setup_path,))
 
         result = c2r_uninstall.find_or_download_odt()
         assert result == setup_path
@@ -570,7 +568,114 @@ class TestUninstallViaOdt:
 
     def test_returns_error_for_missing_odt(self, tmp_path) -> None:
         """Should return error code when ODT not found."""
-        result = c2r_uninstall.uninstall_via_odt(
-            tmp_path / "missing.exe", dry_run=False
-        )
+        result = c2r_uninstall.uninstall_via_odt(tmp_path / "missing.exe", dry_run=False)
         assert result != 0
+
+
+# ---------------------------------------------------------------------------
+# Tests for C2R Integrator.exe functions
+# ---------------------------------------------------------------------------
+
+
+class TestFindIntegratorExe:
+    """Tests for find_integrator_exe function."""
+
+    def test_returns_none_when_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Should return None when integrator.exe not found."""
+        from pathlib import Path
+
+        # Make all candidates not exist
+        monkeypatch.setattr(Path, "exists", lambda self: False)
+        result = c2r_uninstall.find_integrator_exe()
+        assert result is None
+
+
+class TestDeleteC2rManifests:
+    """Tests for delete_c2r_manifests function."""
+
+    def test_dry_run_returns_manifests(self, tmp_path: Path) -> None:
+        """Dry run should return manifest paths without deletion."""
+        # Create test structure
+        integration_dir = tmp_path / "root" / "Integration"
+        integration_dir.mkdir(parents=True)
+        manifest1 = integration_dir / "C2RManifest.xml"
+        manifest2 = integration_dir / "C2RManifest.en-us.xml"
+        manifest1.write_text("<xml/>")
+        manifest2.write_text("<xml/>")
+
+        result = c2r_uninstall.delete_c2r_manifests(tmp_path, dry_run=True)
+
+        assert len(result) == 2
+        assert manifest1.exists()  # Still exists (dry run)
+        assert manifest2.exists()
+
+    def test_deletes_manifests(self, tmp_path: Path) -> None:
+        """Should delete manifest files when not dry run."""
+        integration_dir = tmp_path / "root" / "Integration"
+        integration_dir.mkdir(parents=True)
+        manifest = integration_dir / "C2RManifest.xml"
+        manifest.write_text("<xml/>")
+
+        result = c2r_uninstall.delete_c2r_manifests(tmp_path, dry_run=False)
+
+        assert len(result) == 1
+        assert not manifest.exists()
+
+    def test_returns_empty_for_missing_folder(self, tmp_path: Path) -> None:
+        """Should return empty list if Integration folder doesn't exist."""
+        result = c2r_uninstall.delete_c2r_manifests(tmp_path, dry_run=False)
+        assert result == []
+
+
+class TestUnregisterC2rIntegration:
+    """Tests for unregister_c2r_integration function."""
+
+    def test_dry_run_logs_command(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Dry run should log what would be executed."""
+        # Create a fake integrator
+        integrator = tmp_path / "integrator.exe"
+        integrator.write_bytes(b"fake")
+
+        monkeypatch.setattr(
+            c2r_uninstall,
+            "find_integrator_exe",
+            lambda: integrator,
+        )
+
+        result = c2r_uninstall.unregister_c2r_integration(
+            tmp_path,
+            "{00000000-0000-0000-0000-000000000000}",
+            dry_run=True,
+        )
+        assert result == 0
+
+    def test_returns_negative_when_integrator_not_found(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Should return -1 when integrator.exe not found."""
+        from pathlib import Path
+
+        monkeypatch.setattr(Path, "exists", lambda self: False)
+
+        result = c2r_uninstall.unregister_c2r_integration(
+            tmp_path,
+            "{00000000-0000-0000-0000-000000000000}",
+            dry_run=False,
+        )
+        assert result == -1
+
+
+class TestFindC2rPackageGuids:
+    """Tests for find_c2r_package_guids function."""
+
+    def test_returns_empty_when_no_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Should return empty list when no C2R config found."""
+        import winreg
+
+        def fake_open_key(*args, **kwargs):
+            raise FileNotFoundError("Key not found")
+
+        monkeypatch.setattr(winreg, "OpenKey", fake_open_key)
+
+        result = c2r_uninstall.find_c2r_package_guids()
+        assert result == []

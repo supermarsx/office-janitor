@@ -599,9 +599,7 @@ def attempt_setup_exe_removal(
         human_logger.info("setup.exe removal completed successfully for %s", product_id)
         return True
 
-    human_logger.warning(
-        "setup.exe removal returned %d for %s", result.returncode, product_id
-    )
+    human_logger.warning("setup.exe removal returned %d for %s", result.returncode, product_id)
     return False
 
 
