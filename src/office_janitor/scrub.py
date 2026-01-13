@@ -367,6 +367,12 @@ class StepExecutor:
                     metadata,
                 )
             else:
+                force = bool(metadata.get("force", False))
+                if force:
+                    # Force mode: terminate Office processes before MSI uninstall
+                    self._human_logger.info("Force mode: terminating Office processes")
+                    processes.terminate_office_processes(constants.DEFAULT_OFFICE_PROCESSES)
+                    processes.terminate_process_patterns(constants.OFFICE_PROCESS_PATTERNS)
                 msi_uninstall.uninstall_products([product], dry_run=dry_run)  # type: ignore[list-item]
             return None
         if category == "c2r-uninstall":
@@ -376,7 +382,8 @@ class StepExecutor:
                     "Skipping C2R uninstall step without installation metadata",
                 )
             else:
-                c2r_uninstall.uninstall_products(installation, dry_run=dry_run)
+                force = bool(metadata.get("force", False))
+                c2r_uninstall.uninstall_products(installation, dry_run=dry_run, force=force)
             return None
         if category == "licensing-cleanup":
             extended = dict(metadata)

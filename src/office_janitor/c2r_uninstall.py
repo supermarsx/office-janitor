@@ -24,6 +24,17 @@ C2R_CLIENT_ARGS = (
 @brief Arguments passed to ``OfficeC2RClient.exe`` to trigger silent uninstall.
 """
 
+C2R_CLIENT_FORCE_ARGS = (
+    "/updatepromptuser=False",
+    "/uninstallpromptuser=False",
+    "/uninstall",
+    "/displaylevel=False",
+    "/forceappshutdown",
+)
+"""!
+@brief Force-mode arguments for ``OfficeC2RClient.exe`` that close running Office apps.
+"""
+
 C2R_CLIENT_CANDIDATES = (
     Path(r"C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeC2RClient.exe"),
     Path(
@@ -334,6 +345,7 @@ def uninstall_products(
     *,
     dry_run: bool = False,
     retries: int = C2R_RETRY_ATTEMPTS,
+    force: bool = False,
 ) -> None:
     """!
     @brief Remove Click-to-Run installations using the preferred tooling.
@@ -346,6 +358,7 @@ def uninstall_products(
     @param dry_run When ``True`` log planned actions without executing commands.
     @param retries Additional attempts after the first failure when using the
     client executable.
+    @param force When ``True`` use force-shutdown arguments to close running Office apps.
     """
 
     human_logger = logging_ext.get_human_logger()
@@ -384,9 +397,12 @@ def uninstall_products(
                 "executable": str(client_path),
                 "release_ids": list(target.release_ids) or None,
                 "dry_run": bool(dry_run),
+                "force": bool(force),
             },
         )
-        command = [str(client_path), *C2R_CLIENT_ARGS]
+        # Use force args when force mode is enabled
+        client_args = C2R_CLIENT_FORCE_ARGS if force else C2R_CLIENT_ARGS
+        command = [str(client_path), *client_args]
         result: command_runner.CommandResult | None = None
         for attempt in range(1, total_attempts + 1):
             message = (
