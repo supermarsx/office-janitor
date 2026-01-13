@@ -167,7 +167,7 @@ def get_oem_config_path(preset_name: str) -> Path | None:
     # Determine base path for bundled resources
     try:
         if getattr(sys, "frozen", False):
-            base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+            base_path = Path(sys._MEIPASS)
         else:
             base_path = Path(__file__).parent.parent.parent
         oem_path = base_path / BUNDLED_OEM_DIR / filename
@@ -193,7 +193,7 @@ def list_oem_configs() -> list[tuple[str, str, bool]]:
 
     try:
         if getattr(sys, "frozen", False):
-            base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+            base_path = Path(sys._MEIPASS)
         else:
             base_path = Path(__file__).parent.parent.parent
         oem_dir = base_path / BUNDLED_OEM_DIR
@@ -435,7 +435,7 @@ def find_officeclicktorun_exe(custom_path: Path | None = None) -> Path | None:
 
         if getattr(sys, "frozen", False):
             # PyInstaller bundle
-            base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+            base_path = Path(sys._MEIPASS)
         else:
             # Development - look relative to package
             base_path = Path(__file__).parent.parent.parent
@@ -801,7 +801,7 @@ def find_odt_setup_exe(custom_path: Path | None = None) -> Path | None:
         import sys
 
         if getattr(sys, "frozen", False):
-            base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+            base_path = Path(sys._MEIPASS)
         else:
             base_path = Path(__file__).parent.parent.parent
         bundled = base_path / BUNDLED_ODT_SETUP
