@@ -274,9 +274,9 @@ def _path_allowed(path: str) -> bool:
 
 def _registry_allowed(key: str) -> bool:
     normalized = key.upper()
-    if any(normalized.startswith(blocked) for blocked in REGISTRY_BLACKLIST):
+    if any(normalized.startswith(blocked.upper()) for blocked in REGISTRY_BLACKLIST):
         return False
-    return any(normalized.startswith(allowed) for allowed in REGISTRY_WHITELIST)
+    return any(normalized.startswith(allowed.upper()) for allowed in REGISTRY_WHITELIST)
 
 
 def _enforce_template_guard(
