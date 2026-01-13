@@ -71,12 +71,18 @@ SUPPORTED_COMPONENTS = (
 """
 
 DEFAULT_OFFICE_PROCESSES = (
+    # Standard Office applications
     "winword.exe",
     "excel.exe",
     "outlook.exe",
     "onenote.exe",
     "visio.exe",
     "powerpnt.exe",
+    "msaccess.exe",
+    "mspub.exe",
+    "winproj.exe",
+    "lync.exe",
+    "teams.exe",
 )
 """!
 @brief Foreground Office applications terminated prior to uninstalls.
@@ -88,6 +94,68 @@ OFFICE_PROCESS_PATTERNS = (
 )
 """!
 @brief Wildcard process filters used to mirror OffScrub cleanup loops.
+"""
+
+# Extended process list from VBS CloseOfficeApps (OffScrubC2R.vbs)
+C2R_INFRASTRUCTURE_PROCESSES = (
+    # C2R client and infrastructure
+    "appvshnotify.exe",
+    "integratedoffice.exe",
+    "integrator.exe",
+    "firstrun.exe",
+    "officeclicktorun.exe",
+    "officeondemand.exe",
+    "OfficeC2RClient.exe",
+    "AppVLP.exe",
+    # Background processes
+    "msosync.exe",
+    "OneNoteM.exe",
+    "communicator.exe",
+    "perfboost.exe",
+    "roamingoffice.exe",
+    "mavinject32.exe",
+    # Telemetry and update
+    "OfficeTelemetryAgentLogOn.exe",
+    "msouc.exe",
+    "msoia.exe",
+    "msoadfsb.exe",
+    # Legacy processes
+    "bcssync.exe",
+    "officesas.exe",
+    "officesasscheduler.exe",
+    "groove.exe",
+    "groovemonitor.exe",
+)
+"""!
+@brief C2R infrastructure processes from VBS CloseOfficeApps.
+@details These are background processes that should be terminated
+before C2R uninstall or cleanup operations.
+"""
+
+MSI_INFRASTRUCTURE_PROCESSES = (
+    # Office Source Engine
+    "ose.exe",
+    "ose64.exe",
+    # Setup and maintenance
+    "setup.exe",
+    "msiexec.exe",
+    "OfficeSetup.exe",
+    # Shared components
+    "msosync.exe",
+    "groovemonitor.exe",
+    "groove.exe",
+)
+"""!
+@brief MSI infrastructure processes from VBS OffScrub scripts.
+"""
+
+ALL_OFFICE_PROCESSES = (
+    *DEFAULT_OFFICE_PROCESSES,
+    *C2R_INFRASTRUCTURE_PROCESSES,
+    *MSI_INFRASTRUCTURE_PROCESSES,
+)
+"""!
+@brief Combined list of all Office-related processes for full cleanup.
 """
 
 MSI_UNINSTALL_ROOTS: tuple[tuple[int, str], ...] = (
@@ -250,6 +318,140 @@ for clsid in _OFFICE_COM_CLSIDS:
     _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\Classes\CLSID\{clsid}"))
     _REGISTRY_RESIDUE_BASE.append((HKLM, rf"SOFTWARE\WOW6432Node\Classes\CLSID\{clsid}"))
 
+# Shell Integration paths (from VBS RegWipe - protocol handlers, context menu, etc.)
+_SHELL_INTEGRATION_PATHS: list[tuple[int, str]] = [
+    # Protocol handlers (osf:, onenote:, etc.)
+    (HKLM, r"SOFTWARE\Classes\osf"),
+    (HKLM, r"SOFTWARE\Classes\osf-roaming.16"),
+    (HKLM, r"SOFTWARE\Classes\onenote"),
+    (HKLM, r"SOFTWARE\Classes\onenote-cmd"),
+    (HKLM, r"SOFTWARE\Classes\onenote15"),
+    (HKLM, r"SOFTWARE\Classes\OneNote.URL.16"),
+    (HKLM, r"SOFTWARE\Classes\ms-word"),
+    (HKLM, r"SOFTWARE\Classes\ms-excel"),
+    (HKLM, r"SOFTWARE\Classes\ms-powerpoint"),
+    (HKLM, r"SOFTWARE\Classes\ms-access"),
+    (HKLM, r"SOFTWARE\Classes\ms-publisher"),
+    (HKLM, r"SOFTWARE\Classes\ms-outlook"),
+    (HKLM, r"SOFTWARE\Classes\ms-visio"),
+    (HKLM, r"SOFTWARE\Classes\ms-project"),
+    (HKLM, r"SOFTWARE\Classes\ms-spd"),
+    (HKCU, r"SOFTWARE\Classes\osf"),
+    (HKCU, r"SOFTWARE\Classes\osf-roaming.16"),
+    # Shell icon overlays (OneDrive, Groove sync overlays)
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveSyncedOverlay"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveSyncingOverlay"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDrivePausedOverlay"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveWarningOverlay"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\GDriveErrorOverlay"),
+    # Explorer namespace extensions
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"),
+    # Browser helper objects
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}"),
+    # Shell approved extensions
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{42042206-2D85-11D3-8CFF-005004838597}"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{993BE281-6695-4BA5-8A2A-7AACBFAAB69E}"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{0006F045-0000-0000-C000-000000000046}"),
+    # Context menu handlers
+    (HKLM, r"SOFTWARE\Classes\*\shellex\ContextMenuHandlers\GrooveShellExtensions"),
+    (HKLM, r"SOFTWARE\Classes\Directory\shellex\ContextMenuHandlers\GrooveShellExtensions"),
+    (HKLM, r"SOFTWARE\Classes\Folder\shellex\ContextMenuHandlers\GrooveShellExtensions"),
+]
+_REGISTRY_RESIDUE_BASE.extend(_SHELL_INTEGRATION_PATHS)
+
+# Windows Installer metadata paths (from VBS ValidateWIMetadataKey)
+_WI_METADATA_PATTERNS: list[tuple[int, str]] = [
+    # Note: Actual cleanup requires product code enumeration, these are base paths
+    (HKLM, r"SOFTWARE\Classes\Installer\Products"),
+    (HKLM, r"SOFTWARE\Classes\Installer\Features"),
+    (HKLM, r"SOFTWARE\Classes\Installer\Components"),
+    (HKLM, r"SOFTWARE\Classes\Installer\Patches"),
+    (HKLM, r"SOFTWARE\Classes\Installer\UpgradeCodes"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData"),
+]
+# Don't add to residue base - these need special handling via msi_components module
+
+# TypeLib GUIDs for Office (from VBS OffScrub TypeLib cleanup)
+# These are cleaned if the referenced DLL no longer exists
+_OFFICE_TYPELIB_GUIDS = (
+    "{00020430-0000-0000-C000-000000000046}",  # StdOle
+    "{00020802-0000-0000-C000-000000000046}",  # MS Forms
+    "{00020813-0000-0000-C000-000000000046}",  # Excel
+    "{00020905-0000-0000-C000-000000000046}",  # Word
+    "{00020970-0000-0000-C000-000000000046}",  # Word (alternate)
+    "{000204EF-0000-0000-C000-000000000046}",  # Outlook
+    "{00021A20-0000-0000-C000-000000000046}",  # Outlook (Forms)
+    "{00024500-0000-0000-C000-000000000046}",  # PowerPoint
+    "{0002E157-0000-0000-C000-000000000046}",  # VBE
+    "{0002E55D-0000-0000-C000-000000000046}",  # VBE Objects
+    "{2DF8D04C-5BFA-101B-BDE5-00AA0044DE52}",  # Office Drawing
+    "{0D452EE1-E08F-101A-852E-02608C4D0BB4}",  # VBAEN
+    "{831FDD16-0C5C-11D2-A9FC-0000F8754DA1}",  # SHDOCVW (Shell Doc Object)
+    "{91493440-5A91-11CF-8700-00AA0060263B}",  # PowerPoint (Full)
+    "{AC0714F2-3D04-11D1-AE7D-00A0C90F26F4}",  # VBComponents
+    "{EF53050B-882E-4776-B643-EDA472E8E3F2}",  # MSOXMLMF
+    "{00062FFF-0000-0000-C000-000000000046}",  # Outlook Object Model
+)
+
+# Add-in registration paths (from VBS /CLEARADDINREG)
+_ADDIN_REGISTRY_PATHS: list[tuple[int, str]] = [
+    (HKCU, r"SOFTWARE\Microsoft\Office\Excel\AddIns"),
+    (HKCU, r"SOFTWARE\Microsoft\Office\Word\AddIns"),
+    (HKCU, r"SOFTWARE\Microsoft\Office\Outlook\AddIns"),
+    (HKCU, r"SOFTWARE\Microsoft\Office\PowerPoint\AddIns"),
+    (HKCU, r"SOFTWARE\Microsoft\Office\Access\AddIns"),
+    (HKCU, r"SOFTWARE\Microsoft\Office\Publisher\AddIns"),
+    (HKCU, r"SOFTWARE\Microsoft\Office\Visio\AddIns"),
+    (HKCU, r"SOFTWARE\Microsoft\Office\Project\AddIns"),
+    (HKCU, r"SOFTWARE\Microsoft\Office\OneNote\AddIns"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\Excel\AddIns"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\Word\AddIns"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\Outlook\AddIns"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\PowerPoint\AddIns"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\Access\AddIns"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\Publisher\AddIns"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\Visio\AddIns"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\Project\AddIns"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\OneNote\AddIns"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Office\Excel\AddIns"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Office\Word\AddIns"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Office\Outlook\AddIns"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Office\PowerPoint\AddIns"),
+]
+_REGISTRY_RESIDUE_BASE.extend(_ADDIN_REGISTRY_PATHS)
+
+# Scheduled Tasks and Services registry (from VBS /OSE)
+_SERVICE_REGISTRY_PATHS: list[tuple[int, str]] = [
+    (HKLM, r"SYSTEM\CurrentControlSet\Services\ClickToRunSvc"),
+    (HKLM, r"SYSTEM\CurrentControlSet\Services\OfficeSvc"),
+    (HKLM, r"SYSTEM\CurrentControlSet\Services\ose"),
+    (HKLM, r"SYSTEM\CurrentControlSet\Services\ose64"),
+    (HKLM, r"SYSTEM\CurrentControlSet\Services\osppsvc"),
+    (HKLM, r"SYSTEM\CurrentControlSet\Services\osppobject"),
+]
+# Services are not deleted via registry - handled by tasks_services module
+
+# C2R-specific residue paths (from OffScrubC2R.vbs RegWipe)
+_C2R_REGISTRY_RESIDUE: list[tuple[int, str]] = [
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\15.0\ClickToRun"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Office\15.0\ClickToRun"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\Configuration"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\PackageGUID"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\PackageRoot"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\Platform"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\ProductReleaseIDs"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\PropertyBag"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\REGISTRY"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\REGISTRY\MACHINE"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\Scenario"),
+    (HKLM, r"SOFTWARE\Microsoft\Office\ClickToRun\Updates"),
+    (HKCU, r"SOFTWARE\Microsoft\Office\ClickToRun"),
+]
+_REGISTRY_RESIDUE_BASE.extend(_C2R_REGISTRY_RESIDUE)
+
 REGISTRY_RESIDUE_PATHS = _sort_registry_entries_deepest_first(
     _normalize_registry_entries(_REGISTRY_RESIDUE_BASE)
 )
@@ -347,9 +549,134 @@ RESIDUE_PATH_TEMPLATES = (
         "architecture": "x64",
         "category": "legacy_office",
     },
+    # C2R Package folders (from OffScrubC2R.vbs FolderWipe)
+    {
+        "label": "programfiles_office16_root_x64",
+        "path": r"C:\\Program Files\\Microsoft Office\\root",
+        "architecture": "x64",
+        "category": "c2r_install",
+    },
+    {
+        "label": "programfiles_office16_root_x86",
+        "path": r"C:\\Program Files (x86)\\Microsoft Office\\root",
+        "architecture": "x86",
+        "category": "c2r_install",
+    },
+    {
+        "label": "programfiles_office16_x64",
+        "path": r"C:\\Program Files\\Microsoft Office 16",
+        "architecture": "x64",
+        "category": "c2r_install",
+    },
+    {
+        "label": "programfiles_office16_x86",
+        "path": r"C:\\Program Files (x86)\\Microsoft Office 16",
+        "architecture": "x86",
+        "category": "c2r_install",
+    },
+    {
+        "label": "programfiles_office15_x64",
+        "path": r"C:\\Program Files\\Microsoft Office 15",
+        "architecture": "x64",
+        "category": "c2r_install",
+    },
+    {
+        "label": "programfiles_office15_x86",
+        "path": r"C:\\Program Files (x86)\\Microsoft Office 15",
+        "architecture": "x86",
+        "category": "c2r_install",
+    },
+    # Common Files shared components
+    {
+        "label": "commonfiles_office16_x64",
+        "path": r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16",
+        "architecture": "x64",
+        "category": "shared_components",
+    },
+    {
+        "label": "commonfiles_office16_x86",
+        "path": r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE16",
+        "architecture": "x86",
+        "category": "shared_components",
+    },
+    {
+        "label": "commonfiles_office15_x64",
+        "path": r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE15",
+        "architecture": "x64",
+        "category": "shared_components",
+    },
+    {
+        "label": "commonfiles_office15_x86",
+        "path": r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE15",
+        "architecture": "x86",
+        "category": "shared_components",
+    },
+    {
+        "label": "commonfiles_vba_x64",
+        "path": r"C:\\Program Files\\Common Files\\Microsoft Shared\\VBA",
+        "architecture": "x64",
+        "category": "shared_components",
+    },
+    {
+        "label": "commonfiles_vba_x86",
+        "path": r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\VBA",
+        "architecture": "x86",
+        "category": "shared_components",
+    },
+    # MSOCache on system drives (from VBS CleanOffice.txt)
+    {
+        "label": "msocache_system",
+        "path": r"C:\\MSOCache",
+        "category": "installer_cache",
+    },
+    # User Office data directories
+    {
+        "label": "appdata_office",
+        "path": r"%APPDATA%\\Microsoft\\Office",
+        "category": "user_data",
+    },
+    {
+        "label": "localappdata_office",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\Office",
+        "category": "user_data",
+    },
+    {
+        "label": "appdata_templates",
+        "path": r"%APPDATA%\\Microsoft\\Templates",
+        "category": "user_data",
+    },
+    # Document Recovery
+    {
+        "label": "localappdata_word_recovery",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\Word",
+        "category": "recovery",
+    },
+    {
+        "label": "localappdata_excel_recovery",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\Excel",
+        "category": "recovery",
+    },
+    {
+        "label": "localappdata_powerpoint_recovery",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\PowerPoint",
+        "category": "recovery",
+    },
+    # PackageManifests (C2R)
+    {
+        "label": "programdata_packagemanifests",
+        "path": r"%PROGRAMDATA%\\Microsoft\\Office\\PackageManifests",
+        "category": "c2r_cache",
+    },
 )
 """!
 @brief Filesystem residue directories removed by the reference scripts.
+"""
+
+# Export the TypeLib GUIDs for use by registry cleanup
+OFFICE_TYPELIB_GUIDS = _OFFICE_TYPELIB_GUIDS
+"""!
+@brief TypeLib GUIDs that may reference Office DLLs.
+@details Used by registry cleanup to detect orphaned TypeLib registrations.
 """
 
 
@@ -1128,10 +1455,12 @@ INSTALL_ROOT_TEMPLATES = (
 )
 
 __all__ = [
+    "ALL_OFFICE_PROCESSES",
     "C2R_CHANNEL_ALIASES",
     "C2R_CLEANUP_TASKS",
     "C2R_COM_REGISTRY_PATHS",
     "C2R_CONFIGURATION_KEYS",
+    "C2R_INFRASTRUCTURE_PROCESSES",
     "C2R_OFFSCRUB_ARGS",
     "C2R_OFFSCRUB_SCRIPT",
     "C2R_PLATFORM_ALIASES",
@@ -1151,6 +1480,7 @@ __all__ = [
     "KNOWN_SERVICES",
     "LICENSE_DLLS",
     "LICENSING_GUID_FILTERS",
+    "MSI_INFRASTRUCTURE_PROCESSES",
     "MSI_UNINSTALL_VERSION_GROUPS",
     "MSI_OFFSCRUB_ARGS",
     "MSI_OFFSCRUB_DEFAULT_SCRIPT",

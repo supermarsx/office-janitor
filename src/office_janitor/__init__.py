@@ -27,4 +27,6 @@ __all__ = [
     "safety",
     "confirm",
     "version",
+    "guid_utils",
+    "msi_components",
 ]

@@ -223,3 +223,100 @@ def terminate_process_patterns(patterns: Sequence[str], *, timeout: int = 30) ->
     matches = enumerate_processes(patterns, timeout=timeout)
     if matches:
         terminate_office_processes(matches, timeout=timeout)
+
+
+def is_explorer_running(*, timeout: int = 10) -> bool:
+    """!
+    @brief Check if explorer.exe is currently running.
+    @param timeout Maximum seconds for process query.
+    @returns True if explorer.exe is running, False otherwise.
+    """
+    from . import exec_utils
+
+    result = exec_utils.run_command(
+        ["tasklist", "/FI", "IMAGENAME eq explorer.exe", "/FO", "CSV"],
+        event="check_explorer",
+        timeout=timeout,
+    )
+
+    if result.returncode != 0:
+        return False
+
+    output = (result.stdout or "").lower()
+    return "explorer.exe" in output
+
+
+def restart_explorer_if_needed(*, timeout: int = 10) -> bool:
+    """!
+    @brief Restart explorer.exe if it's not running.
+    @details VBS equivalent: RestoreExplorer in OffScrubC2R.vbs.
+    Called after shell integration cleanup that may have terminated
+    explorer to release file locks.
+    @param timeout Maximum seconds for commands.
+    @returns True if explorer was restarted, False if already running.
+    """
+    from . import exec_utils, logging_ext
+
+    human_logger = logging_ext.get_human_logger()
+
+    if is_explorer_running(timeout=timeout):
+        human_logger.debug("explorer.exe is already running")
+        return False
+
+    human_logger.info("Restarting explorer.exe")
+
+    result = exec_utils.run_command(
+        ["cmd.exe", "/c", "start", "explorer.exe"],
+        event="restart_explorer",
+        timeout=timeout,
+    )
+
+    if result.returncode == 0:
+        human_logger.info("explorer.exe restarted successfully")
+        return True
+
+    human_logger.warning("Failed to restart explorer.exe: %d", result.returncode)
+    return False
+
+
+def terminate_all_office_processes(
+    *,
+    include_infrastructure: bool = True,
+    dry_run: bool = False,
+    timeout: int = 30,
+) -> list[str]:
+    """!
+    @brief Terminate all known Office processes.
+    @details Combines standard Office apps with infrastructure processes.
+    VBS equivalent: CloseOfficeApps in OffScrub scripts.
+    @param include_infrastructure If True, include C2R and MSI infrastructure processes.
+    @param dry_run If True, only report what would be terminated.
+    @param timeout Maximum seconds for termination commands.
+    @returns List of process names that were terminated (or would be in dry-run).
+    """
+    from . import constants, logging_ext
+
+    human_logger = logging_ext.get_human_logger()
+
+    # Build the process list
+    if include_infrastructure:
+        processes = constants.ALL_OFFICE_PROCESSES
+    else:
+        processes = constants.DEFAULT_OFFICE_PROCESSES
+
+    # Find which processes are actually running
+    running = enumerate_processes(list(processes), timeout=timeout)
+
+    if not running:
+        human_logger.debug("No Office processes found running")
+        return []
+
+    human_logger.info("Found %d Office process(es) to terminate", len(running))
+
+    if dry_run:
+        for proc in running:
+            human_logger.info("[DRY-RUN] Would terminate: %s", proc)
+        return list(running)
+
+    terminate_office_processes(running, timeout=timeout)
+    return list(running)

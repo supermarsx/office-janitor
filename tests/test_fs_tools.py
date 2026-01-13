@@ -275,3 +275,83 @@ def test_get_default_backup_directory_override(tmp_path) -> None:
     result = fs_tools.get_default_backup_directory(env=env, platform="posix")
 
     assert result == tmp_path / "custom"
+
+
+# ---------------------------------------------------------------------------
+# Tests for MSOCache cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestMSOCacheConstants:
+    """Tests for MSOCache-related constants."""
+
+    def test_msocache_paths_include_c_drive(self) -> None:
+        """MSOCache paths should include C: drive."""
+        assert any("C:" in p for p in fs_tools.MSOCACHE_PATHS)
+
+    def test_product_patterns_include_office_versions(self) -> None:
+        """Product patterns should cover major Office versions."""
+        patterns = fs_tools.MSOCACHE_PRODUCT_PATTERNS
+        assert "office2016" in patterns
+        assert "office2013" in patterns
+        assert "visio" in patterns
+
+
+class TestDiscoverMsocachePaths:
+    """Tests for discover_msocache_paths function."""
+
+    def test_returns_empty_when_no_cache(self, monkeypatch) -> None:
+        """Should return empty list when no MSOCache exists."""
+        # Patch Path.exists to return False for all
+        monkeypatch.setattr(
+            pathlib.Path, "exists", lambda self: False
+        )
+        result = fs_tools.discover_msocache_paths()
+        assert result == []
+
+
+class TestEnumerateMsocacheProducts:
+    """Tests for enumerate_msocache_products function."""
+
+    def test_returns_list(self, tmp_path, monkeypatch) -> None:
+        """Should return list of product dicts."""
+        # Create fake MSOCache structure
+        cache_root = tmp_path / "MSOCache"
+        all_users = cache_root / "All Users"
+        office_dir = all_users / "Office2016_Something"
+        office_dir.mkdir(parents=True)
+
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.discover_msocache_paths",
+            lambda: [cache_root],
+        )
+
+        result = fs_tools.enumerate_msocache_products(cache_root)
+        assert isinstance(result, list)
+        if result:
+            assert "path" in result[0]
+            assert "name" in result[0]
+
+
+class TestCleanupMsocache:
+    """Tests for cleanup_msocache function."""
+
+    def test_dry_run_returns_count(self, monkeypatch) -> None:
+        """Dry run should return count without actual deletion."""
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.discover_msocache_paths",
+            lambda: [],
+        )
+
+        result = fs_tools.cleanup_msocache(dry_run=True)
+        assert result == 0
+
+    def test_with_product_filter(self, monkeypatch) -> None:
+        """Should filter by product type."""
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.enumerate_msocache_products",
+            lambda **kw: [],
+        )
+
+        result = fs_tools.cleanup_msocache(product_filter="office2016", dry_run=True)
+        assert result == 0

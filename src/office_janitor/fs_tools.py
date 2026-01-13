@@ -776,11 +776,167 @@ def get_default_backup_directory(
     return Path.cwd() / "backups"
 
 
+# ---------------------------------------------------------------------------
+# MSOCache (Local Installation Source) Cleanup
+# ---------------------------------------------------------------------------
+
+MSOCACHE_PATHS = (
+    r"C:\MSOCache",
+    r"D:\MSOCache",
+    r"E:\MSOCache",
+)
+"""!
+@brief Common locations for MSOCache (Local Installation Source) directories.
+@details MSOCache stores cached MSI files for Office repair/reinstall.
+"""
+
+MSOCACHE_PRODUCT_PATTERNS = {
+    "office2003": ("Office2003", "OffXp"),
+    "office2007": ("Office2007", "Off2007"),
+    "office2010": ("Office2010", "Off14"),
+    "office2013": ("Office2013", "Off15"),
+    "office2016": ("Office2016", "Off16"),
+    "office2019": ("Office2019",),
+    "office2021": ("Office2021",),
+    "visio": ("Visio",),
+    "project": ("Project",),
+}
+"""!
+@brief Pattern matches for identifying Office product caches within MSOCache.
+"""
+
+
+def discover_msocache_paths() -> list[Path]:
+    """!
+    @brief Discover all existing MSOCache directories.
+    @returns List of existing MSOCache root paths.
+    """
+    existing: list[Path] = []
+    for raw in MSOCACHE_PATHS:
+        path = Path(raw)
+        try:
+            if path.exists() and path.is_dir():
+                existing.append(path)
+        except OSError:
+            continue
+    return existing
+
+
+def enumerate_msocache_products(
+    root: Path | None = None,
+    *,
+    product_filter: str | None = None,
+) -> list[dict[str, object]]:
+    """!
+    @brief Enumerate Office products cached in MSOCache directories.
+    @param root Specific MSOCache root to scan. If None, scans all.
+    @param product_filter Only return products matching this key (e.g., "office2016").
+    @returns List of dicts with path, product type, and metadata.
+    """
+    human_logger = logging_ext.get_human_logger()
+    results: list[dict[str, object]] = []
+
+    roots = [root] if root else discover_msocache_paths()
+
+    for cache_root in roots:
+        if not cache_root.exists():
+            continue
+
+        try:
+            # MSOCache structure: MSOCache\All Users\{GUID}\... or MSOCache\All Users\ProductName\...
+            all_users_dir = cache_root / "All Users"
+            if all_users_dir.exists():
+                for child in all_users_dir.iterdir():
+                    if not child.is_dir():
+                        continue
+
+                    # Identify product type from directory name
+                    product_type = None
+                    for ptype, patterns in MSOCACHE_PRODUCT_PATTERNS.items():
+                        if any(pat.lower() in child.name.lower() for pat in patterns):
+                            product_type = ptype
+                            break
+
+                    if product_filter and product_type != product_filter:
+                        continue
+
+                    results.append(
+                        {
+                            "path": str(child),
+                            "product_type": product_type,
+                            "name": child.name,
+                            "root": str(cache_root),
+                        }
+                    )
+        except OSError as exc:
+            human_logger.debug("Error enumerating MSOCache %s: %s", cache_root, exc)
+
+    return results
+
+
+def cleanup_msocache(
+    *,
+    product_filter: str | None = None,
+    dry_run: bool = False,
+) -> int:
+    """!
+    @brief Remove MSOCache (LIS) directories.
+    @details VBS equivalent: MSOCacheDelete in OffScrub scripts.
+    Optionally filters by product type to only remove specific caches.
+    @param product_filter Only remove caches matching this product (e.g., "office2016").
+    @param dry_run If True, only report what would be removed.
+    @returns Number of directories removed.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    # If no filter, remove entire MSOCache roots
+    if product_filter is None:
+        roots = discover_msocache_paths()
+        if not roots:
+            human_logger.debug("No MSOCache directories found")
+            return 0
+
+        human_logger.info("Cleaning %d MSOCache root(s)", len(roots))
+
+        if dry_run:
+            for r in roots:
+                human_logger.info("[DRY-RUN] Would remove: %s", r)
+            return len(roots)
+
+        remove_paths(roots, dry_run=False)
+        return len(roots)
+
+    # Filter by product - enumerate and remove matching entries
+    products = enumerate_msocache_products(product_filter=product_filter)
+    if not products:
+        human_logger.debug("No MSOCache entries found for filter: %s", product_filter)
+        return 0
+
+    human_logger.info(
+        "Cleaning %d MSOCache entries for product: %s", len(products), product_filter
+    )
+
+    paths_to_remove = [Path(p["path"]) for p in products]
+
+    if dry_run:
+        for p in paths_to_remove:
+            human_logger.info("[DRY-RUN] Would remove: %s", p)
+        return len(paths_to_remove)
+
+    remove_paths(paths_to_remove, dry_run=False)
+    return len(paths_to_remove)
+
+
 __all__ = [
     "FILESYSTEM_BLACKLIST",
     "FILESYSTEM_WHITELIST",
+    "MSOCACHE_PATHS",
+    "MSOCACHE_PRODUCT_PATTERNS",
     "backup_path",
+    "cleanup_msocache",
+    "discover_msocache_paths",
     "discover_paths",
+    "enumerate_msocache_products",
     "filter_whitelisted_paths",
     "get_default_backup_directory",
     "get_default_log_directory",

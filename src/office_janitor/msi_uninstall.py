@@ -426,7 +426,9 @@ def build_command(product_code: str, *, maintenance_executable: str | None = Non
         cleaned = maintenance_executable.strip()
         if not cleaned:
             raise ValueError("maintenance_executable must be non-empty when provided")
-        return [cleaned, "/uninstall"]
+        # For setup.exe, use /uninstall with the product ID
+        # VBS equivalent: setup.exe /uninstall <ProductID> /dll OSETUP.DLL
+        return [cleaned, "/uninstall", product_code]
 
     normalized = _normalise_product_code(product_code)
     if not normalized:
@@ -441,6 +443,166 @@ def build_command(product_code: str, *, maintenance_executable: str | None = Non
         extra_args = [potential.strip()]
 
     return [*MSIEXEC_BASE_COMMAND, normalized, *MSIEXEC_ADDITIONAL_ARGS, *extra_args]
+
+
+# ---------------------------------------------------------------------------
+# Setup.exe Uninstall Orchestration (VBS parity)
+# ---------------------------------------------------------------------------
+
+SETUP_UNINSTALL_CONFIG_TEMPLATE = """<Configuration Product="{product_id}">
+  <Display Level="none" CompletionNotice="no" SuppressModal="yes" AcceptEula="yes" />
+  <Logging Type="verbose" Path="%temp%" />
+  <Setting Id="SETUP_REBOOT" Value="Never" />
+  <Setting Id="SETUP_REBOOT_PROMPT" Value="Never" />
+</Configuration>
+"""
+"""!
+@brief Template for generating setup.exe configuration XML.
+@details VBS equivalent: config.xml generation in SetupExeRemoval subroutine.
+"""
+
+
+def build_setup_config_xml(
+    product_id: str,
+    output_path: Path | str | None = None,
+) -> Path:
+    """!
+    @brief Generate a configuration XML file for setup.exe uninstall.
+    @details VBS equivalent: config.xml generation in O15/O16 MSI scripts.
+    @param product_id The Office product ID (e.g., "ProPlus", "Standard", etc.)
+    @param output_path Where to write the XML. Defaults to temp directory.
+    @returns Path to the generated XML file.
+    """
+    import tempfile
+
+    content = SETUP_UNINSTALL_CONFIG_TEMPLATE.format(product_id=product_id)
+
+    if output_path is None:
+        output_path = Path(tempfile.gettempdir()) / "OJUninstallConfig.xml"
+    else:
+        output_path = Path(output_path)
+
+    output_path.write_text(content, encoding="utf-8")
+    return output_path
+
+
+def find_setup_exe_from_registry(product_code: str) -> Path | None:
+    """!
+    @brief Locate setup.exe from registry InstallSource or InstallLocation.
+    @details VBS equivalent: setup.exe discovery in SetupExeRemoval.
+    @param product_code The MSI product code GUID.
+    @returns Path to setup.exe if found, None otherwise.
+    """
+    human_logger = logging_ext.get_human_logger()
+    normalized = _normalise_product_code(product_code)
+
+    # Check Uninstall registry keys
+    for hive, root in constants.MSI_UNINSTALL_ROOTS:
+        key_path = f"{root}\\{normalized}"
+        values = registry_tools.read_values(hive, key_path)
+        if not values:
+            continue
+
+        # Try InstallSource first
+        install_source = values.get("InstallSource", "")
+        if install_source and isinstance(install_source, str):
+            setup_path = Path(install_source) / "setup.exe"
+            if setup_path.exists():
+                human_logger.debug("Found setup.exe via InstallSource: %s", setup_path)
+                return setup_path
+
+        # Try InstallLocation
+        install_location = values.get("InstallLocation", "")
+        if install_location and isinstance(install_location, str):
+            setup_path = Path(install_location) / "setup.exe"
+            if setup_path.exists():
+                human_logger.debug("Found setup.exe via InstallLocation: %s", setup_path)
+                return setup_path
+
+    return None
+
+
+def attempt_setup_exe_removal(
+    product_code: str,
+    product_id: str,
+    *,
+    dry_run: bool = False,
+    timeout: int = MSIEXEC_TIMEOUT,
+) -> bool:
+    """!
+    @brief Try Office setup.exe for cleaner uninstall before msiexec fallback.
+    @details VBS equivalent: SetupExeRemoval subroutine in O15/O16 scripts.
+    Steps:
+    1. Locate setup.exe from InstallSource or InstallLocation registry
+    2. Build uninstall config XML
+    3. Execute: setup.exe /uninstall <ProductID> /config <xml>
+    4. Return True if successful, False to try msiexec
+    @param product_code The MSI product code GUID.
+    @param product_id The Office product ID (e.g., "ProPlus").
+    @param dry_run If True, only log what would be done.
+    @param timeout Command timeout in seconds.
+    @returns True if uninstall succeeded, False otherwise.
+    """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    # Try to find setup.exe
+    setup_exe = find_setup_exe_from_registry(product_code)
+    if not setup_exe:
+        human_logger.debug("setup.exe not found for product %s", product_code)
+        return False
+
+    # Build config XML
+    config_xml = build_setup_config_xml(product_id)
+
+    command = [
+        str(setup_exe),
+        "/uninstall",
+        product_id,
+        "/config",
+        str(config_xml),
+    ]
+
+    if dry_run:
+        human_logger.info("[DRY-RUN] Would execute: %s", " ".join(command))
+        return True
+
+    human_logger.info("Attempting setup.exe removal for %s", product_id)
+    machine_logger.info(
+        "msi_setup_exe_removal_start",
+        extra={
+            "event": "msi_setup_exe_removal_start",
+            "product_code": product_code,
+            "product_id": product_id,
+            "setup_exe": str(setup_exe),
+            "config_xml": str(config_xml),
+        },
+    )
+
+    result = command_runner.run_command(
+        command,
+        event="msi_setup_exe_uninstall",
+        timeout=timeout,
+    )
+
+    machine_logger.info(
+        "msi_setup_exe_removal_complete",
+        extra={
+            "event": "msi_setup_exe_removal_complete",
+            "product_code": product_code,
+            "product_id": product_id,
+            "exit_code": result.returncode,
+        },
+    )
+
+    if result.returncode == 0:
+        human_logger.info("setup.exe removal completed successfully for %s", product_id)
+        return True
+
+    human_logger.warning(
+        "setup.exe removal returned %d for %s", result.returncode, product_id
+    )
+    return False
 
 
 def _run_uninstall_command(

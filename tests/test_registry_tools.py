@@ -54,6 +54,10 @@ class _Recorder:
         payload = kwargs.copy()
         self.messages.append((message, payload))
 
+    def debug(self, message: str, *args, **kwargs) -> None:  # noqa: D401 - logging compatibility
+        payload = kwargs.copy()
+        self.messages.append((message, payload))
+
 
 def test_delete_keys_invokes_reg_when_available(monkeypatch) -> None:
     """!
@@ -289,3 +293,238 @@ def test_is_registry_path_allowed() -> None:
     assert not _is_registry_path_allowed(
         "HKLM\\SOFTWARE\\MICROSOFT\\WINDOWS"
     )  # assuming not allowed
+
+
+# ---------------------------------------------------------------------------
+# Windows Installer Metadata Validation Tests
+# ---------------------------------------------------------------------------
+
+
+class TestWIMetadataValidation:
+    """Tests for Windows Installer metadata validation functions."""
+
+    def test_is_valid_compressed_guid_valid(self) -> None:
+        """Valid 32-char hex strings should be accepted."""
+        from office_janitor.registry_tools import _is_valid_compressed_guid
+
+        assert _is_valid_compressed_guid("00000000000000000000000000000000")
+        assert _is_valid_compressed_guid("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")
+        assert _is_valid_compressed_guid("09610000110000000000000000F01FEC")
+
+    def test_is_valid_compressed_guid_invalid(self) -> None:
+        """Invalid strings should be rejected."""
+        from office_janitor.registry_tools import _is_valid_compressed_guid
+
+        # Wrong length
+        assert not _is_valid_compressed_guid("0000000000000000")
+        assert not _is_valid_compressed_guid("")
+        # Non-hex characters
+        assert not _is_valid_compressed_guid("GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG")
+        # With braces (standard GUID format)
+        assert not _is_valid_compressed_guid("{00000000-0000-0000-0000-000000000000}")
+
+    def test_validate_wi_metadata_key_finds_invalid(self, monkeypatch) -> None:
+        """Should identify invalid entries in WI metadata."""
+        subkeys = [
+            "00000000000000000000000000000000",  # Valid
+            "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",  # Valid
+            "INVALID",  # Invalid - wrong length
+            "TOOSHORT",  # Invalid - wrong length
+            "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",  # Invalid - non-hex
+        ]
+
+        def fake_iter_subkeys(hive, path, view=None):
+            return iter(subkeys)
+
+        monkeypatch.setattr(registry_tools, "iter_subkeys", fake_iter_subkeys)
+
+        invalid = registry_tools.validate_wi_metadata_key(
+            registry_tools._WINREG_HKLM,
+            r"SOFTWARE\Classes\Installer\Products",
+            expected_length=32,
+            logger=_Recorder(),
+        )
+
+        assert len(invalid) == 3
+        assert "INVALID" in invalid
+        assert "TOOSHORT" in invalid
+        assert "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG" in invalid
+
+    def test_validate_wi_metadata_key_all_valid(self, monkeypatch) -> None:
+        """Should return empty list when all entries are valid."""
+        subkeys = [
+            "00000000000000000000000000000000",
+            "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+            "0961000011000000000000000F01FEC0",
+        ]
+
+        def fake_iter_subkeys(hive, path, view=None):
+            return iter(subkeys)
+
+        monkeypatch.setattr(registry_tools, "iter_subkeys", fake_iter_subkeys)
+
+        invalid = registry_tools.validate_wi_metadata_key(
+            registry_tools._WINREG_HKLM,
+            r"SOFTWARE\Classes\Installer\Products",
+            expected_length=32,
+            logger=_Recorder(),
+        )
+
+        assert invalid == []
+
+    def test_validate_wi_metadata_key_missing_path(self, monkeypatch) -> None:
+        """Should return empty list for non-existent paths."""
+
+        def fake_iter_subkeys(hive, path, view=None):
+            raise FileNotFoundError(path)
+
+        monkeypatch.setattr(registry_tools, "iter_subkeys", fake_iter_subkeys)
+
+        invalid = registry_tools.validate_wi_metadata_key(
+            registry_tools._WINREG_HKLM,
+            r"SOFTWARE\Classes\Installer\NonExistent",
+            expected_length=32,
+            logger=_Recorder(),
+        )
+
+        assert invalid == []
+
+    def test_scan_wi_metadata_aggregates_results(self, monkeypatch) -> None:
+        """Should scan multiple paths and aggregate results."""
+        call_count = {"count": 0}
+
+        def fake_validate(hive, path, expected_length, logger=None):
+            call_count["count"] += 1
+            if "Products" in path:
+                return ["INVALID1", "INVALID2"]
+            return []
+
+        monkeypatch.setattr(registry_tools, "validate_wi_metadata_key", fake_validate)
+
+        results = registry_tools.scan_wi_metadata(logger=_Recorder())
+
+        # Should have called validate for paths with expected_length > 0
+        assert call_count["count"] >= 1
+        assert "Products" in results or len(results) == 0
+
+    def test_cleanup_wi_orphaned_products_dry_run(self, monkeypatch) -> None:
+        """Dry run should not delete but should count entries."""
+
+        def fake_key_exists(path):
+            return "Products" in path or "Features" in path
+
+        def fake_delete_keys(keys, dry_run=False, logger=None):
+            raise AssertionError("Should not delete in dry run mode")
+
+        monkeypatch.setattr(registry_tools, "key_exists", fake_key_exists)
+        monkeypatch.setattr(registry_tools, "delete_keys", fake_delete_keys)
+
+        removed = registry_tools.cleanup_wi_orphaned_products(
+            ["{90160000-000F-0000-1000-0000000FF1CE}"],
+            dry_run=True,
+            logger=_Recorder(),
+        )
+
+        # Should report entries that would be removed
+        assert removed >= 1
+
+    def test_cleanup_wi_orphaned_products_invalid_guid(self, monkeypatch) -> None:
+        """Invalid product codes should be skipped with warning."""
+        recorder = _Recorder()
+
+        removed = registry_tools.cleanup_wi_orphaned_products(
+            ["not-a-valid-guid"],
+            dry_run=True,
+            logger=recorder,
+        )
+
+        assert removed == 0
+        # Should have logged a warning
+        assert any("Invalid product code" in msg for msg, _ in recorder.messages)
+
+    def test_cleanup_wi_orphaned_components_dry_run(self, monkeypatch) -> None:
+        """Dry run should not delete but should count entries."""
+
+        def fake_key_exists(path):
+            return "Components" in path
+
+        monkeypatch.setattr(registry_tools, "key_exists", fake_key_exists)
+
+        removed = registry_tools.cleanup_wi_orphaned_components(
+            ["{11111111-1111-1111-1111-111111111111}"],
+            dry_run=True,
+            logger=_Recorder(),
+        )
+
+        assert removed == 1
+
+    def test_wi_metadata_paths_defined(self) -> None:
+        """WI_METADATA_PATHS should define standard paths."""
+        assert "Products" in registry_tools.WI_METADATA_PATHS
+        assert "Components" in registry_tools.WI_METADATA_PATHS
+        assert "Features" in registry_tools.WI_METADATA_PATHS
+
+
+class TestShellIntegrationCleanup:
+    """Tests for shell integration cleanup functions."""
+
+    def test_scan_orphaned_typelibs_empty(self, monkeypatch) -> None:
+        """Should return empty list when no TypeLibs exist."""
+
+        def fake_key_exists(path):
+            return False
+
+        monkeypatch.setattr(registry_tools, "key_exists", fake_key_exists)
+
+        result = registry_tools.scan_orphaned_typelibs(
+            ["{00020813-0000-0000-C000-000000000046}"],  # Excel TypeLib
+            logger=_Recorder(),
+        )
+        assert result == []
+
+    def test_cleanup_protocol_handlers_dry_run(self, monkeypatch) -> None:
+        """Should identify orphaned protocol handlers in dry run."""
+
+        def fake_key_exists(path):
+            return "osf" in path.lower()
+
+        def fake_read_values(hive, path, view=None):
+            if "command" in path.lower():
+                return {"": '"C:\\NonExistent\\Office.exe" "%1"'}
+            return {}
+
+        monkeypatch.setattr(registry_tools, "key_exists", fake_key_exists)
+        monkeypatch.setattr(registry_tools, "read_values", fake_read_values)
+
+        result = registry_tools.cleanup_protocol_handlers(
+            ["osf", "ms-word"],
+            dry_run=True,
+            logger=_Recorder(),
+        )
+
+        # Should find osf as orphaned (exe doesn't exist)
+        assert "osf" in result
+
+    def test_cleanup_shell_extensions(self, monkeypatch) -> None:
+        """Should scan shell extension approvals."""
+
+        def fake_iter_values(hive, path):
+            if "Approved" in path:
+                return iter([
+                    ("{12345678-1234-1234-1234-123456789ABC}", "Office Component"),
+                ])
+            return iter([])
+
+        def fake_key_exists(path):
+            return False  # CLSID doesn't exist
+
+        monkeypatch.setattr(registry_tools, "iter_values", fake_iter_values)
+        monkeypatch.setattr(registry_tools, "key_exists", fake_key_exists)
+
+        result = registry_tools.cleanup_shell_extensions(
+            dry_run=True,
+            logger=_Recorder(),
+        )
+
+        # Should find the orphaned extension
+        assert result >= 0

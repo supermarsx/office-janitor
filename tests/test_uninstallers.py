@@ -139,7 +139,8 @@ def test_msi_uninstall_falls_back_to_setup_when_msiexec_fails(monkeypatch, tmp_p
     msiexec_command, msiexec_event, _ = msiexec_events[0]
     setup_command, setup_event, dry_run = setup_events[-1]
     assert msiexec_event == "msi_uninstall"
-    assert setup_command[1:] == ["/uninstall"]
+    # setup.exe command now includes product code: [setup.exe, /uninstall, {GUID}]
+    assert "/uninstall" in setup_command
     assert setup_event == "msi_setup_uninstall"
     assert dry_run is False
     assert False in probe_states, "Verification should observe removal state"
@@ -469,3 +470,107 @@ def test_c2r_uninstall_dry_run(monkeypatch, tmp_path) -> None:
     )
 
     assert executed, "Dry-run should still build a command"
+
+
+# ---------------------------------------------------------------------------
+# Tests for ODT (Office Deployment Tool) functions
+# ---------------------------------------------------------------------------
+
+
+class TestBuildRemoveXml:
+    """Tests for build_remove_xml function."""
+
+    def test_creates_xml_file(self, tmp_path) -> None:
+        """Should create an XML file with removal config."""
+        output = tmp_path / "RemoveAll.xml"
+        result = c2r_uninstall.build_remove_xml(output, quiet=True)
+
+        assert result == output
+        assert output.exists()
+        content = output.read_text()
+        assert "<Configuration>" in content
+        assert "Remove All" in content
+        assert "TRUE" in content
+
+    def test_quiet_mode_uses_none_level(self, tmp_path) -> None:
+        """Quiet mode should use Display Level None."""
+        output = tmp_path / "quiet.xml"
+        c2r_uninstall.build_remove_xml(output, quiet=True)
+
+        content = output.read_text()
+        assert 'Level="None"' in content
+
+    def test_interactive_mode_uses_full_level(self, tmp_path) -> None:
+        """Non-quiet mode should use Display Level Full."""
+        output = tmp_path / "interactive.xml"
+        c2r_uninstall.build_remove_xml(output, quiet=False)
+
+        content = output.read_text()
+        assert 'Level="Full"' in content
+
+
+class TestOdtDownloadUrls:
+    """Tests for ODT download URL constants."""
+
+    def test_urls_defined_for_common_versions(self) -> None:
+        """Should have URLs for Office 15 and 16."""
+        assert 16 in c2r_uninstall.ODT_DOWNLOAD_URLS
+        assert 15 in c2r_uninstall.ODT_DOWNLOAD_URLS
+
+    def test_urls_are_https_or_http(self) -> None:
+        """URLs should be proper HTTP(S) URLs."""
+        for version, url in c2r_uninstall.ODT_DOWNLOAD_URLS.items():
+            assert url.startswith("http://") or url.startswith("https://")
+
+
+class TestDownloadOdt:
+    """Tests for download_odt function."""
+
+    def test_dry_run_returns_path_without_download(self, tmp_path) -> None:
+        """Dry run should return expected path without downloading."""
+        result = c2r_uninstall.download_odt(16, tmp_path, dry_run=True)
+
+        assert result is not None
+        assert result == tmp_path / "setup.exe"
+
+    def test_returns_none_for_invalid_version(self, tmp_path) -> None:
+        """Should return None for unsupported version."""
+        result = c2r_uninstall.download_odt(999, tmp_path, dry_run=True)
+
+        # Version 999 doesn't exist in ODT_DOWNLOAD_URLS
+        assert result is None
+
+
+class TestFindOrDownloadOdt:
+    """Tests for find_or_download_odt function."""
+
+    def test_finds_existing_setup(self, tmp_path, monkeypatch) -> None:
+        """Should find local setup.exe without downloading."""
+        setup_path = tmp_path / "setup.exe"
+        setup_path.write_text("fake")
+
+        monkeypatch.setattr(
+            c2r_uninstall, "C2R_SETUP_CANDIDATES", (setup_path,)
+        )
+
+        result = c2r_uninstall.find_or_download_odt()
+        assert result == setup_path
+
+
+class TestUninstallViaOdt:
+    """Tests for uninstall_via_odt function."""
+
+    def test_dry_run_returns_success(self, tmp_path, monkeypatch) -> None:
+        """Dry run should return 0 without execution."""
+        setup_path = tmp_path / "setup.exe"
+        setup_path.write_text("fake")
+
+        result = c2r_uninstall.uninstall_via_odt(setup_path, dry_run=True)
+        assert result == 0
+
+    def test_returns_error_for_missing_odt(self, tmp_path) -> None:
+        """Should return error code when ODT not found."""
+        result = c2r_uninstall.uninstall_via_odt(
+            tmp_path / "missing.exe", dry_run=False
+        )
+        assert result != 0

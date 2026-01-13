@@ -12,8 +12,16 @@ import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from string import Template
+from typing import Any
 
 from . import constants, exec_utils, fs_tools, logging_ext, registry_tools
+
+# Office Software Protection Platform Application ID
+OFFICE_APPLICATION_ID = "0ff1ce15-a989-479d-af46-f275c6370663"
+"""!
+@brief The Application ID used by Office in the Software Licensing Service.
+@details This GUID identifies Office licenses in SoftwareLicensingProduct WMI queries.
+"""
 
 LICENSE_SCRIPT_TEMPLATE = Template(
     r"""
@@ -447,7 +455,275 @@ def get_cleanoffice_embedded(draft_path: Path | None = None) -> str:
     return payload
 
 
+# ---------------------------------------------------------------------------
+# WMI-Based License Cleanup (VBS parity: CleanOSPP subroutine)
+# ---------------------------------------------------------------------------
+
+
+def _query_wmi_licenses(
+    application_id: str = OFFICE_APPLICATION_ID,
+) -> list[dict[str, Any]]:
+    """!
+    @brief Query WMI for Office licenses from Software Protection Platform.
+    @details Uses SoftwareLicensingProduct (Win8+) or falls back to
+    OfficeSoftwareProtectionProduct (Win7).
+    @param application_id The ApplicationId GUID to filter licenses.
+    @returns List of license info dicts with ID, Name, PartialProductKey, ProductKeyID.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    # Build WMI query via PowerShell (avoids pywin32 dependency)
+    query = f"""
+$results = @()
+try {{
+    $licenses = Get-WmiObject -Query "SELECT ID, Name, PartialProductKey, ProductKeyID FROM SoftwareLicensingProduct WHERE ApplicationId = '{application_id}' AND PartialProductKey IS NOT NULL" -ErrorAction Stop
+    foreach ($lic in $licenses) {{
+        $results += @{{
+            ID = $lic.ID
+            Name = $lic.Name
+            PartialProductKey = $lic.PartialProductKey
+            ProductKeyID = $lic.ProductKeyID
+        }}
+    }}
+}} catch {{
+    # Try OSPP (Win7)
+    try {{
+        $licenses = Get-WmiObject -Query "SELECT ID, Name, PartialProductKey, ProductKeyID FROM OfficeSoftwareProtectionProduct WHERE ApplicationId = '{application_id}' AND PartialProductKey IS NOT NULL" -ErrorAction Stop
+        foreach ($lic in $licenses) {{
+            $results += @{{
+                ID = $lic.ID
+                Name = $lic.Name
+                PartialProductKey = $lic.PartialProductKey
+                ProductKeyID = $lic.ProductKeyID
+            }}
+        }}
+    }} catch {{}}
+}}
+$results | ConvertTo-Json -Compress
+"""
+
+    result = exec_utils.run_command(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", query],
+        event="query_wmi_licenses",
+    )
+
+    if result.returncode != 0 or not result.stdout:
+        human_logger.debug("WMI license query returned no results or failed")
+        return []
+
+    import json
+
+    try:
+        data = json.loads(result.stdout.strip())
+        if isinstance(data, dict):
+            return [data]
+        return list(data) if data else []
+    except json.JSONDecodeError:
+        human_logger.debug("Failed to parse WMI license query output")
+        return []
+
+
+def clean_ospp_licenses_wmi(
+    *,
+    dry_run: bool = False,
+    application_id: str = OFFICE_APPLICATION_ID,
+) -> list[str]:
+    """!
+    @brief Remove Office licenses from Software Protection Platform via WMI.
+    @details VBS equivalent: CleanOSPP subroutine in OffScrubC2R.vbs.
+    Uses SoftwareLicensingProduct.UninstallProductKey method.
+    @param dry_run If True, only report what would be removed without taking action.
+    @param application_id The Application GUID to filter (defaults to Office).
+    @returns List of license names that were removed.
+    """
+    human_logger = logging_ext.get_human_logger()
+    removed: list[str] = []
+
+    licenses = _query_wmi_licenses(application_id)
+    if not licenses:
+        human_logger.info("No Office licenses found in Software Protection Platform")
+        return removed
+
+    human_logger.info("Found %d Office license(s) to remove", len(licenses))
+
+    for lic in licenses:
+        name = lic.get("Name", "Unknown")
+        product_key_id = lic.get("ProductKeyID", "")
+        partial_key = lic.get("PartialProductKey", "")
+
+        if dry_run:
+            human_logger.info(
+                "[DRY-RUN] Would remove license: %s (key ending: %s)",
+                name,
+                partial_key,
+            )
+            removed.append(name)
+            continue
+
+        # Invoke UninstallProductKey via PowerShell
+        uninstall_cmd = f"""
+try {{
+    $lic = Get-WmiObject -Query "SELECT * FROM SoftwareLicensingProduct WHERE ProductKeyID = '{product_key_id}'"
+    if ($lic) {{
+        $lic.UninstallProductKey($lic.ProductKeyID)
+        Write-Output "OK"
+    }}
+}} catch {{
+    try {{
+        $lic = Get-WmiObject -Query "SELECT * FROM OfficeSoftwareProtectionProduct WHERE ProductKeyID = '{product_key_id}'"
+        if ($lic) {{
+            $lic.UninstallProductKey($lic.ProductKeyID)
+            Write-Output "OK"
+        }}
+    }} catch {{
+        Write-Output "FAIL"
+    }}
+}}
+"""
+        result = exec_utils.run_command(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", uninstall_cmd],
+            event="uninstall_license_wmi",
+        )
+
+        if result.returncode == 0 and "OK" in (result.stdout or ""):
+            human_logger.info("Removed license: %s (key ending: %s)", name, partial_key)
+            removed.append(name)
+        else:
+            human_logger.warning("Failed to remove license: %s", name)
+
+    return removed
+
+
+def clean_vnext_cache(*, dry_run: bool = False) -> int:
+    """!
+    @brief Remove vNext license cache directories.
+    @details VBS equivalent: ClearVNextLicCache subroutine in OffScrubC2R.vbs.
+    Removes %LOCALAPPDATA%\\Microsoft\\Office\\Licenses and related paths.
+    @param dry_run If True, only report what would be removed.
+    @returns Number of paths cleaned.
+    """
+    import os
+
+    human_logger = logging_ext.get_human_logger()
+
+    cache_paths = [
+        Path(os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Office\Licenses")),
+        Path(os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Office\16.0\Licensing")),
+        Path(os.path.expandvars(r"%PROGRAMDATA%\Microsoft\Office\Licenses")),
+    ]
+
+    existing = [p for p in cache_paths if p.exists()]
+    if not existing:
+        human_logger.debug("No vNext license caches found")
+        return 0
+
+    human_logger.info("Cleaning %d vNext license cache(s)", len(existing))
+
+    if dry_run:
+        for p in existing:
+            human_logger.info("[DRY-RUN] Would remove: %s", p)
+        return len(existing)
+
+    fs_tools.remove_paths(existing, dry_run=False)
+    return len(existing)
+
+
+def clean_activation_tokens(*, dry_run: bool = False) -> int:
+    """!
+    @brief Remove Office activation token files.
+    @details Cleans up token-based activation artifacts left behind after uninstall.
+    @param dry_run If True, only report what would be removed.
+    @returns Number of paths cleaned.
+    """
+    import os
+
+    human_logger = logging_ext.get_human_logger()
+
+    token_paths = [
+        Path(os.path.expandvars(r"%PROGRAMDATA%\Microsoft\OfficeSoftwareProtectionPlatform")),
+        Path(os.path.expandvars(r"%PROGRAMDATA%\Microsoft\OfficeSoftwareProtectionPlatform\Backup")),
+        Path(os.path.expandvars(r"%ALLUSERSPROFILE%\Microsoft\OfficeSoftwareProtectionPlatform")),
+    ]
+
+    existing = [p for p in token_paths if p.exists()]
+    if not existing:
+        human_logger.debug("No activation token paths found")
+        return 0
+
+    human_logger.info("Cleaning %d activation token path(s)", len(existing))
+
+    if dry_run:
+        for p in existing:
+            human_logger.info("[DRY-RUN] Would remove: %s", p)
+        return len(existing)
+
+    fs_tools.remove_paths(existing, dry_run=False)
+    return len(existing)
+
+
+def clean_scl_cache(*, dry_run: bool = False) -> int:
+    """!
+    @brief Remove Shared Computer Licensing cache.
+    @details Cleans up SCL token and cache directories used in shared activation scenarios.
+    @param dry_run If True, only report what would be removed.
+    @returns Number of paths cleaned.
+    """
+    import os
+
+    human_logger = logging_ext.get_human_logger()
+
+    scl_paths = [
+        Path(os.path.expandvars(r"%PROGRAMDATA%\Microsoft\Office\SharedComputerLicensing")),
+        Path(os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Office\SharedComputerLicensing")),
+    ]
+
+    existing = [p for p in scl_paths if p.exists()]
+    if not existing:
+        human_logger.debug("No SCL cache paths found")
+        return 0
+
+    human_logger.info("Cleaning %d SCL cache path(s)", len(existing))
+
+    if dry_run:
+        for p in existing:
+            human_logger.info("[DRY-RUN] Would remove: %s", p)
+        return len(existing)
+
+    fs_tools.remove_paths(existing, dry_run=False)
+    return len(existing)
+
+
+def full_license_cleanup(
+    *,
+    dry_run: bool = False,
+    keep_license: bool = False,
+) -> dict[str, Any]:
+    """!
+    @brief Complete Office license cleanup combining all license removal methods.
+    @details VBS parity: CleanOSPP + ClearVNextLicCache combined.
+    @param dry_run If True, only report what would be removed.
+    @param keep_license If True, skip license cleanup entirely.
+    @returns Dict with counts of cleaned items per category.
+    """
+    if keep_license:
+        return {"skipped": True, "reason": "keep_license flag set"}
+
+    results: dict[str, Any] = {}
+    results["ospp_wmi"] = clean_ospp_licenses_wmi(dry_run=dry_run)
+    results["vnext_cache"] = clean_vnext_cache(dry_run=dry_run)
+    results["activation_tokens"] = clean_activation_tokens(dry_run=dry_run)
+    results["scl_cache"] = clean_scl_cache(dry_run=dry_run)
+
+    return results
+
+
 __all__ = [
     "cleanup_licenses",
     "get_cleanoffice_embedded",
+    "OFFICE_APPLICATION_ID",
+    "clean_ospp_licenses_wmi",
+    "clean_vnext_cache",
+    "clean_activation_tokens",
+    "clean_scl_cache",
+    "full_license_cleanup",
 ]
