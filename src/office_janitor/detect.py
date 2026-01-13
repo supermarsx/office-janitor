@@ -507,6 +507,89 @@ def _probe_msi_powershell() -> dict[str, dict[str, Any]]:
     return results
 
 
+def detect_appx_packages() -> list[dict[str, object]]:
+    """!
+    @brief Detect installed Office AppX/MSIX packages (modern Windows apps).
+    @details Uses PowerShell Get-AppxPackage to enumerate installed modern
+    Office apps. These are separate from MSI and Click-to-Run installations.
+    """
+    
+    # PowerShell script to get Office-related AppX packages
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        "$packages = Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | "
+        "Where-Object { "
+        "$_.Name -like '*Microsoft.Office*' -or "
+        "$_.Name -like '*Microsoft.365*' -or "
+        "$_.Name -like '*Microsoft.MicrosoftOffice*' -or "
+        "$_.Name -like '*Microsoft.Outlook*' -or "
+        "$_.Name -like '*Microsoft.Excel*' -or "
+        "$_.Name -like '*Microsoft.Word*' -or "
+        "$_.Name -like '*Microsoft.PowerPoint*' -or "
+        "$_.Name -like '*Microsoft.OneNote*' -or "
+        "$_.Name -like '*Microsoft.Visio*' -or "
+        "$_.Name -like '*Microsoft.Project*' -or "
+        "$_.Name -like '*Microsoft.Access*' "
+        "} | "
+        "Select-Object Name,PackageFullName,Version,Architecture,InstallLocation,Publisher;"
+        "if($packages){$packages|ConvertTo-Json -Compress}else{''}"
+    )
+    
+    code, output = _run_command(["powershell", "-NoProfile", "-Command", script])
+    if code != 0 or not output.strip():
+        return []
+    
+    text = output.strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    
+    records = payload if isinstance(payload, list) else [payload]
+    results: list[dict[str, object]] = []
+    
+    # Exclusion patterns for non-Office apps
+    exclusions = (
+        "teams",
+        "visualstudio",
+        "vscode",
+        "azure",
+        "sql",
+        "powershell",
+    )
+    
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        
+        name = str(record.get("Name") or "").strip()
+        if not name:
+            continue
+        
+        # Skip excluded packages
+        name_lower = name.lower()
+        if any(excl in name_lower for excl in exclusions):
+            continue
+        
+        package_full_name = str(record.get("PackageFullName") or "").strip()
+        version = str(record.get("Version") or "").strip()
+        architecture = str(record.get("Architecture") or "").strip()
+        install_location = str(record.get("InstallLocation") or "").strip()
+        publisher = str(record.get("Publisher") or "").strip()
+        
+        results.append({
+            "name": name,
+            "package_full_name": package_full_name,
+            "version": version,
+            "architecture": architecture,
+            "install_location": install_location,
+            "publisher": publisher,
+            "source": "AppX",
+        })
+    
+    return results
+
+
 def detect_msi_installations(
     *,
     skip_slow_probes: bool = False,
@@ -918,6 +1001,12 @@ def gather_office_inventory(
         _report("Checking scheduled tasks", "ok")
         return result
 
+    def _detect_appx() -> list[dict[str, object]]:
+        _report("Scanning AppX/MSIX packages")
+        result = detect_appx_packages()
+        _report("Scanning AppX/MSIX packages", "ok")
+        return result
+
     def _detect_activation() -> dict[str, object]:
         _report("Gathering activation/licensing state")
         result = gather_activation_state()
@@ -988,13 +1077,14 @@ def gather_office_inventory(
     if parallel:
         try:
             with concurrent.futures.ThreadPoolExecutor(
-                max_workers=10, thread_name_prefix="detect"
+                max_workers=12, thread_name_prefix="detect"
             ) as executor:
                 # Start all tasks immediately (including WMI/PS as separate tasks)
                 c2r_future = executor.submit(_detect_c2r)
                 processes_future = executor.submit(_detect_processes)
                 services_future = executor.submit(_detect_services)
                 tasks_future = executor.submit(_detect_tasks)
+                appx_future = executor.submit(_detect_appx)
                 activation_future = executor.submit(_detect_activation)
                 registry_future = executor.submit(_detect_registry)
                 filesystem_future = executor.submit(_detect_filesystem)
@@ -1022,6 +1112,7 @@ def gather_office_inventory(
                 processes_list = processes_future.result()
                 services_list = services_future.result()
                 tasks_list = tasks_future.result()
+                appx_list = appx_future.result()
                 activation_info = activation_future.result()
                 registry_residue = registry_future.result()
                 filesystem_list = filesystem_future.result()
@@ -1048,6 +1139,7 @@ def gather_office_inventory(
         processes_list = _detect_processes()
         services_list = _detect_services()
         tasks_list = _detect_tasks()
+        appx_list = _detect_appx()
         activation_info = _detect_activation()
         registry_residue = _detect_registry()
         filesystem_list = _detect_filesystem()
@@ -1056,6 +1148,7 @@ def gather_office_inventory(
         "context": context_info,
         "msi": msi_list,
         "c2r": c2r_list,
+        "appx": appx_list,
         "filesystem": filesystem_list,
         "processes": processes_list,
         "services": services_list,
