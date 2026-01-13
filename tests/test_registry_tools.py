@@ -530,3 +530,157 @@ class TestShellIntegrationCleanup:
 
         # Should find the orphaned extension
         assert result >= 0
+
+
+class TestOfficeGuidDetection:
+    """Tests for is_office_guid and squished GUID decoding."""
+
+    def test_is_office_guid_valid_office_2016(self) -> None:
+        """Should detect Office 2016+ GUIDs with correct pattern."""
+        # Office 2016 Pro Plus x64: version 16, SKU 007E
+        guid = "{90160000-007E-0000-1000-0000000FF1CE}"
+        assert registry_tools.is_office_guid(guid) is True
+
+    def test_is_office_guid_valid_office_2019(self) -> None:
+        """Should detect Office 2019 GUIDs."""
+        # Office 2019 pattern: version 19, SKU 008F
+        guid = "{90190000-008F-0000-1000-0000000FF1CE}"
+        assert registry_tools.is_office_guid(guid) is True
+
+    def test_is_office_guid_office_2010_rejected(self) -> None:
+        """Should reject Office 2010 (version 14) GUIDs."""
+        guid = "{90140000-007E-0000-1000-0000000FF1CE}"
+        assert registry_tools.is_office_guid(guid) is False
+
+    def test_is_office_guid_wrong_suffix(self) -> None:
+        """Should reject GUIDs without Office suffix."""
+        guid = "{90160000-007E-0000-1000-000000000000}"
+        assert registry_tools.is_office_guid(guid) is False
+
+    def test_is_office_guid_wrong_sku(self) -> None:
+        """Should reject GUIDs with non-C2R SKU codes."""
+        guid = "{90160000-ABCD-0000-1000-0000000FF1CE}"
+        assert registry_tools.is_office_guid(guid) is False
+
+    def test_is_office_guid_special_mosa_x64(self) -> None:
+        """Should detect MOSA x64 special GUID."""
+        guid = "{6C1ADE97-24E1-4AE4-AEDD-86D3A209CE60}"
+        assert registry_tools.is_office_guid(guid) is True
+
+    def test_is_office_guid_special_mosa_x86(self) -> None:
+        """Should detect MOSA x86 special GUID."""
+        guid = "{9520DDEB-237A-41DB-AA20-F2EF2360DCEB}"
+        assert registry_tools.is_office_guid(guid) is True
+
+    def test_is_office_guid_invalid_length(self) -> None:
+        """Should reject GUIDs with wrong length."""
+        assert registry_tools.is_office_guid("") is False
+        assert registry_tools.is_office_guid("{SHORT}") is False
+        assert registry_tools.is_office_guid("A" * 100) is False
+
+    def test_decode_squished_guid_valid(self) -> None:
+        """Should decode squished GUID to standard format."""
+        # Known Office GUID: {90160000-0011-0000-0000-0000000FF1CE}
+        # Squished: 00061009110000000000000000F1EC10
+        # Let's verify the algorithm with a simpler test
+        squished = "00061009110000000000000000F1EC10"
+        result = registry_tools._decode_squished_guid(squished)
+        # The squished format reverses segments
+        assert result is not None
+        assert result.startswith("{")
+        assert result.endswith("}")
+        assert len(result) == 38
+
+    def test_decode_squished_guid_too_short(self) -> None:
+        """Should return None for too-short input."""
+        assert registry_tools._decode_squished_guid("ABCD") is None
+        assert registry_tools._decode_squished_guid("") is None
+        assert registry_tools._decode_squished_guid(None) is None
+
+
+class TestFilterMultiStringValue:
+    """Tests for REG_MULTI_SZ filtering."""
+
+    def test_filter_keeps_non_matching_entries(self, monkeypatch) -> None:
+        """Should keep entries that pass the predicate."""
+
+        def fake_get_value(root, path, value_name, view=None):
+            return ["keep1", "remove", "keep2"]
+
+        monkeypatch.setattr(registry_tools, "get_value", fake_get_value)
+        monkeypatch.setattr(registry_tools, "_ensure_winreg", lambda: None)
+
+        result = registry_tools.filter_multi_string_value(
+            0,
+            "test\\path",
+            "TestValue",
+            lambda x: x.startswith("keep"),
+            dry_run=True,
+            logger=_Recorder(),
+        )
+
+        assert result["entries_kept"] == ["keep1", "keep2"]
+        assert result["entries_removed"] == ["remove"]
+
+    def test_filter_no_change_when_all_kept(self, monkeypatch) -> None:
+        """Should report no changes when all entries are kept."""
+
+        def fake_get_value(root, path, value_name, view=None):
+            return ["keep1", "keep2"]
+
+        monkeypatch.setattr(registry_tools, "get_value", fake_get_value)
+        monkeypatch.setattr(registry_tools, "_ensure_winreg", lambda: None)
+
+        result = registry_tools.filter_multi_string_value(
+            0,
+            "test\\path",
+            "TestValue",
+            lambda x: True,  # Keep all
+            dry_run=True,
+            logger=_Recorder(),
+        )
+
+        assert result["entries_removed"] == []
+        assert result["value_deleted"] is False
+
+    def test_filter_handles_missing_value(self, monkeypatch) -> None:
+        """Should handle missing value gracefully."""
+
+        def fake_get_value(root, path, value_name, view=None):
+            return None
+
+        monkeypatch.setattr(registry_tools, "get_value", fake_get_value)
+        monkeypatch.setattr(registry_tools, "_ensure_winreg", lambda: None)
+
+        result = registry_tools.filter_multi_string_value(
+            0,
+            "test\\path",
+            "MissingValue",
+            lambda x: True,
+            dry_run=True,
+            logger=_Recorder(),
+        )
+
+        assert result["entries_removed"] == []
+        assert result["entries_kept"] == []
+
+
+class TestCleanupPublishedComponents:
+    """Tests for Published Components cleanup."""
+
+    def test_cleanup_handles_missing_components_key(self, monkeypatch) -> None:
+        """Should handle missing Components key gracefully."""
+
+        def fake_iter_subkeys(hive, path, view=None):
+            raise FileNotFoundError("Not found")
+
+        monkeypatch.setattr(registry_tools, "iter_subkeys", fake_iter_subkeys)
+        monkeypatch.setattr(registry_tools, "_ensure_winreg", lambda: None)
+
+        result = registry_tools.cleanup_published_components(
+            dry_run=True,
+            logger=_Recorder(),
+        )
+
+        assert result["components_processed"] == 0
+        assert result["values_modified"] == 0

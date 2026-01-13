@@ -1,6 +1,7 @@
 # Office Janitor - Comprehensive Gap Analysis (2025)
 
 > **Generated:** Based on spec.md requirements, OfficeScrubber.cmd, and OffScrub*.vbs legacy scripts.
+> **Last Updated:** January 2026
 
 ---
 
@@ -17,67 +18,39 @@ This document provides a comprehensive gap analysis comparing the current Python
 
 | Category | Spec Coverage | VBS Coverage | Notes |
 |----------|---------------|--------------|-------|
-| Detection | ~95% | ~85% | AppX detection present, vNext detection partial |
-| MSI Uninstall | ~80% | ~75% | Setup.exe fallback, msiexec orchestration done |
-| C2R Uninstall | ~85% | ~80% | ODT integration, integrator.exe done |
-| License Cleanup | ~85% | ~80% | SPP/OSPP WMI, vNext registry cleanup |
-| Registry Cleanup | ~90% | ~85% | 129 residue paths, TypeLib cleanup |
-| File Cleanup | ~85% | ~75% | Shortcut unpinning, MSOCache done |
-| Scheduled Tasks | ~60% | ~50% | Task names not fully enumerated |
-| UWP/AppX | ~40% | ~20% | Detection exists, **removal NOT implemented** |
-| TUI Mode | ~70% | N/A | Basic TUI exists, spec widgets partial |
-| CI/CD | ~40% | N/A | Monolithic ci.yml, spec requires split |
-| Error Handling | ~80% | ~75% | Bitmask system implemented |
+| Detection | ~95% | ~90% | AppX detection, vNext detection ✅ |
+| MSI Uninstall | ~90% | ~85% | Setup.exe fallback, msiexec orchestration ✅ |
+| C2R Uninstall | ~95% | ~90% | ODT integration, integrator.exe, license reinstall ✅ |
+| License Cleanup | ~95% | ~90% | SPP/OSPP WMI, vNext registry cleanup ✅ |
+| Registry Cleanup | ~95% | ~90% | 129 residue paths, TypeLib, vNext, taskband ✅ |
+| File Cleanup | ~90% | ~85% | Shortcut unpinning, MSOCache, published components ✅ |
+| Scheduled Tasks | ~90% | ~85% | OFFICE_SCHEDULED_TASKS_TO_DELETE constant ✅ |
+| UWP/AppX | ~90% | ~85% | Detection + removal via PowerShell ✅ |
+| TUI Mode | ~80% | N/A | Progress bars, hjkl navigation ✅ |
+| CI/CD | ~100% | N/A | Split workflows per spec ✅ |
+| Error Handling | ~90% | ~85% | Bitmask system, msiexec codes ✅ |
 
 ---
 
 ## Gap Categories
 
-### 1. CRITICAL GAPS 🔴
+### 1. COMPLETED ITEMS ✅
 
-#### 1.1 UWP/AppX Removal (NOT IMPLEMENTED)
+#### 1.1 UWP/AppX Removal ✅ IMPLEMENTED
 
-**Source:** OfficeScrubber.cmd line 476
-```batch
-%_psc% "Get-AppXPackage -Name '*Microsoft.Office.Desktop*' | Foreach {Remove-AppxPackage $_.PackageFullName}"
-```
-
-**Current State:**
-- `detect.py` has `detect_appx_packages()` - ✅ Detection works
-- **NO removal function exists** - ❌ Gap
-
-**Required Implementation:**
-```python
-# fs_tools.py or new uwp_uninstall.py
-def remove_appx_package(package_full_name: str, *, dry_run: bool = False) -> bool:
-    """Remove a single AppX package via PowerShell."""
-    ...
-
-def remove_office_appx_packages(*, dry_run: bool = False) -> list[dict]:
-    """Remove all Office-related AppX packages."""
-    ...
-```
-
-**Impact:** Windows 10/11 Store versions of Office cannot be removed.
+**Status:** COMPLETED in `fs_tools.py`
+- `remove_appx_package()` - Remove single AppX package
+- `remove_office_appx_packages()` - Remove all Office AppX packages
+- Uses PowerShell `Remove-AppxPackage` command
 
 ---
 
-#### 1.2 Scheduled Task Names Not Enumerated
+#### 1.2 Scheduled Task Names ✅ IMPLEMENTED
 
-**Source:** OffScrubC2R.vbs `DelSchtasks` subroutine (lines 1053-1108)
-
-**VBS Tasks to Delete:**
-```vbscript
-"FF_INTEGRATEDstreamSchedule"
-"FF_INTEGRATEDUPDATEDETECTION"
-"C2RAppVLoggingStart"
-"Office 15 Subscription Heartbeat"
-"Microsoft Office 15 Sync Maintenance for {d068b555-9700-40b8-992c-f866287b06c1}"
-"\Microsoft\Office\OfficeInventoryAgentFallBack"
-"\Microsoft\Office\OfficeTelemetryAgentFallBack"
-"\Microsoft\Office\OfficeInventoryAgentLogOn"
-"\Microsoft\Office\OfficeTelemetryAgentLogOn"
-"Office Background Streaming"
+**Status:** COMPLETED in `constants.py`
+- `OFFICE_SCHEDULED_TASKS_TO_DELETE` - 13 task names
+- `delete_office_scheduled_tasks()` in `tasks_services.py`
+- Integrated into cleanup flow
 "\Microsoft\Office\Office Automatic Updates"
 "\Microsoft\Office\Office ClickToRun Service Monitor"
 "Office Subscription Maintenance"

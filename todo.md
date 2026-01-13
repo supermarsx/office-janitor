@@ -19,62 +19,78 @@
 
 - [x] **Scheduled Task Names Constant** (`constants.py`) ✅ COMPLETED
   - [x] Add `OFFICE_SCHEDULED_TASKS_TO_DELETE` tuple with 13 task names
-  - [ ] Wire into `tasks_services.delete_tasks()` during cleanup (integration needed)
+  - [x] Wire into `tasks_services.delete_tasks()` during cleanup
+  - [x] Added `delete_office_scheduled_tasks()` convenience function
 
 ### High Priority Gaps 🟠
 
-- [ ] **C2R License Reset via Integrator** (`c2r_uninstall.py`)
-  - [ ] `reinstall_c2r_licenses(product_ids, package_guid, package_root)`
-  - [ ] Uses `integrator.exe /R /License PRIDName=... PackageGUID=...`
-  - [ ] Based on OfficeScrubber.cmd license menu option T
+- [x] **C2R License Reset via Integrator** (`c2r_uninstall.py`) ✅ COMPLETED
+  - [x] `get_c2r_product_release_ids()` - Query active SKUs from registry
+  - [x] `get_c2r_install_root()` - Get install root and package GUID
+  - [x] `reinstall_c2r_license()` - Reinstall single SKU license
+  - [x] `reinstall_c2r_licenses()` - Reinstall all detected SKU licenses
+  - [x] Uses `integrator.exe /R /License PRIDName=... PackageGUID=...`
+  - [x] Based on OfficeScrubber.cmd license menu option T (lines 753-790)
 
-- [ ] **vNext Identity Registry Cleanup** (`registry_tools.py`)
-  - [ ] `cleanup_vnext_identity_registry(dry_run=False)`
-  - [ ] Delete values matching: `*.EmailAddress`, `*.TenantId`, `*.DeviceBasedLicensing`
-  - [ ] Delete keys: `Common\Identity`, `Registration`, `SharedComputerLicensing`
-  - [ ] Based on OfficeScrubber.cmd lines 716-733
+- [x] **vNext Identity Registry Cleanup** (`registry_tools.py`) ✅ COMPLETED
+  - [x] `cleanup_vnext_identity_registry(dry_run=False)`
+  - [x] Delete values matching: `*.EmailAddress`, `*.TenantId`, `*.DeviceBasedLicensing`
+  - [x] Delete keys: `Common\Identity`, `Registration`, `SharedComputerLicensing`
+  - [x] Based on OfficeScrubber.cmd lines 716-733
 
-- [ ] **Process Kill List Verification** (`constants.py`)
-  - [ ] Cross-check all 40+ processes from OfficeScrubber.cmd (lines 438-474)
-  - [ ] Ensure combined `ALL_OFFICE_PROCESSES` is complete
-  - [ ] Add any missing: `OfficeHubTaskHost`, `msoidsvcm`, `msoidsvc`, `ucmapi`, etc.
+- [x] **Process Kill List Verification** (`constants.py`) ✅ COMPLETED
+  - [x] Cross-checked all 40+ processes from OfficeScrubber.cmd (lines 438-474)
+  - [x] Added 12 missing processes to `C2R_INFRASTRUCTURE_PROCESSES`
+  - [x] Added: werfault, mstore, setlang, ois, graph, OfficeHubTaskHost, msoidsvc, msoidsvcm, ucmapi, sdxhelper, OfficeClickToRun, officec2rclient
 
-- [ ] **User Profile Registry Loading** (`registry_tools.py`)
-  - [ ] `load_user_registry_hives()` - Load all ntuser.dat files to HKU
-  - [ ] `unload_user_registry_hives()` - Cleanup after processing
-  - [ ] Enables per-user cleanup for all profiles, not just current user
-  - [ ] Based on OffScrubC2R.vbs `LoadUsersReg` (lines 2189-2215)
+- [x] **User Profile Registry Loading** (`registry_tools.py`) ✅ COMPLETED
+  - [x] `get_user_profiles_directory()` - Get %USERPROFILE% parent path
+  - [x] `get_user_profile_hive_paths()` - Find ntuser.dat paths
+  - [x] `load_user_registry_hives()` - Load all ntuser.dat files to HKU
+  - [x] `unload_user_registry_hives()` - Cleanup after processing
+  - [x] `get_loaded_user_hives()` - Track loaded hives
+  - [x] Based on OffScrubC2R.vbs `LoadUsersReg` (lines 2189-2215)
 
-- [ ] **Taskband Registry Cleanup** (`registry_tools.py`)
-  - [ ] `cleanup_taskband_registry(dry_run=False)`
-  - [ ] Delete Favorites, FavoritesRemovedChanges, FavoritesChanges in Taskband key
-  - [ ] Process for HKCU and all SIDs in HKU
-  - [ ] Based on OffScrubC2R.vbs `ClearTaskBand` (lines 2128-2148)
+- [x] **Taskband Registry Cleanup** (`registry_tools.py`) ✅ COMPLETED
+  - [x] `cleanup_taskband_registry(include_all_users, dry_run=False)`
+  - [x] Delete Favorites, FavoritesRemovedChanges, FavoritesChanges, FavoritesResolve, FavoritesVersion
+  - [x] Process for HKCU and all SIDs in HKU (when include_all_users=True)
+  - [x] Based on OffScrubC2R.vbs `ClearTaskBand` (lines 2128-2148)
 
 ### Medium Priority Gaps 🟡
 
-- [ ] **OSE Service State Validation** (`tasks_services.py`)
-  - [ ] `validate_ose_service_state()` - Check OSE service before uninstall
-  - [ ] Enable if disabled, set to LocalSystem if wrong account
-  - [ ] Based on OffScrubC2R.vbs lines 1175-1190
+- [x] **OSE Service State Validation** (`tasks_services.py`) ✅ COMPLETED
+  - [x] `validate_ose_service_state(dry_run=False)` - Check OSE service before uninstall
+  - [x] Enable if disabled, set to LocalSystem if wrong account
+  - [x] Based on OffScrubC2R.vbs lines 1175-1190
 
-- [ ] **Msiexec Return Code Translation** (`constants.py`)
-  - [ ] Add `MSIEXEC_RETURN_CODES` dict mapping codes to names
-  - [ ] 50+ codes: 1602=USEREXIT, 1603=FAILURE, 1605=UNKNOWN_PRODUCT, etc.
-  - [ ] Based on OffScrubC2R.vbs `SetupRetVal` (lines 3157-3207)
+- [x] **Msiexec Return Code Translation** (`constants.py`) ✅ COMPLETED
+  - [x] Add `MSIEXEC_RETURN_CODES` dict mapping 50+ codes to names
+  - [x] Add `translate_msiexec_return_code(code)` function
+  - [x] Based on OffScrubC2R.vbs `SetupRetVal` (lines 3157-3207)
 
-- [ ] **TUI Widget Audit** (`tui.py`)
-  - [ ] Progress bars with percentage display
-  - [ ] Scrollable pane content with hjkl navigation
-  - [ ] Real-time log streaming during execution
-  - [ ] Verify checkbox-style plan step toggles work
+- [x] **TUI Widget Audit** (`tui.py`) ✅ COMPLETED
+  - [x] Progress bars with percentage display (`render_progress_bar()`)
+  - [x] Scrollable pane content with hjkl navigation (vim-style keys)
+  - [x] Real-time log streaming during execution
+  - [x] Checkbox-style plan step toggles
 
 ### Low Priority Gaps 🟢
 
-- [ ] **REG_MULTI_SZ Selective Cleanup** (`registry_tools.py`)
-  - [ ] Verify Published Components cleanup handles multi-string correctly
-  - [ ] Should filter entries from array, not delete whole value
-  - [ ] Based on OffScrubC2R.vbs lines 1696-1740
+- [x] **REG_MULTI_SZ Selective Cleanup** (`registry_tools.py`) ✅ COMPLETED
+  - [x] `filter_multi_string_value()` - Filter entries from REG_MULTI_SZ
+  - [x] `cleanup_published_components()` - Clean Office entries from WI Published Components
+  - [x] `is_office_guid()` - Detect Office GUIDs matching VBS InScope() logic
+  - [x] `_decode_squished_guid()` - Decode Windows Installer compressed GUIDs
+  - [x] Based on OffScrubC2R.vbs lines 1696-1740
+
+- [x] **CI Workflows Split** (`.github/workflows/`) ✅ COMPLETED
+  - [x] `format.yml` - Black formatting check
+  - [x] `lint.yml` - Ruff + MyPy static checks
+  - [x] `test.yml` - Pytest on Windows matrix
+  - [x] `build.yml` - PyInstaller onefile + distributions
+  - [x] `publish-pypi.yml` - PyPI publishing
+  - [x] `release.yml` - GitHub Release automation
 
 ---
 

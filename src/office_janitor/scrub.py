@@ -521,6 +521,21 @@ class StepExecutor:
                 default_logdir=self._log_directory,
             )
             return dict(backup_info)
+        if category == "vnext-identity-cleanup":
+            result = registry_tools.cleanup_vnext_identity_registry(dry_run=dry_run)
+            return dict(result)
+        if category == "taskband-cleanup":
+            include_all_users = bool(metadata.get("include_all_users", False))
+            result = registry_tools.cleanup_taskband_registry(
+                include_all_users=include_all_users, dry_run=dry_run
+            )
+            return dict(result)
+        if category == "published-components-cleanup":
+            result = registry_tools.cleanup_published_components(dry_run=dry_run)
+            return dict(result)
+        if category == "ose-service-validation":
+            result = tasks_services.validate_ose_service_state(dry_run=dry_run)
+            return dict(result) if isinstance(result, dict) else {"result": result}
 
         self._human_logger.info("Unhandled plan category %s; skipping.", category)
         return None

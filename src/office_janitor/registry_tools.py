@@ -151,16 +151,18 @@ def is_office_guid(guid: str) -> bool:
     if not upper.endswith(_OFFICE_GUID_SUFFIX):
         return False
 
-    # Check version > 14 (Office 2013+) at positions 4-5
+    # Check version > 14 (Office 2013+)
+    # VBS: Mid(sProd, 4, 2) = positions 4-5 (1-indexed) = Python [3:5]
     try:
-        version = int(upper[4:6])
+        version = int(upper[3:5])
         if version <= 14:
             return False
     except ValueError:
         return False
 
-    # Check SKU filter at positions 11-14
-    sku = upper[11:15]
+    # Check SKU filter
+    # VBS: Mid(sProd, 11, 4) = positions 11-14 (1-indexed) = Python [10:14]
+    sku = upper[10:14]
     return sku in _OFFICE_C2R_SKU_FILTERS
 
 
@@ -677,14 +679,55 @@ def _decode_squished_guid(squished: str) -> str | None:
         return None
 
 
-def key_exists(root: int, path: str, *, view: str | None = None) -> bool:
+def _parse_registry_path(full_path: str) -> tuple[int, str]:
+    """!
+    @brief Parse a full registry path string into hive constant and subpath.
+    @param full_path Full path like "HKLM\\SOFTWARE\\Microsoft\\...".
+    @returns Tuple of (hive_constant, subpath).
+    @raises ValueError If the hive prefix is unrecognized.
+    """
+    normalized = _normalize_registry_key(full_path)
+    if "\\" not in normalized:
+        raise ValueError(f"Invalid registry path (no separator): {full_path}")
+
+    prefix, _, subpath = normalized.partition("\\")
+    hive_map = {
+        "HKLM": _WINREG_HKLM,
+        "HKCU": _WINREG_HKCU,
+        "HKU": _WINREG_HKU,
+        "HKCR": _WINREG_HKCR,
+    }
+    hive = hive_map.get(prefix)
+    if hive is None:
+        raise ValueError(f"Unrecognized registry hive: {prefix}")
+    return hive, subpath
+
+
+def key_exists(
+    root_or_path: int | str,
+    path: str | None = None,
+    *,
+    view: str | None = None,
+) -> bool:
     """!
     @brief Determine whether the given key exists for the requested view.
+    @details Accepts either (root: int, path: str) or a single full path string
+        like "HKLM\\SOFTWARE\\...".
     """
+    if isinstance(root_or_path, str):
+        # Full path string form
+        try:
+            root, subpath = _parse_registry_path(root_or_path)
+        except ValueError:
+            return False
+    else:
+        # (root, path) form
+        root = root_or_path
+        subpath = path or ""
 
     try:
         _ensure_winreg()
-        with open_key(root, path, view=view):
+        with open_key(root, subpath, view=view):
             return True
     except FileNotFoundError:
         return False
