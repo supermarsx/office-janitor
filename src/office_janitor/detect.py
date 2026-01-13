@@ -590,6 +590,57 @@ def detect_appx_packages() -> list[dict[str, object]]:
     return results
 
 
+def detect_uninstall_entries() -> list[dict[str, object]]:
+    """!
+    @brief Detect Office entries from Windows Control Panel uninstall registry.
+    @details Scans the standard Uninstall registry keys that populate the
+    "Programs and Features" / "Apps & Features" control panel. This catches
+    Office installations that may not be in the known MSI product map.
+    """
+    
+    results: list[dict[str, object]] = []
+    seen_handles: set[str] = set()
+    
+    # Use the registry_tools function to find Office-like uninstall entries
+    for hive, key_path, values in registry_tools.iter_office_uninstall_entries(
+        constants.MSI_UNINSTALL_ROOTS
+    ):
+        handle = f"HKLM\\{key_path}" if hive == constants.HKLM else f"HKCU\\{key_path}"
+        if handle in seen_handles:
+            continue
+        seen_handles.add(handle)
+        
+        display_name = str(values.get("DisplayName") or "").strip()
+        if not display_name:
+            continue
+        
+        # Extract useful fields
+        display_version = str(values.get("DisplayVersion") or "").strip()
+        publisher = str(values.get("Publisher") or "").strip()
+        install_location = str(values.get("InstallLocation") or "").strip()
+        uninstall_string = str(values.get("UninstallString") or "").strip()
+        quiet_uninstall = str(values.get("QuietUninstallString") or "").strip()
+        install_date = str(values.get("InstallDate") or "").strip()
+        
+        # Try to extract product code from key path
+        product_code = key_path.rsplit("\\", 1)[-1] if "\\" in key_path else key_path
+        
+        results.append({
+            "display_name": display_name,
+            "version": display_version,
+            "publisher": publisher,
+            "install_location": install_location,
+            "uninstall_string": uninstall_string,
+            "quiet_uninstall_string": quiet_uninstall,
+            "install_date": install_date,
+            "product_code": product_code,
+            "registry_handle": handle,
+            "source": "ControlPanel",
+        })
+    
+    return results
+
+
 def detect_msi_installations(
     *,
     skip_slow_probes: bool = False,
@@ -1007,6 +1058,12 @@ def gather_office_inventory(
         _report("Scanning AppX/MSIX packages", "ok")
         return result
 
+    def _detect_uninstall_entries() -> list[dict[str, object]]:
+        _report("Scanning Control Panel uninstall entries")
+        result = detect_uninstall_entries()
+        _report("Scanning Control Panel uninstall entries", "ok")
+        return result
+
     def _detect_activation() -> dict[str, object]:
         _report("Gathering activation/licensing state")
         result = gather_activation_state()
@@ -1077,7 +1134,7 @@ def gather_office_inventory(
     if parallel:
         try:
             with concurrent.futures.ThreadPoolExecutor(
-                max_workers=12, thread_name_prefix="detect"
+                max_workers=14, thread_name_prefix="detect"
             ) as executor:
                 # Start all tasks immediately (including WMI/PS as separate tasks)
                 c2r_future = executor.submit(_detect_c2r)
@@ -1085,6 +1142,7 @@ def gather_office_inventory(
                 services_future = executor.submit(_detect_services)
                 tasks_future = executor.submit(_detect_tasks)
                 appx_future = executor.submit(_detect_appx)
+                uninstall_future = executor.submit(_detect_uninstall_entries)
                 activation_future = executor.submit(_detect_activation)
                 registry_future = executor.submit(_detect_registry)
                 filesystem_future = executor.submit(_detect_filesystem)
@@ -1113,6 +1171,7 @@ def gather_office_inventory(
                 services_list = services_future.result()
                 tasks_list = tasks_future.result()
                 appx_list = appx_future.result()
+                uninstall_list = uninstall_future.result()
                 activation_info = activation_future.result()
                 registry_residue = registry_future.result()
                 filesystem_list = filesystem_future.result()
@@ -1140,6 +1199,7 @@ def gather_office_inventory(
         services_list = _detect_services()
         tasks_list = _detect_tasks()
         appx_list = _detect_appx()
+        uninstall_list = _detect_uninstall_entries()
         activation_info = _detect_activation()
         registry_residue = _detect_registry()
         filesystem_list = _detect_filesystem()
@@ -1149,6 +1209,7 @@ def gather_office_inventory(
         "msi": msi_list,
         "c2r": c2r_list,
         "appx": appx_list,
+        "uninstall_entries": uninstall_list,
         "filesystem": filesystem_list,
         "processes": processes_list,
         "services": services_list,
