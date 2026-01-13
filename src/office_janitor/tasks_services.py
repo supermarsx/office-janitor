@@ -12,7 +12,7 @@ import time
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 
-from . import exec_utils, logging_ext
+from . import constants, exec_utils, logging_ext
 
 
 def disable_tasks(task_names: Iterable[str], *, dry_run: bool = False) -> None:
@@ -403,3 +403,164 @@ def remove_tasks(task_names: Sequence[str], *, dry_run: bool = False) -> None:
     """
 
     delete_tasks(task_names, dry_run=dry_run)
+
+
+def delete_office_scheduled_tasks(*, dry_run: bool = False) -> None:
+    """!
+    @brief Delete all known Office scheduled tasks.
+    @details Uses the comprehensive ``OFFICE_SCHEDULED_TASKS_TO_DELETE`` constant
+    derived from OffScrubC2R.vbs DelSchtasks subroutine to remove streaming,
+    telemetry, subscription, and update tasks.
+    @param dry_run When ``True`` only log the intended actions.
+    """
+
+    delete_tasks(constants.OFFICE_SCHEDULED_TASKS_TO_DELETE, dry_run=dry_run)
+
+
+def delete_office_services(*, dry_run: bool = False) -> None:
+    """!
+    @brief Delete all known Office services.
+    @details Uses the ``OFFICE_SERVICES_TO_DELETE`` constant to remove
+    ClickToRunSvc, OfficeSvc, OSE, and licensing services.
+    @param dry_run When ``True`` only log the intended actions.
+    """
+
+    delete_services(constants.OFFICE_SERVICES_TO_DELETE, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
+# OSE Service State Validation
+# ---------------------------------------------------------------------------
+# Based on OffScrubC2R.vbs Uninstall subroutine (lines 1224-1233)
+
+
+def validate_ose_service_state(
+    *,
+    dry_run: bool = False,
+    timeout: int = 30,
+) -> dict[str, object]:
+    """!
+    @brief Validate and fix OSE service state before uninstall operations.
+    @details Implements the VBS OSE service checks:
+        1. If OSE is disabled, change to Manual start mode
+        2. If OSE is not running as LocalSystem, change the service account
+    @param dry_run When ``True`` only log what would be changed.
+    @param timeout Timeout for each sc.exe command.
+    @returns Dictionary with validation results and any changes made.
+    """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    results: dict[str, object] = {
+        "ose_found": False,
+        "ose64_found": False,
+        "disabled_fixed": [],
+        "account_fixed": [],
+        "errors": [],
+    }
+
+    ose_services = ["ose", "ose64"]
+
+    for service in ose_services:
+        # Query the service configuration
+        result = exec_utils.run_command(
+            ["sc.exe", "qc", service],
+            event="service_query_config",
+            timeout=timeout,
+            extra={"service": service},
+        )
+
+        if result.returncode != 0:
+            # Service not found
+            continue
+
+        output = result.stdout
+        if service == "ose":
+            results["ose_found"] = True
+        else:
+            results["ose64_found"] = True
+
+        # Parse START_TYPE
+        is_disabled = "DISABLED" in output.upper()
+        start_type_line = ""
+        for line in output.splitlines():
+            if "START_TYPE" in line.upper():
+                start_type_line = line
+                break
+
+        if is_disabled or "4  DISABLED" in output:
+            human_logger.info(
+                "OSE service %s is disabled, changing to Manual...",
+                service,
+            )
+            machine_logger.info(
+                "ose_service_disabled",
+                extra={
+                    "event": "ose_service_disabled",
+                    "service": service,
+                    "start_type": start_type_line,
+                },
+            )
+
+            if not dry_run:
+                fix_result = exec_utils.run_command(
+                    ["sc.exe", "config", service, "start=", "demand"],
+                    event="service_config_start",
+                    timeout=timeout,
+                    extra={"service": service, "start_mode": "demand"},
+                )
+                if fix_result.returncode == 0:
+                    results["disabled_fixed"].append(service)  # type: ignore[union-attr]
+                    human_logger.info("Changed %s to Manual start", service)
+                else:
+                    results["errors"].append(  # type: ignore[union-attr]
+                        {"service": service, "operation": "change_start", "code": fix_result.returncode}
+                    )
+            else:
+                results["disabled_fixed"].append(service)  # type: ignore[union-attr]
+
+        # Parse SERVICE_START_NAME (account)
+        is_localsystem = "LOCALSYSTEM" in output.upper()
+        account_line = ""
+        for line in output.splitlines():
+            if "SERVICE_START_NAME" in line.upper():
+                account_line = line
+                is_localsystem = "LOCALSYSTEM" in line.upper()
+                break
+
+        if not is_localsystem:
+            human_logger.info(
+                "OSE service %s not running as LocalSystem, fixing...",
+                service,
+            )
+            machine_logger.info(
+                "ose_service_wrong_account",
+                extra={
+                    "event": "ose_service_wrong_account",
+                    "service": service,
+                    "account_line": account_line,
+                },
+            )
+
+            if not dry_run:
+                # sc config ose obj= LocalSystem
+                fix_result = exec_utils.run_command(
+                    ["sc.exe", "config", service, "obj=", "LocalSystem", "password=", ""],
+                    event="service_config_account",
+                    timeout=timeout,
+                    extra={"service": service, "account": "LocalSystem"},
+                )
+                if fix_result.returncode == 0:
+                    results["account_fixed"].append(service)  # type: ignore[union-attr]
+                    human_logger.info("Changed %s to run as LocalSystem", service)
+                else:
+                    results["errors"].append(  # type: ignore[union-attr]
+                        {"service": service, "operation": "change_account", "code": fix_result.returncode}
+                    )
+            else:
+                results["account_fixed"].append(service)  # type: ignore[union-attr]
+
+    if not results["ose_found"] and not results["ose64_found"]:
+        human_logger.debug("No OSE service found (may not be installed)")
+
+    return results

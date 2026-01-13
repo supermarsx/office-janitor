@@ -426,7 +426,7 @@ def perform_optional_cleanup(
 
     if kind == "c2r":
         human_logger.info("Removing Click-to-Run scheduled tasks referenced by legacy scripts.")
-        tasks_services.delete_tasks(constants.C2R_CLEANUP_TASKS, dry_run=dry_run)
+        tasks_services.delete_tasks(constants.OFFICE_SCHEDULED_TASKS_TO_DELETE, dry_run=dry_run)
         human_logger.info("Cleaning Click-to-Run COM compatibility registry keys.")
         com_keys = format_registry_keys(constants.C2R_COM_REGISTRY_PATHS)
         try:

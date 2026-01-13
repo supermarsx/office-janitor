@@ -167,6 +167,19 @@ C2R_INFRASTRUCTURE_PROCESSES = (
     "officesasscheduler.exe",
     "groove.exe",
     "groovemonitor.exe",
+    # Additional processes from OfficeScrubber.cmd/VBS (verified 2025)
+    "werfault.exe",  # Windows Error Reporting - may interfere
+    "mstore.exe",  # Microsoft Store related
+    "setlang.exe",  # Language settings
+    "ois.exe",  # Organization Info Service
+    "graph.exe",  # Microsoft Graph
+    "OfficeHubTaskHost.exe",  # Office Hub task
+    "msoidsvc.exe",  # Office Identity Service
+    "msoidsvcm.exe",  # Office Identity Service Manager
+    "ucmapi.exe",  # Unified Communications MAPI
+    "sdxhelper.exe",  # SDX Helper
+    "OfficeClickToRun.exe",  # Alternate C2R name
+    "officec2rclient.exe",  # Lowercase variant
 )
 """!
 @brief C2R infrastructure processes from VBS CloseOfficeApps.
@@ -523,6 +536,101 @@ OFFICE_SERVICES_TO_DELETE: tuple[str, ...] = (
 @brief Service names to stop and delete during Office removal.
 @details Based on VBS DeleteService calls in OffScrubC2R.vbs.
 """
+
+# Scheduled task names for deletion (from VBS DelSchtasks in OffScrubC2R.vbs)
+OFFICE_SCHEDULED_TASKS_TO_DELETE: tuple[str, ...] = (
+    # C2R streaming and update tasks
+    "FF_INTEGRATEDstreamSchedule",
+    "FF_INTEGRATEDUPDATEDETECTION",
+    "C2RAppVLoggingStart",
+    # Subscription and heartbeat tasks
+    "Office 15 Subscription Heartbeat",
+    r"Microsoft Office 15 Sync Maintenance for {d068b555-9700-40b8-992c-f866287b06c1}",
+    "Office Subscription Maintenance",
+    "Office Background Streaming",
+    # Telemetry and inventory tasks (under \Microsoft\Office\)
+    r"\Microsoft\Office\OfficeInventoryAgentFallBack",
+    r"\Microsoft\Office\OfficeTelemetryAgentFallBack",
+    r"\Microsoft\Office\OfficeInventoryAgentLogOn",
+    r"\Microsoft\Office\OfficeTelemetryAgentLogOn",
+    # C2R service monitoring tasks
+    r"\Microsoft\Office\Office Automatic Updates",
+    r"\Microsoft\Office\Office ClickToRun Service Monitor",
+)
+"""!
+@brief Scheduled task names to delete during Office removal.
+@details Based on VBS DelSchtasks subroutine in OffScrubC2R.vbs (lines 1053-1108).
+"""
+
+# Msiexec return codes from VBS SetupRetVal (OffScrubC2R.vbs lines 3306-3362)
+MSIEXEC_RETURN_CODES: dict[int, str] = {
+    0: "SUCCESS",
+    1259: "APPHELP_BLOCK",
+    1601: "INSTALL_SERVICE_FAILURE",
+    1602: "INSTALL_USEREXIT",
+    1603: "INSTALL_FAILURE",
+    1604: "INSTALL_SUSPEND",
+    1605: "UNKNOWN_PRODUCT",
+    1606: "UNKNOWN_FEATURE",
+    1607: "UNKNOWN_COMPONENT",
+    1608: "UNKNOWN_PROPERTY",
+    1609: "INVALID_HANDLE_STATE",
+    1610: "BAD_CONFIGURATION",
+    1611: "INDEX_ABSENT",
+    1612: "INSTALL_SOURCE_ABSENT",
+    1613: "INSTALL_PACKAGE_VERSION",
+    1614: "PRODUCT_UNINSTALLED",
+    1615: "BAD_QUERY_SYNTAX",
+    1616: "INVALID_FIELD",
+    1618: "INSTALL_ALREADY_RUNNING",
+    1619: "INSTALL_PACKAGE_OPEN_FAILED",
+    1620: "INSTALL_PACKAGE_INVALID",
+    1621: "INSTALL_UI_FAILURE",
+    1622: "INSTALL_LOG_FAILURE",
+    1623: "INSTALL_LANGUAGE_UNSUPPORTED",
+    1624: "INSTALL_TRANSFORM_FAILURE",
+    1625: "INSTALL_PACKAGE_REJECTED",
+    1626: "FUNCTION_NOT_CALLED",
+    1627: "FUNCTION_FAILED",
+    1628: "INVALID_TABLE",
+    1629: "DATATYPE_MISMATCH",
+    1630: "UNSUPPORTED_TYPE",
+    1631: "CREATE_FAILED",
+    1632: "INSTALL_TEMP_UNWRITABLE",
+    1633: "INSTALL_PLATFORM_UNSUPPORTED",
+    1634: "INSTALL_NOTUSED",
+    1635: "PATCH_PACKAGE_OPEN_FAILED",
+    1636: "PATCH_PACKAGE_INVALID",
+    1637: "PATCH_PACKAGE_UNSUPPORTED",
+    1638: "PRODUCT_VERSION",
+    1639: "INVALID_COMMAND_LINE",
+    1640: "INSTALL_REMOTE_DISALLOWED",
+    1641: "SUCCESS_REBOOT_INITIATED",
+    1642: "PATCH_TARGET_NOT_FOUND",
+    1643: "PATCH_PACKAGE_REJECTED",
+    1644: "INSTALL_TRANSFORM_REJECTED",
+    1645: "INSTALL_REMOTE_PROHIBITED",
+    1646: "PATCH_REMOVAL_UNSUPPORTED",
+    1647: "UNKNOWN_PATCH",
+    1648: "PATCH_NO_SEQUENCE",
+    1649: "PATCH_REMOVAL_DISALLOWED",
+    1650: "INVALID_PATCH_XML",
+    3010: "SUCCESS_REBOOT_REQUIRED",
+}
+"""!
+@brief Msiexec return code translation table.
+@details Based on VBS SetupRetVal function in OffScrubC2R.vbs (lines 3306-3362).
+"""
+
+
+def translate_msiexec_return_code(code: int) -> str:
+    """!
+    @brief Translate an msiexec return code to a human-readable string.
+    @param code The return code from msiexec.exe.
+    @returns String description of the code, or "UNKNOWN" if not recognized.
+    """
+    return MSIEXEC_RETURN_CODES.get(code, f"UNKNOWN ({code})")
+
 
 # C2R-specific residue paths (from OffScrubC2R.vbs RegWipe)
 _C2R_REGISTRY_RESIDUE: list[tuple[int, str]] = [
@@ -1578,8 +1686,11 @@ __all__ = [
     "MSI_OFFSCRUB_SCRIPT_MAP",
     "MSI_PRODUCT_MAP",
     "MSI_UNINSTALL_ROOTS",
+    "MSIEXEC_RETURN_CODES",
     "OFFSCRUB_UNINSTALL_PRIORITY",
     "OFFSCRUB_UNINSTALL_SEQUENCE",
+    "OFFICE_SCHEDULED_TASKS_TO_DELETE",
+    "OFFICE_SERVICES_TO_DELETE",
     "OSPP_REGISTRY_PATH",
     "OFFSCRUB_EXECUTABLE",
     "OFFSCRUB_HOST_ARGS",
@@ -1597,4 +1708,5 @@ __all__ = [
     "resolve_supported_component",
     "is_supported_component",
     "iter_supported_components",
+    "translate_msiexec_return_code",
 ]

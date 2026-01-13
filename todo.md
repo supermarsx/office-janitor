@@ -1,10 +1,84 @@
 # TODO
 
-> **See also:** [docs/SCRUBBER_GAP_ANALYSIS.md](docs/SCRUBBER_GAP_ANALYSIS.md) for detailed VBS-to-Python feature parity analysis.
+> **See also:** 
+> - [docs/GAP_ANALYSIS_2025.md](docs/GAP_ANALYSIS_2025.md) - Comprehensive 2025 gap analysis
+> - [docs/SCRUBBER_GAP_ANALYSIS.md](docs/SCRUBBER_GAP_ANALYSIS.md) - Original VBS-to-Python feature parity analysis
 
 ---
 
-## Legacy VBS Scrubber Implementation Gaps
+## NEW GAPS (2025 Analysis)
+
+### Critical Gaps 🔴
+
+- [x] **UWP/AppX Removal** (`fs_tools.py`) ✅ COMPLETED
+  - [x] `remove_appx_package(package_full_name)` - Remove single AppX package
+  - [x] `remove_office_appx_packages()` - Remove all Office AppX packages
+  - [x] Use PowerShell `Remove-AppxPackage` (CMD line 476)
+  - [x] Add tests for dry-run and live removal (5 tests added)
+  - **Note:** Detection already exists in `detect.py:detect_appx_packages()`
+
+- [x] **Scheduled Task Names Constant** (`constants.py`) ✅ COMPLETED
+  - [x] Add `OFFICE_SCHEDULED_TASKS_TO_DELETE` tuple with 13 task names
+  - [ ] Wire into `tasks_services.delete_tasks()` during cleanup (integration needed)
+
+### High Priority Gaps 🟠
+
+- [ ] **C2R License Reset via Integrator** (`c2r_uninstall.py`)
+  - [ ] `reinstall_c2r_licenses(product_ids, package_guid, package_root)`
+  - [ ] Uses `integrator.exe /R /License PRIDName=... PackageGUID=...`
+  - [ ] Based on OfficeScrubber.cmd license menu option T
+
+- [ ] **vNext Identity Registry Cleanup** (`registry_tools.py`)
+  - [ ] `cleanup_vnext_identity_registry(dry_run=False)`
+  - [ ] Delete values matching: `*.EmailAddress`, `*.TenantId`, `*.DeviceBasedLicensing`
+  - [ ] Delete keys: `Common\Identity`, `Registration`, `SharedComputerLicensing`
+  - [ ] Based on OfficeScrubber.cmd lines 716-733
+
+- [ ] **Process Kill List Verification** (`constants.py`)
+  - [ ] Cross-check all 40+ processes from OfficeScrubber.cmd (lines 438-474)
+  - [ ] Ensure combined `ALL_OFFICE_PROCESSES` is complete
+  - [ ] Add any missing: `OfficeHubTaskHost`, `msoidsvcm`, `msoidsvc`, `ucmapi`, etc.
+
+- [ ] **User Profile Registry Loading** (`registry_tools.py`)
+  - [ ] `load_user_registry_hives()` - Load all ntuser.dat files to HKU
+  - [ ] `unload_user_registry_hives()` - Cleanup after processing
+  - [ ] Enables per-user cleanup for all profiles, not just current user
+  - [ ] Based on OffScrubC2R.vbs `LoadUsersReg` (lines 2189-2215)
+
+- [ ] **Taskband Registry Cleanup** (`registry_tools.py`)
+  - [ ] `cleanup_taskband_registry(dry_run=False)`
+  - [ ] Delete Favorites, FavoritesRemovedChanges, FavoritesChanges in Taskband key
+  - [ ] Process for HKCU and all SIDs in HKU
+  - [ ] Based on OffScrubC2R.vbs `ClearTaskBand` (lines 2128-2148)
+
+### Medium Priority Gaps 🟡
+
+- [ ] **OSE Service State Validation** (`tasks_services.py`)
+  - [ ] `validate_ose_service_state()` - Check OSE service before uninstall
+  - [ ] Enable if disabled, set to LocalSystem if wrong account
+  - [ ] Based on OffScrubC2R.vbs lines 1175-1190
+
+- [ ] **Msiexec Return Code Translation** (`constants.py`)
+  - [ ] Add `MSIEXEC_RETURN_CODES` dict mapping codes to names
+  - [ ] 50+ codes: 1602=USEREXIT, 1603=FAILURE, 1605=UNKNOWN_PRODUCT, etc.
+  - [ ] Based on OffScrubC2R.vbs `SetupRetVal` (lines 3157-3207)
+
+- [ ] **TUI Widget Audit** (`tui.py`)
+  - [ ] Progress bars with percentage display
+  - [ ] Scrollable pane content with hjkl navigation
+  - [ ] Real-time log streaming during execution
+  - [ ] Verify checkbox-style plan step toggles work
+
+### Low Priority Gaps 🟢
+
+- [ ] **REG_MULTI_SZ Selective Cleanup** (`registry_tools.py`)
+  - [ ] Verify Published Components cleanup handles multi-string correctly
+  - [ ] Should filter entries from array, not delete whole value
+  - [ ] Based on OffScrubC2R.vbs lines 1696-1740
+
+---
+
+## Legacy VBS Scrubber Implementation Gaps (COMPLETED)
 
 ### Phase 1: Critical (Must Have) 🔴
 
@@ -149,7 +223,7 @@
   - [ ] Detect/licensing/off_scrub: validate collections before casting to `list`/`dict`; resolve duplicate variable names and assignment types.
   - [ ] Logging: `_SizedTimedRotatingFileHandler` args typed; remove unused ignores.
 
-- [ ] CI workflows: split monolithic `.github/workflows/ci.yml` into `format.yml`, `lint.yml`, `test.yml`, `build.yml`, `publish-pypi.yml`, and `release.yml` per spec.
+- [x] CI workflows: split monolithic `.github/workflows/ci.yml` into `format.yml`, `lint.yml`, `test.yml`, `build.yml`, `publish-pypi.yml`, and `release.yml` per spec.
 
 ---
 

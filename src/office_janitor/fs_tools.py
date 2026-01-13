@@ -1200,11 +1200,135 @@ def cleanup_wi_cache_orphans(
     return removed
 
 
+# ---------------------------------------------------------------------------
+# UWP/AppX Package Removal
+# ---------------------------------------------------------------------------
+
+# AppX package name patterns for Office (from OfficeScrubber.cmd line 476)
+OFFICE_APPX_PATTERNS: tuple[str, ...] = (
+    "*Microsoft.Office.Desktop*",
+    "*Microsoft.Office*",
+    "*Microsoft.365*",
+    "*Microsoft.MicrosoftOffice*",
+)
+"""!
+@brief Glob patterns for Office AppX package names.
+@details Used to identify Office-related Store apps for removal.
+Based on OfficeScrubber.cmd: Get-AppXPackage -Name '*Microsoft.Office.Desktop*'
+"""
+
+
+def remove_appx_package(package_full_name: str, *, dry_run: bool = False) -> bool:
+    """!
+    @brief Remove a single AppX package via PowerShell.
+    @details Mirrors OfficeScrubber.cmd UWP removal functionality.
+    @param package_full_name The full package name from Get-AppxPackage.
+    @param dry_run If True, only log what would be done.
+    @returns True if removal succeeded or was dry-run, False on error.
+    """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    if not package_full_name or not package_full_name.strip():
+        return False
+
+    clean_name = package_full_name.strip()
+
+    if dry_run:
+        human_logger.info("[DRY-RUN] Would remove AppX package: %s", clean_name)
+        machine_logger.info(
+            "appx_remove_dry_run",
+            extra={"event": "appx_remove_dry_run", "package": clean_name},
+        )
+        return True
+
+    # Use PowerShell to remove the package
+    script = f'Remove-AppxPackage -Package "{clean_name}" -ErrorAction SilentlyContinue'
+
+    result = exec_utils.run_command(
+        ["powershell", "-NoProfile", "-Command", script],
+        event="appx_remove",
+        timeout=120,
+        human_message=f"Removing AppX package {clean_name}",
+        extra={"package": clean_name},
+    )
+
+    if result.returncode == 0 and not result.error:
+        human_logger.info("Removed AppX package: %s", clean_name)
+        return True
+
+    human_logger.warning(
+        "Failed to remove AppX package %s: %s",
+        clean_name,
+        result.stderr.strip() if result.stderr else "unknown error",
+    )
+    return False
+
+
+def remove_office_appx_packages(*, dry_run: bool = False) -> dict[str, object]:
+    """!
+    @brief Remove all Office-related AppX packages.
+    @details Enumerates installed AppX packages matching Office patterns
+    and removes them. Mirrors OfficeScrubber.cmd UWP scrub functionality.
+    @param dry_run If True, only log what would be done.
+    @returns Dictionary with 'removed' count and 'packages' list.
+    """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    # Import detect module to avoid circular imports
+    from . import detect
+
+    # Get installed Office AppX packages
+    packages = detect.detect_appx_packages()
+
+    if not packages:
+        human_logger.debug("No Office AppX packages found")
+        return {"removed": 0, "packages": [], "dry_run": dry_run}
+
+    human_logger.info("Found %d Office AppX package(s) to remove", len(packages))
+
+    removed_packages: list[str] = []
+    failed_packages: list[str] = []
+
+    for pkg in packages:
+        package_full_name = str(pkg.get("package_full_name", "")).strip()
+        if not package_full_name:
+            continue
+
+        success = remove_appx_package(package_full_name, dry_run=dry_run)
+
+        if success:
+            removed_packages.append(package_full_name)
+        else:
+            failed_packages.append(package_full_name)
+
+    machine_logger.info(
+        "appx_removal_summary",
+        extra={
+            "event": "appx_removal_summary",
+            "total": len(packages),
+            "removed": len(removed_packages),
+            "failed": len(failed_packages),
+            "dry_run": dry_run,
+        },
+    )
+
+    return {
+        "removed": len(removed_packages),
+        "failed": len(failed_packages),
+        "packages": removed_packages,
+        "failed_packages": failed_packages,
+        "dry_run": dry_run,
+    }
+
+
 __all__ = [
     "FILESYSTEM_BLACKLIST",
     "FILESYSTEM_WHITELIST",
     "MSOCACHE_PATHS",
     "MSOCACHE_PRODUCT_PATTERNS",
+    "OFFICE_APPX_PATTERNS",
     "OFFICE_SHORTCUT_NAMES",
     "WI_CACHE_PATH",
     "backup_path",
@@ -1223,6 +1347,8 @@ __all__ = [
     "make_paths_writable",
     "match_environment_suffix",
     "normalize_windows_path",
+    "remove_appx_package",
+    "remove_office_appx_packages",
     "remove_paths",
     "reset_acl",
     "unpin_shortcut",

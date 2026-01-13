@@ -1067,3 +1067,267 @@ def unregister_all_c2r_integrations(*, dry_run: bool = False) -> int:
 
     human_logger.info("Unregistered %d of %d C2R packages", success_count, len(packages))
     return success_count
+
+
+# License reinstallation support for C2R products
+
+def get_c2r_product_release_ids() -> list[str]:
+    """!
+    @brief Get Office C2R product release IDs (SKUs) from registry.
+    @details Scans ProductReleaseIDs under the active configuration to find
+        installed Office SKUs like ProPlus, Professional, Standard, etc.
+    @returns List of SKU names (e.g., ["ProPlus2024Retail", "VisioProRetail"]).
+    """
+    import winreg
+
+    human_logger = logging_ext.get_human_logger()
+    skus: list[str] = []
+
+    prids_keys = [
+        r"SOFTWARE\Microsoft\Office\ClickToRun\ProductReleaseIDs",
+        r"SOFTWARE\WOW6432Node\Microsoft\Office\ClickToRun\ProductReleaseIDs",
+    ]
+
+    for key_path in prids_keys:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0, winreg.KEY_READ) as key:
+                # Get ActiveConfiguration to find the channel
+                try:
+                    active_config = winreg.QueryValueEx(key, "ActiveConfiguration")[0]
+                except FileNotFoundError:
+                    continue
+
+                # Open the configuration subkey
+                config_path = f"{key_path}\\{active_config}"
+                try:
+                    with winreg.OpenKey(
+                        winreg.HKEY_LOCAL_MACHINE, config_path, 0, winreg.KEY_READ
+                    ) as config_key:
+                        # Enumerate subkeys to find product SKUs
+                        idx = 0
+                        while True:
+                            try:
+                                subkey_name = winreg.EnumKey(config_key, idx)
+                                # SKUs have ".16" suffix - extract just the name
+                                if subkey_name.endswith(".16"):
+                                    sku_name = subkey_name[:-3]  # Remove ".16"
+                                    skus.append(sku_name)
+                                    human_logger.debug("Found SKU: %s", sku_name)
+                                idx += 1
+                            except OSError:
+                                break
+                except FileNotFoundError:
+                    continue
+
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            human_logger.debug("Failed to read %s: %s", key_path, exc)
+            continue
+
+    return skus
+
+
+def get_c2r_install_root() -> tuple[Path | None, str | None]:
+    """!
+    @brief Get C2R install root path and package GUID.
+    @details Reads InstallPath and PackageGUID from registry, appending '\\root'
+        to InstallPath as expected by integrator.exe /R /License.
+    @returns Tuple of (install_root_path, package_guid) or (None, None) if not found.
+    """
+    import winreg
+
+    human_logger = logging_ext.get_human_logger()
+
+    config_keys = [
+        r"SOFTWARE\Microsoft\Office\ClickToRun",
+        r"SOFTWARE\WOW6432Node\Microsoft\Office\ClickToRun",
+    ]
+
+    for key_path in config_keys:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0, winreg.KEY_READ) as key:
+                try:
+                    install_path = winreg.QueryValueEx(key, "InstallPath")[0]
+                    package_guid = winreg.QueryValueEx(key, "PackageGUID")[0]
+
+                    # Add \root as per OfficeScrubber.cmd logic
+                    install_root = Path(install_path) / "root"
+                    human_logger.debug(
+                        "Found C2R install root: %s (GUID: %s)", install_root, package_guid
+                    )
+                    return install_root, package_guid
+                except FileNotFoundError:
+                    continue
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            human_logger.debug("Failed to read %s: %s", key_path, exc)
+            continue
+
+    return None, None
+
+
+def reinstall_c2r_license(
+    sku_name: str,
+    package_root: Path | str,
+    package_guid: str,
+    *,
+    dry_run: bool = False,
+    timeout: int = 120,
+) -> int:
+    """!
+    @brief Reinstall Office C2R license for a single product SKU.
+    @details Calls integrator.exe /R /License to reinstall license files.
+        Based on OfficeScrubber.cmd license reset functionality (option T).
+    @param sku_name Product SKU name (e.g., "ProPlus2024Retail").
+    @param package_root C2R package root path (with \\root suffix).
+    @param package_guid C2R package GUID.
+    @param dry_run If True, only log what would be done.
+    @param timeout Timeout for integrator.exe command.
+    @returns Exit code from integrator.exe (0 = success).
+    """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    # Find integrator.exe
+    integrator = find_integrator_exe()
+    if integrator is None:
+        # Check within package folder
+        pkg_integrator = Path(package_root) / "Integration" / "integrator.exe"
+        if pkg_integrator.exists():
+            integrator = pkg_integrator
+        else:
+            human_logger.warning("Integrator.exe not found, cannot reinstall license")
+            return -1
+
+    # Build command: integrator.exe /R /License PRIDName=<sku>.16 PackageGUID=<guid> PackageRoot=<path>
+    prid_name = f"{sku_name}.16"
+    command = [
+        str(integrator),
+        "/R",
+        "/License",
+        f"PRIDName={prid_name}",
+        f'PackageGUID={package_guid}',
+        f'PackageRoot={package_root}',
+    ]
+
+    if dry_run:
+        human_logger.info("[DRY-RUN] Would reinstall license: %s", prid_name)
+        return 0
+
+    human_logger.info("Reinstalling license for: %s", sku_name)
+    machine_logger.info(
+        "c2r_license_reinstall_start",
+        extra={
+            "event": "c2r_license_reinstall_start",
+            "sku_name": sku_name,
+            "prid_name": prid_name,
+            "package_root": str(package_root),
+            "package_guid": package_guid,
+        },
+    )
+
+    result = command_runner.run_command(
+        command,
+        timeout=timeout,
+        event="c2r_license_reinstall",
+    )
+
+    machine_logger.info(
+        "c2r_license_reinstall_complete",
+        extra={
+            "event": "c2r_license_reinstall_complete",
+            "sku_name": sku_name,
+            "exit_code": result.returncode,
+        },
+    )
+
+    if result.returncode == 0:
+        human_logger.debug("License reinstall completed for %s", sku_name)
+    else:
+        human_logger.warning(
+            "License reinstall for %s exited with code: %d", sku_name, result.returncode
+        )
+
+    return result.returncode
+
+
+def reinstall_c2r_licenses(*, dry_run: bool = False, timeout: int = 120) -> dict[str, int]:
+    """!
+    @brief Reinstall all Office C2R licenses using integrator.exe.
+    @details Resets Office licensing by reinstalling license files for all
+        detected product SKUs. Based on OfficeScrubber.cmd license menu option T.
+        Steps:
+        1. Detect installed C2R configuration (InstallPath, PackageGUID)
+        2. Enumerate product SKUs from ProductReleaseIDs
+        3. Call integrator.exe /R /License for each SKU
+    @param dry_run If True, only log what would be done.
+    @param timeout Timeout for each integrator.exe command.
+    @returns Dictionary mapping SKU names to exit codes.
+    """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    # Step 1: Get install root and package GUID
+    install_root, package_guid = get_c2r_install_root()
+    if install_root is None or package_guid is None:
+        human_logger.warning("No installed Office C2R detected, cannot reinstall licenses")
+        return {}
+
+    # Check integrator.exe exists
+    integrator = find_integrator_exe()
+    if integrator is None:
+        pkg_integrator = install_root / "Integration" / "integrator.exe"
+        if not pkg_integrator.exists():
+            human_logger.warning("Integrator.exe not found, cannot reinstall licenses")
+            return {}
+
+    # Step 2: Get product SKUs
+    skus = get_c2r_product_release_ids()
+    if not skus:
+        human_logger.warning("No product SKUs found, cannot reinstall licenses")
+        return {}
+
+    human_logger.info("Found %d Office product SKU(s) for license reinstall", len(skus))
+    machine_logger.info(
+        "c2r_licenses_reinstall_start",
+        extra={
+            "event": "c2r_licenses_reinstall_start",
+            "sku_count": len(skus),
+            "skus": skus,
+            "package_root": str(install_root),
+            "package_guid": package_guid,
+            "dry_run": dry_run,
+        },
+    )
+
+    # Step 3: Reinstall each SKU
+    results: dict[str, int] = {}
+    for sku in skus:
+        exit_code = reinstall_c2r_license(
+            sku,
+            install_root,
+            package_guid,
+            dry_run=dry_run,
+            timeout=timeout,
+        )
+        results[sku] = exit_code
+
+    successes = sum(1 for code in results.values() if code == 0)
+    failures = len(results) - successes
+
+    human_logger.info(
+        "License reinstall complete: %d succeeded, %d failed", successes, failures
+    )
+    machine_logger.info(
+        "c2r_licenses_reinstall_complete",
+        extra={
+            "event": "c2r_licenses_reinstall_complete",
+            "successes": successes,
+            "failures": failures,
+            "results": results,
+        },
+    )
+
+    return results

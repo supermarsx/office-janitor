@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -114,6 +114,54 @@ _OFFICE_EXCLUSIONS = (
     "redistributable",
     "redist",
 )
+
+# Office product code pattern: GUIDs ending with this suffix identify Office products
+# The VBS uses "0000000FF1CE}" pattern with version > 14 (Office 2013+)
+_OFFICE_GUID_SUFFIX = "0000000FF1CE}"
+
+# SKU filters for C2R integration products (positions 11-14 in GUID)
+_OFFICE_C2R_SKU_FILTERS = frozenset(("007E", "008F", "008C", "24E1", "237A", "00DD"))
+
+# Known Office infrastructure GUIDs to always include
+_OFFICE_SPECIAL_GUIDS = frozenset((
+    "{6C1ADE97-24E1-4AE4-AEDD-86D3A209CE60}",  # MOSA x64
+    "{9520DDEB-237A-41DB-AA20-F2EF2360DCEB}",  # MOSA x86
+    "{9AC08E99-230B-47E8-9721-4577B7F124EA}",  # Office shared
+))
+
+
+def is_office_guid(guid: str) -> bool:
+    """!
+    @brief Determine whether a GUID belongs to an Office product.
+    @details Mirrors the OffScrubC2R.vbs InScope() logic - checks for Office
+        GUID suffix pattern with version > 14, plus known infrastructure GUIDs.
+    @param guid Product code GUID in {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx} format.
+    @returns True if this GUID matches Office product patterns.
+    """
+    if not guid or len(guid) != 38:
+        return False
+
+    upper = guid.upper()
+
+    # Check special known GUIDs first
+    if upper in _OFFICE_SPECIAL_GUIDS:
+        return True
+
+    # Check suffix pattern
+    if not upper.endswith(_OFFICE_GUID_SUFFIX):
+        return False
+
+    # Check version > 14 (Office 2013+) at positions 4-5
+    try:
+        version = int(upper[4:6])
+        if version <= 14:
+            return False
+    except ValueError:
+        return False
+
+    # Check SKU filter at positions 11-14
+    sku = upper[11:15]
+    return sku in _OFFICE_C2R_SKU_FILTERS
 
 
 class RegistryError(RuntimeError):
@@ -366,6 +414,267 @@ def get_value(
         return default
     except OSError:
         return default
+
+
+def filter_multi_string_value(
+    root: int,
+    path: str,
+    value_name: str,
+    should_keep: Callable[[str], bool],
+    *,
+    dry_run: bool = False,
+    view: str | None = None,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    """!
+    @brief Filter entries from a REG_MULTI_SZ value based on a predicate.
+    @details Implements the Published Components cleanup pattern from VBS.
+        Rather than deleting the whole value, filters individual entries
+        and writes back only the entries that should_keep returns True for.
+    @param root Registry hive (HKLM, HKCU, etc.).
+    @param path Registry key path.
+    @param value_name Name of the REG_MULTI_SZ value.
+    @param should_keep Predicate function - return True to keep an entry.
+    @param dry_run If True, only log without modifying.
+    @param view Registry view (native, 32bit, 64bit).
+    @param logger Optional logger.
+    @returns Dictionary with results: entries_removed, entries_kept, value_deleted.
+    """
+    logger = logger or _LOGGER
+    _ensure_winreg()
+
+    results: dict[str, Any] = {
+        "entries_removed": [],
+        "entries_kept": [],
+        "value_deleted": False,
+        "error": None,
+    }
+
+    try:
+        # Read current value
+        current_value = get_value(root, path, value_name, view=view)
+        if current_value is None:
+            return results
+
+        # Handle both list and tuple (REG_MULTI_SZ returns list of strings)
+        if not isinstance(current_value, (list, tuple)):
+            logger.debug("Value %s is not multi-string type", value_name)
+            return results
+
+        entries = list(current_value)
+        new_entries: list[str] = []
+
+        for entry in entries:
+            entry_str = str(entry) if entry is not None else ""
+            if should_keep(entry_str):
+                new_entries.append(entry_str)
+                results["entries_kept"].append(entry_str)
+            else:
+                results["entries_removed"].append(entry_str)
+
+        # If nothing removed, no action needed
+        if len(new_entries) == len(entries):
+            logger.debug("No entries removed from %s", value_name)
+            return results
+
+        logger.info(
+            "Filtering REG_MULTI_SZ value: %d entries removed, %d kept",
+            len(results["entries_removed"]),
+            len(results["entries_kept"]),
+            extra={
+                "action": "registry-multi-string-filter",
+                "path": path,
+                "value": value_name,
+                "removed_count": len(results["entries_removed"]),
+                "kept_count": len(results["entries_kept"]),
+                "dry_run": dry_run,
+            },
+        )
+
+        if dry_run:
+            return results
+
+        # Write back filtered value or delete if empty
+        if new_entries:
+            # Write back the filtered list
+            for mask in _iter_access_masks(
+                getattr(winreg, "KEY_WRITE", 0x20006), view
+            ):
+                try:
+                    handle = winreg.OpenKey(root, path, 0, mask)
+                    try:
+                        winreg.SetValueEx(
+                            handle,
+                            value_name,
+                            0,
+                            getattr(winreg, "REG_MULTI_SZ", 7),
+                            new_entries,
+                        )
+                        logger.debug("Wrote filtered value with %d entries", len(new_entries))
+                        break
+                    finally:
+                        winreg.CloseKey(handle)
+                except (FileNotFoundError, OSError) as exc:
+                    logger.debug("Failed to write %s: %s", value_name, exc)
+                    continue
+        else:
+            # All entries removed, delete the value
+            try:
+                for mask in _iter_access_masks(
+                    getattr(winreg, "KEY_WRITE", 0x20006), view
+                ):
+                    try:
+                        handle = winreg.OpenKey(root, path, 0, mask)
+                        try:
+                            winreg.DeleteValue(handle, value_name)
+                            results["value_deleted"] = True
+                            logger.debug("Deleted empty multi-string value %s", value_name)
+                            break
+                        finally:
+                            winreg.CloseKey(handle)
+                    except (FileNotFoundError, OSError):
+                        continue
+            except Exception as exc:
+                results["error"] = str(exc)
+
+    except Exception as exc:
+        results["error"] = str(exc)
+        logger.warning("Error filtering multi-string value %s: %s", value_name, exc)
+
+    return results
+
+
+def cleanup_published_components(
+    *,
+    dry_run: bool = False,
+    view: str | None = None,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    """!
+    @brief Clean up Office entries from Windows Installer Published Components.
+    @details Published Components are stored as REG_MULTI_SZ values under
+        HKCR\\Installer\\Components. Each entry in the multi-string references
+        a product GUID. This function filters out Office-related entries while
+        preserving entries for non-Office products.
+    @param dry_run If True, only log without modifying.
+    @param view Registry view (native, 32bit, 64bit).
+    @param logger Optional logger.
+    @returns Dictionary with summary of cleanup results.
+    """
+    logger = logger or _LOGGER
+    _ensure_winreg()
+
+    results: dict[str, Any] = {
+        "components_processed": 0,
+        "values_modified": 0,
+        "entries_removed": 0,
+        "errors": [],
+    }
+
+    components_path = "Installer\\Components"
+
+    def should_keep_entry(entry: str) -> bool:
+        """Check if an entry references a non-Office product."""
+        if len(entry) < 20:
+            return True  # Too short to contain a valid squished GUID
+        # First 20 chars are the squished GUID - decode and check
+        squished = entry[:20]
+        decoded = _decode_squished_guid(squished)
+        if decoded and is_office_guid(decoded):
+            return False  # This is an Office entry, remove it
+        return True  # Keep non-Office entries
+
+    try:
+        component_keys = list(
+            iter_subkeys(_WINREG_HKCR, components_path, view=view)
+        )
+    except FileNotFoundError:
+        logger.debug("Components key not found")
+        return results
+    except OSError as exc:
+        results["errors"].append(f"Failed to enumerate components: {exc}")
+        return results
+
+    for component_key in component_keys:
+        results["components_processed"] += 1
+        key_path = f"{components_path}\\{component_key}"
+
+        try:
+            # Get all values in this component key
+            values = list(iter_values(_WINREG_HKCR, key_path, view=view))
+        except (FileNotFoundError, OSError):
+            continue
+
+        for value_name, _value_type in values:
+            result = filter_multi_string_value(
+                _WINREG_HKCR,
+                key_path,
+                value_name,
+                should_keep_entry,
+                dry_run=dry_run,
+                view=view,
+                logger=logger,
+            )
+
+            if result.get("entries_removed"):
+                results["values_modified"] += 1
+                results["entries_removed"] += len(result["entries_removed"])
+
+            if result.get("error"):
+                results["errors"].append(result["error"])
+
+    logger.info(
+        "Published Components cleanup: %d components, %d values modified, %d entries removed",
+        results["components_processed"],
+        results["values_modified"],
+        results["entries_removed"],
+        extra={
+            "action": "cleanup-published-components",
+            "dry_run": dry_run,
+            **results,
+        },
+    )
+
+    return results
+
+
+def _decode_squished_guid(squished: str) -> str | None:
+    """!
+    @brief Decode a Windows Installer squished GUID to standard format.
+    @details Windows Installer stores GUIDs in a compressed format where
+        each segment is reversed. This decodes back to {xxxxxxxx-xxxx-...}.
+    @param squished The 32-character squished GUID.
+    @returns Standard GUID format or None if invalid.
+    """
+    if not squished or len(squished) < 32:
+        return None
+
+    try:
+        # Squished format reverses each segment:
+        # {ABCDEFGH-IJKL-MNOP-QRST-UVWXYZ012345}
+        # becomes HGFEDCBAKLJIPONMTSRQWVXZYX103254
+        s = squished.upper()
+        return (
+            "{"
+            + s[7::-1]  # First segment reversed
+            + "-"
+            + s[11:7:-1]  # Second segment reversed
+            + "-"
+            + s[15:11:-1]  # Third segment reversed
+            + "-"
+            + s[17:15:-1]
+            + s[19:17:-1]  # Fourth segment (two pairs)
+            + "-"
+            + s[21:19:-1]
+            + s[23:21:-1]
+            + s[25:23:-1]
+            + s[27:25:-1]
+            + s[29:27:-1]
+            + s[31:29:-1]  # Fifth segment (six pairs)
+            + "}"
+        )
+    except (IndexError, ValueError):
+        return None
 
 
 def key_exists(root: int, path: str, *, view: str | None = None) -> bool:
@@ -1013,26 +1322,514 @@ def cleanup_protocol_handlers(
     return removed
 
 
+# ---------------------------------------------------------------------------
+# vNext Identity Registry Cleanup
+# ---------------------------------------------------------------------------
+# Based on OfficeScrubber.cmd :vNextREG subroutine (lines 697-714)
+
+# Registry paths for vNext licensing/identity cleanup
+_VNEXT_IDENTITY_KEYS: list[str] = [
+    r"HKLM\SOFTWARE\Microsoft\Office\16.0\Common\Licensing",
+    r"HKLM\SOFTWARE\Microsoft\Office\16.0\Common\Identity",
+    r"HKLM\SOFTWARE\Microsoft\Office\16.0\Registration",
+    r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Updates",
+    r"HKLM\SOFTWARE\Microsoft\Office\16.0\Common\OEM",
+    r"HKLM\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Licensing",
+    # WOW6432Node variants
+    r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Office\16.0\Common\OEM",
+    r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Office\16.0\Common\Licensing",
+    r"HKLM\SOFTWARE\Policies\WOW6432Node\Microsoft\Office\16.0\Common\Licensing",
+]
+"""!
+@brief Registry keys to delete for vNext identity cleanup.
+"""
+
+_VNEXT_C2R_VALUES_TO_DELETE: list[str] = [
+    "SharedComputerLicensing",
+    "productkeys",
+]
+"""!
+@brief Registry values to delete from ClickToRun Configuration key.
+"""
+
+_VNEXT_IDENTITY_VALUE_PATTERNS: list[str] = [
+    r".*\.EmailAddress$",
+    r".*\.TenantId$",
+    r".*\.DeviceBasedLicensing$",
+]
+"""!
+@brief Regex patterns for identity-related values to delete from C2R Configuration.
+"""
+
+
+def delete_registry_value(
+    key_path: str,
+    value_name: str,
+    *,
+    dry_run: bool = False,
+    logger: logging.Logger | None = None,
+) -> bool:
+    """!
+    @brief Delete a specific registry value.
+    @param key_path Full registry path (e.g., "HKLM\\SOFTWARE\\...").
+    @param value_name Name of the value to delete.
+    @param dry_run If True, only log without deleting.
+    @param logger Optional logger.
+    @returns True if deleted or dry-run, False if not found or error.
+    """
+    logger = logger or _LOGGER
+    reg_executable = shutil.which("reg")
+
+    if not reg_executable:
+        logger.warning("reg.exe not found, cannot delete value")
+        return False
+
+    logger.info(
+        "Deleting registry value",
+        extra={
+            "action": "registry-value-delete",
+            "key": key_path,
+            "value": value_name,
+            "dry_run": dry_run,
+        },
+    )
+
+    if dry_run:
+        return True
+
+    result = exec_utils.run_command(
+        [reg_executable, "delete", key_path, "/v", value_name, "/f"],
+        event="registry_value_delete",
+        dry_run=False,
+        check=False,
+        extra={"key": key_path, "value": value_name},
+    )
+
+    return result.returncode == 0
+
+
+def cleanup_vnext_identity_registry(
+    *,
+    dry_run: bool = False,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    """!
+    @brief Clean up vNext identity and licensing registry entries.
+    @details Implements OfficeScrubber.cmd :vNextREG subroutine functionality:
+        1. Delete identity/licensing registry keys
+        2. Delete specific C2R configuration values
+        3. Delete identity-related values matching patterns (*.EmailAddress, etc.)
+    @param dry_run If True, only log what would be deleted.
+    @param logger Optional logger.
+    @returns Dictionary with cleanup results.
+    """
+    logger = logger or _LOGGER
+    results: dict[str, Any] = {
+        "keys_deleted": [],
+        "values_deleted": [],
+        "patterns_matched": [],
+        "errors": [],
+    }
+
+    # Step 1: Delete vNext identity keys
+    logger.info("Cleaning vNext identity registry keys...")
+    for key_path in _VNEXT_IDENTITY_KEYS:
+        try:
+            if key_exists(key_path):
+                logger.debug("Deleting vNext key: %s", key_path)
+                delete_keys([key_path], dry_run=dry_run, logger=logger)
+                results["keys_deleted"].append(key_path)
+        except Exception as e:
+            logger.warning("Failed to delete key %s: %s", key_path, e)
+            results["errors"].append({"key": key_path, "error": str(e)})
+
+    # Step 2: Delete specific C2R configuration values
+    c2r_config_paths = [
+        r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
+        r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Office\ClickToRun\Configuration",
+    ]
+
+    for config_path in c2r_config_paths:
+        if not key_exists(config_path):
+            continue
+
+        for value_name in _VNEXT_C2R_VALUES_TO_DELETE:
+            try:
+                if delete_registry_value(config_path, value_name, dry_run=dry_run, logger=logger):
+                    results["values_deleted"].append(f"{config_path}\\{value_name}")
+            except Exception as e:
+                logger.debug("Failed to delete value %s\\%s: %s", config_path, value_name, e)
+
+        # Step 3: Delete pattern-matched identity values
+        # Need to enumerate values and match against patterns
+        try:
+            hive, _, subpath = config_path.partition("\\")
+            hive_int = _WINREG_HKLM if hive == "HKLM" else _WINREG_HKCU
+            patterns = [re.compile(p, re.IGNORECASE) for p in _VNEXT_IDENTITY_VALUE_PATTERNS]
+
+            for value_name, _ in iter_values(hive_int, subpath):
+                for pattern in patterns:
+                    if pattern.match(value_name):
+                        logger.debug("Pattern match for deletion: %s\\%s", config_path, value_name)
+                        if delete_registry_value(
+                            config_path, value_name, dry_run=dry_run, logger=logger
+                        ):
+                            results["patterns_matched"].append(f"{config_path}\\{value_name}")
+                        break
+        except (FileNotFoundError, OSError) as e:
+            logger.debug("Failed to enumerate values in %s: %s", config_path, e)
+
+    # Step 4: Clean SPP policies in Network Service SID (S-1-5-20)
+    spp_key = r"HKU\S-1-5-20\Software\Microsoft\OfficeSoftwareProtectionPlatform\Policies\0ff1ce15-a989-479d-af46-f275c6370663"
+    if key_exists(spp_key):
+        try:
+            delete_keys([spp_key], dry_run=dry_run, logger=logger)
+            results["keys_deleted"].append(spp_key)
+        except Exception as e:
+            logger.debug("Failed to delete SPP key %s: %s", spp_key, e)
+
+    total_deleted = (
+        len(results["keys_deleted"])
+        + len(results["values_deleted"])
+        + len(results["patterns_matched"])
+    )
+    logger.info(
+        "vNext identity cleanup complete: %d keys, %d values, %d pattern matches",
+        len(results["keys_deleted"]),
+        len(results["values_deleted"]),
+        len(results["patterns_matched"]),
+    )
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# User Profile Registry Loading
+# ---------------------------------------------------------------------------
+# Based on OffScrubC2R.vbs LoadUsersReg subroutine (lines 2192-2214)
+
+def get_user_profiles_directory() -> Path | None:
+    """!
+    @brief Get the path to the Windows user profiles directory.
+    @returns Path to profiles directory (e.g., C:\\Users) or None if not found.
+    """
+    try:
+        key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList"
+        values = read_values(_WINREG_HKLM, key_path, view="native")
+        profiles_dir = values.get("ProfilesDirectory", "")
+        if profiles_dir:
+            # Expand environment variables
+            import os
+            expanded = os.path.expandvars(profiles_dir)
+            return Path(expanded)
+    except (FileNotFoundError, OSError):
+        pass
+    return None
+
+
+def get_user_profile_hive_paths() -> list[tuple[str, Path]]:
+    """!
+    @brief Enumerate user profile folders and their ntuser.dat paths.
+    @returns List of (profile_name, ntuser_dat_path) tuples.
+    """
+    profiles_dir = get_user_profiles_directory()
+    if profiles_dir is None or not profiles_dir.exists():
+        return []
+
+    results: list[tuple[str, Path]] = []
+    try:
+        for folder in profiles_dir.iterdir():
+            if not folder.is_dir():
+                continue
+            ntuser = folder / "ntuser.dat"
+            if ntuser.exists():
+                results.append((folder.name, ntuser))
+    except OSError:
+        pass
+
+    return results
+
+
+# Track loaded user hives for cleanup
+_LOADED_USER_HIVES: list[str] = []
+
+
+def load_user_registry_hives(
+    *,
+    dry_run: bool = False,
+    logger: logging.Logger | None = None,
+) -> list[str]:
+    """!
+    @brief Load all user ntuser.dat files into HKU for per-user cleanup.
+    @details Implements OffScrubC2R.vbs LoadUsersReg functionality.
+        Loads each user's registry hive to HKU\\<profile_name>.
+    @param dry_run If True, only log what would be loaded.
+    @param logger Optional logger.
+    @returns List of successfully loaded hive names.
+    """
+    global _LOADED_USER_HIVES
+    logger = logger or _LOGGER
+
+    profiles = get_user_profile_hive_paths()
+    if not profiles:
+        logger.debug("No user profile hives found to load")
+        return []
+
+    loaded: list[str] = []
+    reg_exe = shutil.which("reg")
+    if not reg_exe:
+        logger.warning("reg.exe not found, cannot load user hives")
+        return []
+
+    for profile_name, ntuser_path in profiles:
+        hive_key = f"HKU\\{profile_name}"
+
+        # Skip if already loaded (e.g., current user)
+        if key_exists(hive_key):
+            logger.debug("Hive %s already loaded, skipping", hive_key)
+            continue
+
+        logger.info(
+            "Loading user registry hive",
+            extra={
+                "action": "registry-hive-load",
+                "profile": profile_name,
+                "path": str(ntuser_path),
+                "dry_run": dry_run,
+            },
+        )
+
+        if dry_run:
+            loaded.append(profile_name)
+            continue
+
+        # reg load "HKU\<profile_name>" "<path>\ntuser.dat"
+        result = exec_utils.run_command(
+            [reg_exe, "load", hive_key, str(ntuser_path)],
+            event="registry_hive_load",
+            dry_run=False,
+            check=False,
+            extra={"profile": profile_name},
+        )
+
+        if result.returncode == 0:
+            loaded.append(profile_name)
+            _LOADED_USER_HIVES.append(profile_name)
+            logger.debug("Loaded hive %s", hive_key)
+        else:
+            logger.debug(
+                "Failed to load hive %s (code %d): %s",
+                hive_key,
+                result.returncode,
+                result.stderr.strip() if result.stderr else "",
+            )
+
+    return loaded
+
+
+def unload_user_registry_hives(
+    *,
+    dry_run: bool = False,
+    logger: logging.Logger | None = None,
+) -> list[str]:
+    """!
+    @brief Unload previously loaded user registry hives.
+    @param dry_run If True, only log what would be unloaded.
+    @param logger Optional logger.
+    @returns List of successfully unloaded hive names.
+    """
+    global _LOADED_USER_HIVES
+    logger = logger or _LOGGER
+
+    if not _LOADED_USER_HIVES:
+        logger.debug("No user hives to unload")
+        return []
+
+    unloaded: list[str] = []
+    reg_exe = shutil.which("reg")
+    if not reg_exe:
+        logger.warning("reg.exe not found, cannot unload user hives")
+        return []
+
+    # Unload in reverse order
+    for profile_name in reversed(_LOADED_USER_HIVES.copy()):
+        hive_key = f"HKU\\{profile_name}"
+
+        logger.info(
+            "Unloading user registry hive",
+            extra={
+                "action": "registry-hive-unload",
+                "profile": profile_name,
+                "dry_run": dry_run,
+            },
+        )
+
+        if dry_run:
+            unloaded.append(profile_name)
+            continue
+
+        # reg unload "HKU\<profile_name>"
+        result = exec_utils.run_command(
+            [reg_exe, "unload", hive_key],
+            event="registry_hive_unload",
+            dry_run=False,
+            check=False,
+            extra={"profile": profile_name},
+        )
+
+        if result.returncode == 0:
+            unloaded.append(profile_name)
+            _LOADED_USER_HIVES.remove(profile_name)
+            logger.debug("Unloaded hive %s", hive_key)
+        else:
+            logger.warning(
+                "Failed to unload hive %s (code %d)",
+                hive_key,
+                result.returncode,
+            )
+
+    return unloaded
+
+
+def get_loaded_user_hives() -> list[str]:
+    """!
+    @brief Get list of user hives currently loaded by this session.
+    @returns List of profile names with loaded hives.
+    """
+    return list(_LOADED_USER_HIVES)
+
+
+# ---------------------------------------------------------------------------
+# Taskband Registry Cleanup
+# ---------------------------------------------------------------------------
+# Based on OffScrubC2R.vbs ClearTaskBand subroutine (lines 2161-2183)
+
+_TASKBAND_VALUES_TO_DELETE: list[str] = [
+    "Favorites",
+    "FavoritesRemovedChanges",
+    "FavoritesChanges",
+    "FavoritesResolve",
+    "FavoritesVersion",
+]
+"""!
+@brief Registry values to delete from Taskband key to unpin items.
+"""
+
+
+def cleanup_taskband_registry(
+    *,
+    include_all_users: bool = False,
+    dry_run: bool = False,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    """!
+    @brief Clean up taskband registry to remove pinned Office items.
+    @details Implements OffScrubC2R.vbs ClearTaskBand functionality.
+        Removes Favorites* values from Taskband key to clear pinned items.
+    @param include_all_users If True, also clean all user profiles in HKU.
+    @param dry_run If True, only log what would be deleted.
+    @param logger Optional logger.
+    @returns Dictionary with cleanup results.
+    """
+    logger = logger or _LOGGER
+    results: dict[str, Any] = {
+        "values_deleted": [],
+        "users_processed": [],
+        "errors": [],
+    }
+
+    taskband_path = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband"
+
+    # Step 1: Clean HKCU taskband
+    hkcu_full_path = f"HKCU\\{taskband_path}"
+    logger.info("Cleaning HKCU taskband registry...")
+
+    for value_name in _TASKBAND_VALUES_TO_DELETE:
+        try:
+            if delete_registry_value(hkcu_full_path, value_name, dry_run=dry_run, logger=logger):
+                results["values_deleted"].append(f"{hkcu_full_path}\\{value_name}")
+        except Exception as e:
+            logger.debug("Failed to delete %s\\%s: %s", hkcu_full_path, value_name, e)
+
+    # Step 2: If requested, clean all user profiles in HKU
+    if include_all_users:
+        logger.info("Cleaning taskband for all user profiles...")
+
+        # First load user hives if not already loaded
+        loaded_hives = load_user_registry_hives(dry_run=dry_run, logger=logger)
+        if loaded_hives:
+            results["users_processed"].extend(loaded_hives)
+
+        # Enumerate all SIDs in HKU
+        try:
+            for sid in iter_subkeys(_WINREG_HKU, "", view="native"):
+                # Skip well-known SIDs that don't have user profiles
+                if sid in ("S-1-5-18", "S-1-5-19", "S-1-5-20", ".DEFAULT"):
+                    continue
+                if sid.endswith("_Classes"):
+                    continue
+
+                hku_taskband_path = f"HKU\\{sid}\\{taskband_path}"
+
+                for value_name in _TASKBAND_VALUES_TO_DELETE:
+                    try:
+                        if delete_registry_value(
+                            hku_taskband_path, value_name, dry_run=dry_run, logger=logger
+                        ):
+                            results["values_deleted"].append(f"{hku_taskband_path}\\{value_name}")
+                    except Exception:
+                        pass  # Value may not exist, which is fine
+
+                if sid not in results["users_processed"]:
+                    results["users_processed"].append(sid)
+
+        except (FileNotFoundError, OSError) as e:
+            logger.debug("Failed to enumerate HKU: %s", e)
+
+        # Unload hives we loaded
+        if loaded_hives:
+            unload_user_registry_hives(dry_run=dry_run, logger=logger)
+
+    logger.info(
+        "Taskband cleanup complete: %d values deleted across %d users",
+        len(results["values_deleted"]),
+        len(results["users_processed"]) + 1,  # +1 for HKCU
+    )
+
+    return results
+
+
 __all__ = [
     "RegistryError",
     "WI_METADATA_PATHS",
     "cleanup_orphaned_typelibs",
     "cleanup_protocol_handlers",
+    "cleanup_published_components",
     "cleanup_shell_extensions",
+    "cleanup_taskband_registry",
+    "cleanup_vnext_identity_registry",
     "cleanup_wi_orphaned_components",
     "cleanup_wi_orphaned_products",
     "delete_keys",
+    "delete_registry_value",
     "export_keys",
+    "filter_multi_string_value",
+    "get_loaded_user_hives",
+    "get_user_profile_hive_paths",
+    "get_user_profiles_directory",
     "get_value",
     "hive_name",
+    "is_office_guid",
     "iter_office_uninstall_entries",
     "iter_subkeys",
     "iter_values",
     "key_exists",
+    "load_user_registry_hives",
     "looks_like_office_entry",
     "open_key",
     "read_values",
     "scan_orphaned_typelibs",
     "scan_wi_metadata",
+    "unload_user_registry_hives",
     "validate_wi_metadata_key",
 ]

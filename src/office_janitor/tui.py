@@ -1107,6 +1107,39 @@ def run_tui(app_state: Mapping[str, object]) -> None:
     OfficeJanitorTUI(app_state).run()
 
 
+def render_progress_bar(
+    current: int,
+    total: int,
+    width: int = 40,
+    fill_char: str = "█",
+    empty_char: str = "░",
+    show_percentage: bool = True,
+) -> str:
+    """!
+    @brief Render a text-based progress bar with optional percentage.
+    @param current Current progress value.
+    @param total Total value (when current == total, bar is full).
+    @param width Width of the bar in characters (excluding percentage).
+    @param fill_char Character used for completed portion.
+    @param empty_char Character used for incomplete portion.
+    @param show_percentage If True, append percentage to bar.
+    @returns Formatted progress bar string.
+    """
+    if total <= 0:
+        percentage = 0.0
+    else:
+        percentage = min(100.0, (current / total) * 100.0)
+
+    filled_width = int((percentage / 100.0) * width)
+    empty_width = width - filled_width
+
+    bar = f"{fill_char * filled_width}{empty_char * empty_width}"
+
+    if show_percentage:
+        return f"[{bar}] {percentage:5.1f}%"
+    return f"[{bar}]"
+
+
 def _supports_ansi(stream: object | None = None) -> bool:
     """!
     @brief Determine whether the current stdout supports ANSI escape sequences.
@@ -1146,6 +1179,15 @@ def _decode_key(raw: str) -> str:
         "q": "quit",
         "Q": "quit",
         "\x1b": "escape",
+        # vim-style hjkl navigation
+        "h": "left",
+        "j": "down",
+        "k": "up",
+        "l": "right",
+        "H": "left",
+        "J": "down",
+        "K": "up",
+        "L": "right",
     }
     if raw in mapping:
         return mapping[raw]

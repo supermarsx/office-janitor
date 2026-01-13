@@ -353,3 +353,129 @@ class TestCleanupMsocache:
 
         result = fs_tools.cleanup_msocache(product_filter="office2016", dry_run=True)
         assert result == 0
+
+
+class TestAppxPackageRemoval:
+    """Tests for UWP/AppX package removal functions."""
+
+    def test_remove_appx_package_dry_run(self, monkeypatch) -> None:
+        """Dry run should log but not execute PowerShell."""
+        commands_run = []
+
+        def mock_run_command(*args, **kwargs):
+            commands_run.append(args)
+            result = types.SimpleNamespace()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            result.error = None
+            result.skipped = False
+            return result
+
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.exec_utils.run_command",
+            mock_run_command,
+        )
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.logging_ext.get_human_logger",
+            lambda: _NullLogger(),
+        )
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.logging_ext.get_machine_logger",
+            lambda: _NullLogger(),
+        )
+
+        result = fs_tools.remove_appx_package("TestPackage_1.0.0_x64__abc123", dry_run=True)
+
+        assert result is True
+        # Dry run should NOT call exec_utils.run_command
+        assert len(commands_run) == 0
+
+    def test_remove_appx_package_executes_powershell(self, monkeypatch) -> None:
+        """Non-dry-run should call PowerShell Remove-AppxPackage."""
+        commands_run = []
+
+        def mock_run_command(cmd, **kwargs):
+            commands_run.append(cmd)
+            result = types.SimpleNamespace()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            result.error = None
+            result.skipped = False
+            return result
+
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.exec_utils.run_command",
+            mock_run_command,
+        )
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.logging_ext.get_human_logger",
+            lambda: _NullLogger(),
+        )
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.logging_ext.get_machine_logger",
+            lambda: _NullLogger(),
+        )
+
+        result = fs_tools.remove_appx_package("Microsoft.Office.Desktop_16001.14326.20544.0_x86__8wekyb3d8bbwe")
+
+        assert result is True
+        assert len(commands_run) == 1
+        assert "powershell" in commands_run[0][0]
+        assert "Remove-AppxPackage" in commands_run[0][3]
+
+    def test_remove_appx_package_empty_name_returns_false(self, monkeypatch) -> None:
+        """Empty package name should return False immediately."""
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.logging_ext.get_human_logger",
+            lambda: _NullLogger(),
+        )
+        result = fs_tools.remove_appx_package("", dry_run=False)
+        assert result is False
+
+    def test_remove_office_appx_packages_dry_run(self, monkeypatch) -> None:
+        """Dry run should process packages without actual removal."""
+        mock_packages = [
+            {"package_full_name": "Microsoft.Office.Desktop_1.0_x64__abc", "name": "Office Desktop"},
+            {"package_full_name": "Microsoft.365_2.0_x64__def", "name": "Microsoft 365"},
+        ]
+
+        monkeypatch.setattr(
+            "office_janitor.detect.detect_appx_packages",
+            lambda: mock_packages,
+        )
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.logging_ext.get_human_logger",
+            lambda: _NullLogger(),
+        )
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.logging_ext.get_machine_logger",
+            lambda: _NullLogger(),
+        )
+
+        result = fs_tools.remove_office_appx_packages(dry_run=True)
+
+        assert result["dry_run"] is True
+        assert result["removed"] == 2
+        assert len(result["packages"]) == 2
+
+    def test_remove_office_appx_packages_no_packages(self, monkeypatch) -> None:
+        """Should handle case with no Office AppX packages."""
+        monkeypatch.setattr(
+            "office_janitor.detect.detect_appx_packages",
+            lambda: [],
+        )
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.logging_ext.get_human_logger",
+            lambda: _NullLogger(),
+        )
+        monkeypatch.setattr(
+            "office_janitor.fs_tools.logging_ext.get_machine_logger",
+            lambda: _NullLogger(),
+        )
+
+        result = fs_tools.remove_office_appx_packages(dry_run=False)
+
+        assert result["removed"] == 0
+        assert result["packages"] == []

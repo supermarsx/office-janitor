@@ -235,7 +235,7 @@ def test_c2r_task_cleanup_invoked(monkeypatch):
 
     rc = off_scrub_native.main(["c2r", "OffScrubC2R.vbs", "ALL"])
     assert rc == 0
-    assert deleted_tasks == list(off_scrub_native.constants.C2R_CLEANUP_TASKS)
+    assert deleted_tasks == list(off_scrub_native.constants.OFFICE_SCHEDULED_TASKS_TO_DELETE)
 
 
 def test_quiet_suppresses_info_logging(monkeypatch, caplog):
