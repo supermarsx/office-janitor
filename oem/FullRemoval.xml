@@ -1,4 +1,4 @@
-<Configuration ID="e9c66c20-1dcb-406e-84fe-6c3ba999fe43">
+<Configuration>
   <Remove All="TRUE"></Remove>
   <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
   <RemoveMSI />
