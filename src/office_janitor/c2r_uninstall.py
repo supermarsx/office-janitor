@@ -527,8 +527,10 @@ def uninstall_products(
             # Still have residue - report what remains
             remaining_paths = [str(p) for p in target.install_paths if p.exists()]
             remaining_handles = [
-                h for h in target.uninstall_handles 
-                if _parse_registry_handle(h) and registry_tools.key_exists(*_parse_registry_handle(h))
+                h
+                for h in target.uninstall_handles
+                if _parse_registry_handle(h)
+                and registry_tools.key_exists(*_parse_registry_handle(h))
             ]
             machine_logger.error(
                 "c2r_uninstall_residue",
@@ -571,6 +573,7 @@ def _force_cleanup_residue(target: _C2RTarget) -> None:
                 human_logger.info("Force removing path: %s", path)
                 if path.is_dir():
                     import shutil
+
                     shutil.rmtree(path, ignore_errors=True)
                 else:
                     path.unlink(missing_ok=True)

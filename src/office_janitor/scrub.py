@@ -228,7 +228,7 @@ class StepExecutor:
 
                 # Extract a concise error reason for display
                 error_reason = self._extract_error_reason(exc)
-                
+
                 # Check if this error is non-recoverable (no point retrying)
                 is_non_recoverable = self._is_non_recoverable_error(exc)
 
@@ -253,13 +253,13 @@ class StepExecutor:
                     attempt,
                     exc,
                 )
-                
+
                 # Skip retries for non-recoverable errors
                 if is_non_recoverable:
                     result.non_recoverable = True
                     _scrub_fail(f"{error_reason} (non-recoverable, continuing)")
                     break
-                
+
                 if attempt < attempts_allowed:
                     # Print RETRY status with error reason
                     _scrub_fail(f"retry: {error_reason}")
@@ -413,19 +413,19 @@ class StepExecutor:
         # FileNotFoundError - missing executables, files, etc.
         if isinstance(exc, FileNotFoundError):
             return True
-        
+
         # ValueError - invalid configuration, bad parameters
         if isinstance(exc, ValueError):
             return True
-        
+
         # NotImplementedError - feature not available
         if isinstance(exc, NotImplementedError):
             return True
-        
+
         # ImportError - missing dependencies
         if isinstance(exc, ImportError):
             return True
-        
+
         # Check message for non-recoverable patterns
         exc_msg = str(exc).lower()
         non_recoverable_patterns = [
@@ -441,7 +441,7 @@ class StepExecutor:
         for pattern in non_recoverable_patterns:
             if pattern in exc_msg:
                 return True
-        
+
         return False
 
     def _dispatch(

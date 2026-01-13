@@ -64,7 +64,9 @@ def test_main_auto_all_executes_scrub_pipeline(monkeypatch, tmp_path) -> None:
 
     scrub_calls: list[bool] = []
     monkeypatch.setattr(
-        main.scrub, "execute_plan", lambda plan, dry_run=False, **kw: scrub_calls.append(bool(dry_run))
+        main.scrub,
+        "execute_plan",
+        lambda plan, dry_run=False, **kw: scrub_calls.append(bool(dry_run)),
     )
 
     guard_calls: list[tuple[dict, bool]] = []
@@ -1350,7 +1352,9 @@ class TestCLIFlagBehavior:
 
         scrub_dry_run: list[bool] = []
         monkeypatch.setattr(
-            main.scrub, "execute_plan", lambda plan, dry_run=False, **kw: scrub_dry_run.append(dry_run)
+            main.scrub,
+            "execute_plan",
+            lambda plan, dry_run=False, **kw: scrub_dry_run.append(dry_run),
         )
         monkeypatch.setattr(main, "_enforce_runtime_guards", lambda o, *, dry_run=False: None)
 

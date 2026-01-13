@@ -513,7 +513,7 @@ def detect_appx_packages() -> list[dict[str, object]]:
     @details Uses PowerShell Get-AppxPackage to enumerate installed modern
     Office apps. These are separate from MSI and Click-to-Run installations.
     """
-    
+
     # PowerShell script to get Office-related AppX packages
     script = (
         "$ErrorActionPreference='SilentlyContinue';"
@@ -534,20 +534,20 @@ def detect_appx_packages() -> list[dict[str, object]]:
         "Select-Object Name,PackageFullName,Version,Architecture,InstallLocation,Publisher;"
         "if($packages){$packages|ConvertTo-Json -Compress}else{''}"
     )
-    
+
     code, output = _run_command(["powershell", "-NoProfile", "-Command", script])
     if code != 0 or not output.strip():
         return []
-    
+
     text = output.strip()
     try:
         payload = json.loads(text)
     except json.JSONDecodeError:
         return []
-    
+
     records = payload if isinstance(payload, list) else [payload]
     results: list[dict[str, object]] = []
-    
+
     # Exclusion patterns for non-Office apps
     exclusions = (
         "teams",
@@ -557,36 +557,38 @@ def detect_appx_packages() -> list[dict[str, object]]:
         "sql",
         "powershell",
     )
-    
+
     for record in records:
         if not isinstance(record, Mapping):
             continue
-        
+
         name = str(record.get("Name") or "").strip()
         if not name:
             continue
-        
+
         # Skip excluded packages
         name_lower = name.lower()
         if any(excl in name_lower for excl in exclusions):
             continue
-        
+
         package_full_name = str(record.get("PackageFullName") or "").strip()
         version = str(record.get("Version") or "").strip()
         architecture = str(record.get("Architecture") or "").strip()
         install_location = str(record.get("InstallLocation") or "").strip()
         publisher = str(record.get("Publisher") or "").strip()
-        
-        results.append({
-            "name": name,
-            "package_full_name": package_full_name,
-            "version": version,
-            "architecture": architecture,
-            "install_location": install_location,
-            "publisher": publisher,
-            "source": "AppX",
-        })
-    
+
+        results.append(
+            {
+                "name": name,
+                "package_full_name": package_full_name,
+                "version": version,
+                "architecture": architecture,
+                "install_location": install_location,
+                "publisher": publisher,
+                "source": "AppX",
+            }
+        )
+
     return results
 
 
@@ -597,10 +599,10 @@ def detect_uninstall_entries() -> list[dict[str, object]]:
     "Programs and Features" / "Apps & Features" control panel. This catches
     Office installations that may not be in the known MSI product map.
     """
-    
+
     results: list[dict[str, object]] = []
     seen_handles: set[str] = set()
-    
+
     # Use the registry_tools function to find Office-like uninstall entries
     for hive, key_path, values in registry_tools.iter_office_uninstall_entries(
         constants.MSI_UNINSTALL_ROOTS
@@ -609,11 +611,11 @@ def detect_uninstall_entries() -> list[dict[str, object]]:
         if handle in seen_handles:
             continue
         seen_handles.add(handle)
-        
+
         display_name = str(values.get("DisplayName") or "").strip()
         if not display_name:
             continue
-        
+
         # Extract useful fields
         display_version = str(values.get("DisplayVersion") or "").strip()
         publisher = str(values.get("Publisher") or "").strip()
@@ -621,23 +623,25 @@ def detect_uninstall_entries() -> list[dict[str, object]]:
         uninstall_string = str(values.get("UninstallString") or "").strip()
         quiet_uninstall = str(values.get("QuietUninstallString") or "").strip()
         install_date = str(values.get("InstallDate") or "").strip()
-        
+
         # Try to extract product code from key path
         product_code = key_path.rsplit("\\", 1)[-1] if "\\" in key_path else key_path
-        
-        results.append({
-            "display_name": display_name,
-            "version": display_version,
-            "publisher": publisher,
-            "install_location": install_location,
-            "uninstall_string": uninstall_string,
-            "quiet_uninstall_string": quiet_uninstall,
-            "install_date": install_date,
-            "product_code": product_code,
-            "registry_handle": handle,
-            "source": "ControlPanel",
-        })
-    
+
+        results.append(
+            {
+                "display_name": display_name,
+                "version": display_version,
+                "publisher": publisher,
+                "install_location": install_location,
+                "uninstall_string": uninstall_string,
+                "quiet_uninstall_string": quiet_uninstall,
+                "install_date": install_date,
+                "product_code": product_code,
+                "registry_handle": handle,
+                "source": "ControlPanel",
+            }
+        )
+
     return results
 
 
