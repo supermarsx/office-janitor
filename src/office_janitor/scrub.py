@@ -37,6 +37,26 @@ DEFAULT_MAX_PASSES = 3
 @brief Safety limit mirroring OffScrub's repeated scrub attempts.
 """
 
+DEFAULT_RETRY_COUNT = 9
+"""!
+@brief Default retry count for plan steps (9 retries = 10 total attempts).
+"""
+
+DEFAULT_RETRY_DELAY_BASE = 3
+"""!
+@brief Base delay between retries in seconds. Progressive backoff is applied.
+"""
+
+DEFAULT_RETRY_DELAY_MAX = 30
+"""!
+@brief Maximum delay between retries in seconds.
+"""
+
+FORCE_ESCALATION_ATTEMPT = 3
+"""!
+@brief Attempt number at which force mode is enabled for uninstall operations.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Progress logging utilities
@@ -224,16 +244,31 @@ class StepExecutor:
                     exc,
                 )
                 if attempt < attempts_allowed:
-                    if delay:
-                        self._human_logger.info(
-                            "Retrying step %s in %d second(s)...",
-                            step_id or category,
-                            delay,
+                    # Print RETRY status for this attempt
+                    _scrub_fail("retry")
+                    # Calculate progressive delay with backoff
+                    actual_delay = self._calculate_progressive_delay(delay, attempt)
+                    # Enable force mode after FORCE_ESCALATION_ATTEMPT
+                    if attempt >= FORCE_ESCALATION_ATTEMPT:
+                        metadata["force"] = True
+                        _scrub_progress(
+                            f"Escalating to force mode after {attempt} attempts",
+                            indent=3,
                         )
-                        time.sleep(delay)
+                    _scrub_progress(
+                        f"Waiting {actual_delay}s before retry {attempt + 1}/{attempts_allowed}...",
+                        indent=3,
+                    )
+                    time.sleep(actual_delay)
                     continue
+                # Final failure - print FAILED status
+                _scrub_fail()
                 break
             else:
+                # Print OK status with duration
+                duration = self._format_duration(result)
+                duration_str = f"{duration:.2f}s" if duration is not None else ""
+                _scrub_ok(duration_str)
                 result.status = "success"
                 result.error = None
                 result.exception = None
@@ -252,7 +287,7 @@ class StepExecutor:
                         "dry_run": dry_run,
                         "attempts": attempt,
                         "progress": progress,
-                        "duration": self._format_duration(result),
+                        "duration": duration,
                     },
                 )
                 break
@@ -268,6 +303,15 @@ class StepExecutor:
         index: int,
         progress: float,
     ) -> None:
+        # Print visible substep progress
+        step_label = f"{step_id}" if step_id else f"{category}"
+        attempt_info = f" (attempt {attempt})" if attempt > 1 else ""
+        dry_run_marker = " [DRY-RUN]" if dry_run else ""
+        _scrub_progress(
+            f"[{index}/{self._total_steps}] {step_label}{attempt_info}{dry_run_marker}...",
+            newline=False,
+            indent=2,
+        )
         self._human_logger.info(
             "Executing step %s/%s (%s:%s) attempt %d",
             index,
@@ -374,6 +418,9 @@ class StepExecutor:
 
     @staticmethod
     def _resolve_retry_count(step: Mapping[str, object], metadata: Mapping[str, object]) -> int:
+        """!
+        @brief Resolve retry count from step/metadata, defaulting to DEFAULT_RETRY_COUNT.
+        """
         values = [
             step.get("retries"),
             metadata.get("retries"),
@@ -387,10 +434,13 @@ class StepExecutor:
             except (TypeError, ValueError):
                 continue
             return max(0, parsed)
-        return 0
+        return DEFAULT_RETRY_COUNT
 
     @staticmethod
     def _resolve_retry_delay(step: Mapping[str, object], metadata: Mapping[str, object]) -> int:
+        """!
+        @brief Resolve base retry delay from step/metadata, defaulting to DEFAULT_RETRY_DELAY_BASE.
+        """
         values = [
             step.get("retry_delay"),
             metadata.get("retry_delay"),
@@ -404,7 +454,17 @@ class StepExecutor:
             except (TypeError, ValueError):
                 continue
             return max(0, parsed)
-        return 0
+        return DEFAULT_RETRY_DELAY_BASE
+
+    @staticmethod
+    def _calculate_progressive_delay(base_delay: int, attempt: int) -> int:
+        """!
+        @brief Calculate progressive delay with exponential backoff.
+        @details Uses formula: base_delay * (1.5 ^ (attempt - 1)), capped at MAX.
+        """
+        factor = 1.5 ** (attempt - 1)
+        calculated = int(base_delay * factor)
+        return min(calculated, DEFAULT_RETRY_DELAY_MAX)
 
 
 def _merge_reboot_details(details: MutableMapping[str, object], services: Iterable[str]) -> None:
@@ -441,6 +501,7 @@ def execute_plan(
     *,
     dry_run: bool = False,
     max_passes: int | None = None,
+    start_time: float | None = None,
 ) -> None:
     """!
     @brief Run each plan step while respecting dry-run safety requirements.
@@ -449,9 +510,11 @@ def execute_plan(
     number of passes has been reached. Cleanup steps are executed once using the
     final plan, ensuring filesystem and licensing tasks do not repeat across
     passes.
+    @param start_time Optional startup timestamp for continuous timing across modules.
     """
     global _SCRUB_START_TIME
-    _SCRUB_START_TIME = time.perf_counter()
+    # Use provided start_time for continuous timestamps, or start fresh
+    _SCRUB_START_TIME = start_time if start_time is not None else time.perf_counter()
 
     _scrub_progress("=" * 50)
     _scrub_progress("Scrub Execution Engine Starting")

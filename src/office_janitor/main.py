@@ -577,7 +577,9 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress("=" * 60)
     fatal_error: str | None = None
     try:
-        scrub.execute_plan(generated_plan, dry_run=scrub_dry_run)
+        scrub.execute_plan(
+            generated_plan, dry_run=scrub_dry_run, start_time=_MAIN_START_TIME
+        )
     except KeyboardInterrupt:
         _progress("Execution interrupted by user", indent=1, newline=False)
         _progress_skip("cancelled")
@@ -741,7 +743,7 @@ def _build_app_state(
                 return False
 
         _enforce_runtime_guards(guard_options, dry_run=dry_run)
-        scrub.execute_plan(plan_data, dry_run=dry_run)
+        scrub.execute_plan(plan_data, dry_run=dry_run, start_time=_MAIN_START_TIME)
         return True
 
     app_state: AppState = {
