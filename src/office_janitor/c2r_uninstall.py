@@ -387,9 +387,14 @@ def uninstall_products(
         )
 
     client_path = _find_existing_path(target.client_candidates)
+    setup_path = _find_existing_path(target.setup_candidates)
     total_attempts = max(1, int(retries) + 1)
 
+    client_succeeded = False
+    client_tried = False
+
     if client_path is not None:
+        client_tried = True
         machine_logger.info(
             "c2r_uninstall_client",
             extra={
@@ -423,27 +428,32 @@ def uninstall_products(
                 },
             )
             if result.skipped:
+                client_succeeded = True
                 break
             if result.returncode == 0:
+                client_succeeded = True
                 break
             if attempt < total_attempts:
                 human_logger.warning("Retrying Click-to-Run uninstall via OfficeC2RClient.exe")
                 time.sleep(C2R_RETRY_DELAY)
-        if result is not None and not (result.skipped or dry_run) and result.returncode != 0:
-            machine_logger.error(
-                "c2r_uninstall_failure",
+
+        if not client_succeeded and result is not None and not (result.skipped or dry_run):
+            machine_logger.warning(
+                "c2r_uninstall_client_failure",
                 extra={
-                    "event": "c2r_uninstall_failure",
+                    "event": "c2r_uninstall_client_failure",
                     "release_ids": list(target.release_ids) or None,
                     "executable": str(client_path),
                     "return_code": result.returncode,
                 },
             )
-            raise RuntimeError("Click-to-Run uninstall failed via OfficeC2RClient.exe")
-    else:
-        setup_path = _find_existing_path(target.setup_candidates)
-        if setup_path is None:
-            raise FileNotFoundError("Neither OfficeC2RClient.exe nor setup.exe were found")
+            human_logger.warning(
+                "OfficeC2RClient.exe failed (exit code %d), trying setup.exe fallback...",
+                result.returncode,
+            )
+
+    # Try setup.exe fallback if client wasn't found or failed
+    if not client_succeeded and setup_path is not None:
         machine_logger.info(
             "c2r_uninstall_fallback",
             extra={
@@ -451,12 +461,18 @@ def uninstall_products(
                 "release_ids": list(target.release_ids) or None,
                 "executable": str(setup_path),
                 "dry_run": bool(dry_run),
+                "after_client_failure": client_tried,
             },
         )
         release_ids = list(target.release_ids) or ["ALL"]
+        setup_failed = False
         for release_id in release_ids:
             message = f"Uninstalling Click-to-Run release {release_id} via setup.exe"
-            command = [str(setup_path), "/uninstall", release_id]
+            # Add /forceappshutdown for setup.exe when in force mode
+            if force:
+                command = [str(setup_path), "/uninstall", release_id, "/forceappshutdown"]
+            else:
+                command = [str(setup_path), "/uninstall", release_id]
             result = command_runner.run_command(
                 command,
                 event="c2r_setup_uninstall",
@@ -466,6 +482,7 @@ def uninstall_products(
                 extra={
                     "release_id": release_id,
                     "executable": str(setup_path),
+                    "force": bool(force),
                 },
             )
             if not dry_run and result.returncode != 0:
@@ -478,17 +495,124 @@ def uninstall_products(
                         "return_code": result.returncode,
                     },
                 )
-                raise RuntimeError(f"setup.exe uninstall failed for {release_id}")
+                setup_failed = True
+
+        if not setup_failed:
+            client_succeeded = True  # setup.exe worked
+        elif client_tried:
+            raise RuntimeError(
+                "Click-to-Run uninstall failed via both OfficeC2RClient.exe and setup.exe"
+            )
+        else:
+            raise RuntimeError("Click-to-Run uninstall failed via setup.exe")
+
+    # If neither executable was found
+    if client_path is None and setup_path is None:
+        raise FileNotFoundError("Neither OfficeC2RClient.exe nor setup.exe were found")
 
     if dry_run:
         return
 
     if not _await_removal(target):
-        machine_logger.error(
-            "c2r_uninstall_residue",
-            extra={
-                "event": "c2r_uninstall_residue",
-                "release_ids": list(target.release_ids) or None,
-            },
-        )
-        raise RuntimeError("Click-to-Run removal verification failed")
+        if force:
+            # In force mode, try to manually clean up residue
+            human_logger.warning(
+                "Click-to-Run verification failed, attempting manual cleanup in force mode..."
+            )
+            _force_cleanup_residue(target)
+            # Check again after force cleanup
+            if _await_removal(target):
+                human_logger.info("Force cleanup succeeded - Click-to-Run residue removed")
+                return
+            # Still have residue - report what remains
+            remaining_paths = [str(p) for p in target.install_paths if p.exists()]
+            remaining_handles = [
+                h for h in target.uninstall_handles 
+                if _parse_registry_handle(h) and registry_tools.key_exists(*_parse_registry_handle(h))
+            ]
+            machine_logger.error(
+                "c2r_uninstall_residue",
+                extra={
+                    "event": "c2r_uninstall_residue",
+                    "release_ids": list(target.release_ids) or None,
+                    "remaining_paths": remaining_paths,
+                    "remaining_handles": remaining_handles,
+                    "force_cleanup_attempted": True,
+                },
+            )
+            raise RuntimeError(
+                f"Click-to-Run removal verification failed even after force cleanup. "
+                f"Remaining: {len(remaining_paths)} paths, {len(remaining_handles)} registry keys"
+            )
+        else:
+            machine_logger.error(
+                "c2r_uninstall_residue",
+                extra={
+                    "event": "c2r_uninstall_residue",
+                    "release_ids": list(target.release_ids) or None,
+                },
+            )
+            raise RuntimeError("Click-to-Run removal verification failed")
+
+
+def _force_cleanup_residue(target: _C2RTarget) -> None:
+    """!
+    @brief Aggressively remove Click-to-Run residue in force mode.
+    @details Attempts to delete remaining install paths and registry keys
+    that the standard uninstall process failed to remove.
+    """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    # Try to delete remaining filesystem paths
+    for path in target.install_paths:
+        try:
+            if path.exists():
+                human_logger.info("Force removing path: %s", path)
+                if path.is_dir():
+                    import shutil
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink(missing_ok=True)
+                machine_logger.info(
+                    "c2r_force_cleanup_path",
+                    extra={
+                        "event": "c2r_force_cleanup_path",
+                        "path": str(path),
+                        "success": not path.exists(),
+                    },
+                )
+        except OSError as exc:
+            human_logger.warning("Failed to force-remove path %s: %s", path, exc)
+
+    # Try to delete remaining registry keys
+    for handle in target.uninstall_handles:
+        parsed = _parse_registry_handle(handle)
+        if parsed and registry_tools.key_exists(parsed[0], parsed[1]):
+            hive, subkey = parsed
+            # Reconstruct the full registry path for delete_keys
+            hive_name = registry_tools.hive_name(hive)
+            full_key = f"{hive_name}\\{subkey}"
+            try:
+                human_logger.info("Force removing registry key: %s", full_key)
+                registry_tools.delete_keys([full_key])
+                machine_logger.info(
+                    "c2r_force_cleanup_registry",
+                    extra={
+                        "event": "c2r_force_cleanup_registry",
+                        "handle": handle,
+                        "full_key": full_key,
+                        "success": True,
+                    },
+                )
+            except Exception as exc:
+                human_logger.warning("Failed to force-remove registry key %s: %s", full_key, exc)
+                machine_logger.warning(
+                    "c2r_force_cleanup_registry_failed",
+                    extra={
+                        "event": "c2r_force_cleanup_registry_failed",
+                        "handle": handle,
+                        "full_key": full_key,
+                        "error": str(exc),
+                    },
+                )

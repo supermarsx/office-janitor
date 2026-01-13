@@ -113,7 +113,7 @@ def test_execute_plan_runs_steps_in_order(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         scrub.c2r_uninstall,
         "uninstall_products",
-        lambda config, dry_run=False: events.append(f"c2r:{dry_run}"),
+        lambda config, dry_run=False, force=False: events.append(f"c2r:{dry_run}"),
     )
 
     monkeypatch.setattr(
@@ -276,7 +276,7 @@ def test_execute_plan_dry_run_skips_mutations(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         scrub.c2r_uninstall,
         "uninstall_products",
-        lambda config, dry_run=False: recorded.append(f"c2r:{dry_run}"),
+        lambda config, dry_run=False, force=False: recorded.append(f"c2r:{dry_run}"),
     )
     monkeypatch.setattr(
         scrub.licensing,
@@ -376,7 +376,7 @@ def test_execute_plan_repeats_until_clean(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         scrub.c2r_uninstall,
         "uninstall_products",
-        lambda config, dry_run=False: events.append(f"c2r:{dry_run}"),
+        lambda config, dry_run=False, force=False: events.append(f"c2r:{dry_run}"),
     )
     monkeypatch.setattr(
         scrub.licensing,

@@ -502,9 +502,7 @@ class OfficeJanitorTUI:
             # Calculate visible length (excluding ANSI codes) for proper padding
             visible_len = len(_strip_ansi(left_text))
             padding = " " * max(0, left_width - visible_len)
-            sys.stdout.write(
-                f"{left_text}{padding} {right_text[: width - left_width - 1]}\n"
-            )
+            sys.stdout.write(f"{left_text}{padding} {right_text[: width - left_width - 1]}\n")
 
         sys.stdout.write(_divider(width) + "\n")
         sys.stdout.write(self._render_footer() + "\n")
@@ -1197,6 +1195,7 @@ def _clear_screen() -> None:
 def _strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences from text to get visible length."""
     import re
+
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 

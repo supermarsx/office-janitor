@@ -224,6 +224,10 @@ class StepExecutor:
                 pending_reboots = tasks_services.consume_reboot_recommendations()
                 if pending_reboots:
                     _merge_reboot_details(result.details, pending_reboots)
+
+                # Extract a concise error reason for display
+                error_reason = self._extract_error_reason(exc)
+
                 self._machine_logger.error(
                     "scrub_step_failure",
                     extra={
@@ -232,6 +236,7 @@ class StepExecutor:
                         "category": category,
                         "attempt": attempt,
                         "error": repr(exc),
+                        "error_reason": error_reason,
                         "progress": progress,
                         "duration": self._format_duration(result),
                     },
@@ -244,8 +249,8 @@ class StepExecutor:
                     exc,
                 )
                 if attempt < attempts_allowed:
-                    # Print RETRY status for this attempt
-                    _scrub_fail("retry")
+                    # Print RETRY status with error reason
+                    _scrub_fail(f"retry: {error_reason}")
                     # Calculate progressive delay with backoff
                     actual_delay = self._calculate_progressive_delay(delay, attempt)
                     # Enable force mode after FORCE_ESCALATION_ATTEMPT
@@ -261,8 +266,8 @@ class StepExecutor:
                     )
                     time.sleep(actual_delay)
                     continue
-                # Final failure - print FAILED status
-                _scrub_fail()
+                # Final failure - print FAILED status with error reason
+                _scrub_fail(error_reason)
                 break
             else:
                 # Print OK status with duration
@@ -341,6 +346,50 @@ class StepExecutor:
         if duration < 0:
             return None
         return round(duration, 6)
+
+    @staticmethod
+    def _extract_error_reason(exc: Exception) -> str:
+        """!
+        @brief Extract a concise, human-readable error reason from an exception.
+        @details Parses common exception types to provide actionable error messages.
+        """
+        exc_type = type(exc).__name__
+        exc_msg = str(exc).strip()
+
+        # Handle specific exception types with better messages
+        if isinstance(exc, FileNotFoundError):
+            return f"file not found: {exc_msg}" if exc_msg else "file not found"
+        if isinstance(exc, PermissionError):
+            return f"permission denied: {exc_msg}" if exc_msg else "permission denied"
+        if isinstance(exc, TimeoutError):
+            return "operation timed out"
+        if isinstance(exc, OSError):
+            # OSError can have errno
+            errno_info = f" (errno {exc.errno})" if exc.errno else ""
+            return f"OS error{errno_info}: {exc_msg}" if exc_msg else f"OS error{errno_info}"
+        if isinstance(exc, RuntimeError):
+            # RuntimeError often contains the actual reason
+            return exc_msg if exc_msg else "runtime error"
+        if isinstance(exc, ValueError):
+            return f"invalid value: {exc_msg}" if exc_msg else "invalid value"
+
+        # Check for subprocess/command failures
+        if "return" in exc_msg.lower() and "code" in exc_msg.lower():
+            return exc_msg
+        if "exit" in exc_msg.lower() and "code" in exc_msg.lower():
+            return exc_msg
+
+        # Check for verification failures
+        if "verification" in exc_msg.lower() or "residue" in exc_msg.lower():
+            return exc_msg
+
+        # Default: use exception message or type
+        if exc_msg:
+            # Truncate very long messages
+            if len(exc_msg) > 80:
+                return f"{exc_msg[:77]}..."
+            return exc_msg
+        return exc_type
 
     def _dispatch(
         self,
