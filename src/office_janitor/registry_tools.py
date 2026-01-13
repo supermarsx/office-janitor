@@ -76,6 +76,44 @@ _OFFICE_KEYWORDS = (
     "powerpoint",
 )
 
+_OFFICE_EXCLUSIONS = (
+    # Visual Studio and related tools
+    "visual studio",
+    "visualstudio",
+    "vs ",
+    "vs20",
+    # .NET Aspire and SDK templates
+    "aspire",
+    ".net sdk",
+    "dotnet",
+    # Development tools
+    "sql server",
+    "azure",
+    "nuget",
+    "typescript",
+    "node.js",
+    # Other Microsoft products that aren't Office
+    "bing",
+    "edge",
+    "teams",  # Teams is separate from Office
+    "skype",
+    "onedrive",
+    "sharepoint",
+    "dynamics",
+    "power bi",
+    "powerbi",
+    "power automate",
+    "power apps",
+    # Project/Visio viewer apps (not full installs)
+    "viewer",
+    # Templates and SDKs
+    "template",
+    "sdk",
+    "runtime",
+    "redistributable",
+    "redist",
+)
+
 
 class RegistryError(RuntimeError):
     """!
@@ -363,7 +401,8 @@ def looks_like_office_entry(values: Mapping[str, Any]) -> bool:
     @brief Determine whether an uninstall entry corresponds to Microsoft Office.
     @details Heuristics focus on the ``DisplayName`` and ``Publisher`` fields,
     mirroring OffScrub filters to target Office suites, Visio, Project, and
-    related SKUs.
+    related SKUs. Excludes Visual Studio, .NET Aspire, and other non-Office
+    Microsoft products.
     """
 
     display = str(values.get("DisplayName") or "").lower()
@@ -375,6 +414,11 @@ def looks_like_office_entry(values: Mapping[str, Any]) -> bool:
 
     if publisher and "microsoft" not in publisher:
         return False
+
+    # Check exclusions first - these are NOT Office even if they match keywords
+    for exclusion in _OFFICE_EXCLUSIONS:
+        if exclusion in display:
+            return False
 
     for keyword in _OFFICE_KEYWORDS:
         if keyword in display:

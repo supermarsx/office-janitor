@@ -115,6 +115,7 @@ class StepResult:
     dry_run: bool
     error: str | None = None
     exception: BaseException | None = None
+    non_recoverable: bool = False
     progress: float | None = None
     started_at: float | None = None
     completed_at: float | None = None
@@ -227,6 +228,9 @@ class StepExecutor:
 
                 # Extract a concise error reason for display
                 error_reason = self._extract_error_reason(exc)
+                
+                # Check if this error is non-recoverable (no point retrying)
+                is_non_recoverable = self._is_non_recoverable_error(exc)
 
                 self._machine_logger.error(
                     "scrub_step_failure",
@@ -237,6 +241,7 @@ class StepExecutor:
                         "attempt": attempt,
                         "error": repr(exc),
                         "error_reason": error_reason,
+                        "non_recoverable": is_non_recoverable,
                         "progress": progress,
                         "duration": self._format_duration(result),
                     },
@@ -248,6 +253,13 @@ class StepExecutor:
                     attempt,
                     exc,
                 )
+                
+                # Skip retries for non-recoverable errors
+                if is_non_recoverable:
+                    result.non_recoverable = True
+                    _scrub_fail(f"{error_reason} (non-recoverable, continuing)")
+                    break
+                
                 if attempt < attempts_allowed:
                     # Print RETRY status with error reason
                     _scrub_fail(f"retry: {error_reason}")
@@ -390,6 +402,47 @@ class StepExecutor:
                 return f"{exc_msg[:77]}..."
             return exc_msg
         return exc_type
+
+    @staticmethod
+    def _is_non_recoverable_error(exc: Exception) -> bool:
+        """!
+        @brief Determine if an exception is non-recoverable (should not be retried).
+        @details Certain errors cannot be fixed by retrying - missing executables,
+        invalid configuration, etc. These should fail immediately to save time.
+        """
+        # FileNotFoundError - missing executables, files, etc.
+        if isinstance(exc, FileNotFoundError):
+            return True
+        
+        # ValueError - invalid configuration, bad parameters
+        if isinstance(exc, ValueError):
+            return True
+        
+        # NotImplementedError - feature not available
+        if isinstance(exc, NotImplementedError):
+            return True
+        
+        # ImportError - missing dependencies
+        if isinstance(exc, ImportError):
+            return True
+        
+        # Check message for non-recoverable patterns
+        exc_msg = str(exc).lower()
+        non_recoverable_patterns = [
+            "not found",
+            "not installed",
+            "not supported",
+            "invalid",
+            "missing",
+            "does not exist",
+            "no such file",
+            "cannot find",
+        ]
+        for pattern in non_recoverable_patterns:
+            if pattern in exc_msg:
+                return True
+        
+        return False
 
     def _dispatch(
         self,
@@ -996,6 +1049,14 @@ def _execute_steps(
         result = executor.run_step(step, index=index)
         results.append(result)
         if result.status == "failed":
+            # Non-recoverable errors: log and continue to next step
+            # Recoverable errors: stop and allow pass retry
+            if result.non_recoverable:
+                logging_ext.get_human_logger().warning(
+                    "Step %s failed with non-recoverable error, continuing to next step...",
+                    result.step_id or result.category,
+                )
+                continue
             raise StepExecutionError(result, results) from result.exception
 
     return results
