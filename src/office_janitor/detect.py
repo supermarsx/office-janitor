@@ -453,6 +453,10 @@ def _probe_msi_wmi() -> dict[str, dict[str, Any]]:
             continue
         if name and not any(token in name.lower() for token in ("office", "visio", "project")):
             continue
+        # Exclude non-Office products that match keywords (e.g., Aspire.ProjectTemplates)
+        name_lower = name.lower()
+        if any(excl in name_lower for excl in ("aspire", "template", "sdk", "visual studio")):
+            continue
         results[product_code.upper()] = {
             "product": name or product_code,
             "version": version,
@@ -496,6 +500,10 @@ def _probe_msi_powershell() -> dict[str, dict[str, Any]]:
         version = str(record.get("Version") or "").strip()
         install_path = str(record.get("InstallLocation") or "").strip()
         if not product_code and not name:
+            continue
+        # Exclude non-Office products that match keywords (e.g., Aspire.ProjectTemplates)
+        name_lower = name.lower()
+        if any(excl in name_lower for excl in ("aspire", "template", "sdk", "visual studio")):
             continue
         results[product_code.upper()] = {
             "product": name or product_code,

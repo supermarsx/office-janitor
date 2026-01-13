@@ -1,0 +1,39 @@
+<!-- 
+  Repair_Interactive.xml - Interactive Office Repair Configuration
+  
+  Repair configuration with full UI display for troubleshooting scenarios
+  where visibility into the repair process is needed.
+  
+  Usage:
+    setup.exe /configure Repair_Interactive.xml
+  
+  Products Included:
+  - Office 365 ProPlus (all applications)
+  
+  Display Mode: Full (with progress dialog)
+  
+  Use this configuration when:
+  - Silent repair fails and you need to see errors
+  - User needs to make decisions during repair
+  - Troubleshooting complex repair issues
+  
+  Language: en-us (US English)
+-->
+<Configuration>
+  <Add OfficeClientEdition="64" Channel="Current">
+    <Product ID="O365ProPlusRetail">
+      <Language ID="en-us" />
+    </Product>
+  </Add>
+  
+  <Updates Enabled="TRUE" />
+  
+  <!-- Full UI display with progress -->
+  <Display Level="Full" AcceptEULA="TRUE" />
+  
+  <!-- Detailed logging -->
+  <Logging Level="Standard" Path="%temp%" />
+  
+  <!-- Force close applications -->
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+</Configuration>

@@ -1,0 +1,39 @@
+<!-- 
+  QuickRepair.xml - Office Click-to-Run Quick Repair Configuration
+  
+  This configuration triggers a Quick Repair of Office C2R installations.
+  Quick Repair runs locally without network access and fixes common issues
+  by verifying and repairing local Office files.
+  
+  Usage with ODT setup.exe:
+    setup.exe /configure QuickRepair.xml
+  
+  Alternatively use OfficeClickToRun.exe directly:
+    OfficeClickToRun.exe scenario=Repair platform=x64 culture=en-us RepairType=QuickRepair
+  
+  Notes:
+  - Quick Repair does NOT reinstall excluded applications
+  - Does not require internet connectivity
+  - Typically completes in 5-15 minutes
+  - Preserves user settings and customizations
+-->
+<Configuration>
+  <!-- Trigger reconfiguration which performs repair-like operations -->
+  <Add OfficeClientEdition="64">
+    <Product ID="O365ProPlusRetail">
+      <Language ID="en-us" />
+    </Product>
+  </Add>
+  
+  <!-- Enable updates to ensure repair uses latest components -->
+  <Updates Enabled="TRUE" />
+  
+  <!-- Silent installation with EULA acceptance -->
+  <Display Level="None" AcceptEULA="TRUE" />
+  
+  <!-- Standard logging to temp directory -->
+  <Logging Level="Standard" Path="%temp%" />
+  
+  <!-- Force close any running Office applications -->
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+</Configuration>

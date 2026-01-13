@@ -1,0 +1,36 @@
+<!-- 
+  Repair_SharedComputer.xml - Shared Computer Licensing Repair Configuration
+  
+  Repair configuration for Office installations with Shared Computer Activation
+  (Terminal Services, RDS, VDI, Citrix environments).
+  
+  Usage:
+    setup.exe /configure Repair_SharedComputer.xml
+  
+  Products Included:
+  - Office 365 ProPlus with Shared Computer Licensing
+  
+  ⚠️ IMPORTANT: 
+  - Only supported with Office 365 ProPlus subscription
+  - Required for Terminal Server/RDS/VDI/Citrix deployments
+  - Each user requires a valid Office 365 license
+  
+  Language: en-us (US English)
+-->
+<Configuration>
+  <Add OfficeClientEdition="64" Channel="Current">
+    <Product ID="O365ProPlusRetail">
+      <Language ID="en-us" />
+    </Product>
+  </Add>
+  
+  <Updates Enabled="TRUE" />
+  <Display Level="None" AcceptEULA="TRUE" />
+  <Logging Level="Standard" Path="%temp%" />
+  
+  <!-- Enable Shared Computer Licensing -->
+  <Property Name="SharedComputerLicensing" Value="1" />
+  
+  <!-- Force close applications -->
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+</Configuration>

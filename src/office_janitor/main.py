@@ -31,6 +31,7 @@ from . import (
     fs_tools,
     logging_ext,
     processes,
+    repair,
     safety,
     scrub,
     tui,
@@ -42,16 +43,13 @@ from . import (
 )
 from .app_state import AppState, new_event_queue
 
-
 # ---------------------------------------------------------------------------
 # Progress logging utilities
 # ---------------------------------------------------------------------------
 
 _MAIN_START_TIME: float | None = None
 _PROGRESS_LOCK = threading.Lock()  # Thread-safe progress output
-_PENDING_LINE_OWNER: int | None = (
-    None  # Thread ID that owns the current incomplete line
-)
+_PENDING_LINE_OWNER: int | None = None  # Thread ID that owns the current incomplete line
 
 
 def _get_elapsed_secs() -> float:
@@ -66,10 +64,7 @@ def _progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
     global _PENDING_LINE_OWNER
     with _PROGRESS_LOCK:
         # If another thread left an incomplete line, finish it first
-        if (
-            _PENDING_LINE_OWNER is not None
-            and _PENDING_LINE_OWNER != threading.get_ident()
-        ):
+        if _PENDING_LINE_OWNER is not None and _PENDING_LINE_OWNER != threading.get_ident():
             print(flush=True)  # Force newline
             _PENDING_LINE_OWNER = None
 
@@ -215,9 +210,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
 
     modes = parser.add_mutually_exclusive_group()
-    modes.add_argument(
-        "--auto-all", action="store_true", help="Run full detection and scrub."
-    )
+    modes.add_argument("--auto-all", action="store_true", help="Run full detection and scrub.")
     modes.add_argument(
         "--target",
         metavar="VER",
@@ -233,13 +226,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip uninstalls; clean residue and licensing.",
     )
+    modes.add_argument(
+        "--repair",
+        choices=["quick", "full"],
+        metavar="TYPE",
+        help="Repair Office C2R (quick|full). Quick runs locally, full uses CDN.",
+    )
+    modes.add_argument(
+        "--repair-config",
+        metavar="XML",
+        help="Repair/reconfigure using a custom XML configuration file.",
+    )
 
     parser.add_argument(
         "--include", metavar="COMPONENTS", help="Additional suites/apps to include."
     )
-    parser.add_argument(
-        "--force", action="store_true", help="Relax certain guardrails when safe."
-    )
+    parser.add_argument("--force", action="store_true", help="Relax certain guardrails when safe.")
     parser.add_argument(
         "--allow-unsupported-windows",
         action="store_true",
@@ -253,9 +255,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-restore-point", action="store_true", help="Skip creating a restore point."
     )
-    parser.add_argument(
-        "--no-license", action="store_true", help="Skip license cleanup steps."
-    )
+    parser.add_argument("--no-license", action="store_true", help="Skip license cleanup steps.")
     parser.add_argument(
         "--keep-license",
         action="store_true",
@@ -269,27 +269,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--plan", metavar="OUT", help="Write the computed action plan to a JSON file."
     )
-    parser.add_argument(
-        "--logdir", metavar="DIR", help="Directory for human/JSONL log output."
-    )
-    parser.add_argument(
-        "--backup", metavar="DIR", help="Destination for registry/file backups."
-    )
-    parser.add_argument(
-        "--timeout", metavar="SEC", type=int, help="Per-step timeout in seconds."
-    )
+    parser.add_argument("--logdir", metavar="DIR", help="Directory for human/JSONL log output.")
+    parser.add_argument("--backup", metavar="DIR", help="Destination for registry/file backups.")
+    parser.add_argument("--timeout", metavar="SEC", type=int, help="Per-step timeout in seconds.")
     parser.add_argument(
         "--quiet", action="store_true", help="Minimal console output (errors only)."
     )
-    parser.add_argument(
-        "--json", action="store_true", help="Mirror structured events to stdout."
-    )
-    parser.add_argument(
-        "--tui", action="store_true", help="Force the interactive text UI mode."
-    )
-    parser.add_argument(
-        "--no-color", action="store_true", help="Disable ANSI color codes."
-    )
+    parser.add_argument("--json", action="store_true", help="Mirror structured events to stdout.")
+    parser.add_argument("--tui", action="store_true", help="Force the interactive text UI mode.")
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI color codes.")
     parser.add_argument(
         "--tui-compact",
         action="store_true",
@@ -305,6 +293,83 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--limited-user",
         action="store_true",
         help="Run detection and uninstall stages under a limited user token when possible.",
+    )
+
+    # Repair-specific arguments
+    parser.add_argument(
+        "--repair-culture",
+        metavar="LANG",
+        default="en-us",
+        help="Language/culture code for repair (default: en-us).",
+    )
+    parser.add_argument(
+        "--repair-platform",
+        choices=["x86", "x64"],
+        metavar="ARCH",
+        help="Architecture for repair (auto-detected if not specified).",
+    )
+    parser.add_argument(
+        "--repair-visible",
+        action="store_true",
+        help="Show repair UI instead of running silently.",
+    )
+
+    # OEM configuration presets (bundled XML configs)
+    oem_configs = parser.add_mutually_exclusive_group()
+    oem_configs.add_argument(
+        "--oem-config",
+        metavar="NAME",
+        choices=[
+            "full-removal",
+            "quick-repair",
+            "full-repair",
+            "proplus-x64",
+            "proplus-x86",
+            "proplus-visio-project",
+            "business-x64",
+            "office2019-x64",
+            "office2021-x64",
+            "office2024-x64",
+            "multilang",
+            "shared-computer",
+            "interactive",
+        ],
+        help="Use bundled OEM configuration preset.",
+    )
+    oem_configs.add_argument(
+        "--c2r-remove",
+        action="store_const",
+        const="full-removal",
+        dest="oem_config",
+        help="Remove all Office C2R products (alias for --oem-config full-removal).",
+    )
+    oem_configs.add_argument(
+        "--c2r-repair-quick",
+        action="store_const",
+        const="quick-repair",
+        dest="oem_config",
+        help="Quick repair Office C2R (alias for --oem-config quick-repair).",
+    )
+    oem_configs.add_argument(
+        "--c2r-repair-full",
+        action="store_const",
+        const="full-repair",
+        dest="oem_config",
+        help="Full online repair Office C2R (alias for --oem-config full-repair).",
+    )
+    oem_configs.add_argument(
+        "--c2r-proplus",
+        action="store_const",
+        const="proplus-x64",
+        dest="oem_config",
+        help="Repair Office 365 ProPlus x64 (alias for --oem-config proplus-x64).",
+    )
+    oem_configs.add_argument(
+        "--c2r-business",
+        action="store_const",
+        const="business-x64",
+        dest="oem_config",
+        help="Repair Microsoft 365 Business x64 (alias for --oem-config business-x64).",
     )
     return parser
 
@@ -350,9 +415,7 @@ def _handle_shutdown_signal(signum: int, frame: object) -> None:
     """!
     @brief Handle Ctrl+C (SIGINT) for clean shutdown.
     """
-    sig_name = (
-        signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
-    )
+    sig_name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
     elapsed = _get_elapsed_secs()
     print(flush=True)  # Newline after any partial output
     print(f"[{elapsed:12.6f}] " + "=" * 50, flush=True)
@@ -461,6 +524,16 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     app_state = _build_app_state(args, human_log, machine_log)
     _progress_ok()
 
+    # Repair mode handling - separate from standard detection/scrub flow
+    if mode.startswith("repair:"):
+        _progress("Entering repair mode...")
+        return _handle_repair_mode(args, mode, human_log, machine_log)
+
+    # OEM config mode handling - execute bundled XML configurations
+    if mode.startswith("oem-config:"):
+        _progress("Entering OEM configuration mode...")
+        return _handle_oem_config_mode(args, mode, human_log, machine_log)
+
     # Interactive mode handling
     if mode == "interactive":
         _progress("Entering interactive mode...")
@@ -484,9 +557,7 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
 
     # Phase 8: Detection
     _progress("Phase 8: Running Office detection...")
-    logdir_path = pathlib.Path(
-        getattr(args, "logdir", _resolve_log_directory(None))
-    ).expanduser()
+    logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
     limited_flag = bool(getattr(args, "limited_user", False))
     if limited_flag:
         _progress("Using limited user token for detection", indent=1)
@@ -495,10 +566,8 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
         logdir_path,
         limited_user=limited_flag or None,
     )
-    _progress(
-        f"Detection complete: {sum(len(v) if hasattr(v, '__len__') else 0 for v in inventory.values())} items found",
-        indent=1,
-    )
+    item_count = sum(len(v) if hasattr(v, "__len__") else 0 for v in inventory.values())
+    _progress(f"Detection complete: {item_count} items found", indent=1)
 
     # Phase 9: Plan generation
     _progress("Phase 9: Building execution plan...")
@@ -539,9 +608,10 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     # Phase 12: User confirmation
     _progress("Phase 12: Requesting user confirmation...")
     scrub_dry_run = bool(getattr(args, "dry_run", False))
+    is_auto_all = mode == "auto-all"
     proceed = confirm.request_scrub_confirmation(
         dry_run=scrub_dry_run,
-        force=bool(getattr(args, "force", False)),
+        force=bool(getattr(args, "force", False)) or is_auto_all,
     )
     if not proceed:
         _progress("User declined confirmation - aborting")
@@ -577,9 +647,7 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress("=" * 60)
     fatal_error: str | None = None
     try:
-        scrub.execute_plan(
-            generated_plan, dry_run=scrub_dry_run, start_time=_MAIN_START_TIME
-        )
+        scrub.execute_plan(generated_plan, dry_run=scrub_dry_run, start_time=_MAIN_START_TIME)
     except KeyboardInterrupt:
         _progress("Execution interrupted by user", indent=1, newline=False)
         _progress_skip("cancelled")
@@ -607,6 +675,244 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     return 0
 
 
+def _handle_repair_mode(
+    args: argparse.Namespace,
+    mode: str,
+    human_log: logging.Logger,
+    machine_log: logging.Logger,
+) -> int:
+    """!
+    @brief Handle Office repair operations.
+    @details Dispatches to quick/full repair or custom XML configuration based
+    on the mode string and command-line arguments.
+    @param args Parsed command-line arguments.
+    @param mode Mode string (repair:quick, repair:full, or repair:config).
+    @param human_log Human-readable logger.
+    @param machine_log Machine-readable (JSONL) logger.
+    @returns Exit code (0 for success, non-zero for failure).
+    """
+    _progress("-" * 60)
+    _progress("Office Click-to-Run Repair Mode")
+    _progress("-" * 60)
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    culture = getattr(args, "repair_culture", "en-us")
+    platform = getattr(args, "repair_platform", None)
+    silent = not getattr(args, "repair_visible", False)
+
+    # Check if C2R Office is installed
+    _progress("Checking for Click-to-Run installation...", newline=False)
+    if not repair.is_c2r_office_installed():
+        _progress_fail("not found")
+        human_log.error("No Click-to-Run Office installation detected")
+        machine_log.info(
+            "repair.error",
+            extra={"event": "repair.error", "error": "c2r_not_installed"},
+        )
+        print("\nError: No Click-to-Run Office installation found.")
+        print("This repair option only works with Office C2R installations.")
+        print("\nFor MSI-based installations, use the standard Windows repair:")
+        print("  Control Panel > Programs > Programs and Features > [Office] > Change > Repair")
+        return 1
+    _progress_ok()
+
+    # Get installed Office info
+    _progress("Gathering installation details...", newline=False)
+    c2r_info = repair.get_installed_c2r_info()
+    _progress_ok()
+    _progress(f"  Version: {c2r_info.get('version', 'unknown')}", indent=1)
+    _progress(f"  Platform: {c2r_info.get('platform', 'unknown')}", indent=1)
+    _progress(f"  Culture: {c2r_info.get('culture', 'unknown')}", indent=1)
+    _progress(f"  Products: {c2r_info.get('product_ids', 'unknown')}", indent=1)
+
+    # Handle custom XML configuration
+    if mode == "repair:config":
+        config_path = pathlib.Path(getattr(args, "repair_config", ""))
+        if not config_path.exists():
+            _progress(f"Configuration file not found: {config_path}", newline=False)
+            _progress_fail()
+            return 1
+        _progress(f"Using custom configuration: {config_path}")
+        result = repair.reconfigure_office(
+            config_path,
+            dry_run=dry_run,
+        )
+        if result.returncode == 0 or result.skipped:
+            _progress("Reconfiguration completed successfully", newline=False)
+            _progress_ok()
+            return 0
+        _progress(f"Reconfiguration failed: {result.stderr or result.error}", newline=False)
+        _progress_fail()
+        return 1
+
+    # Determine repair type
+    repair_type_str = mode.split(":")[-1]  # quick or full
+    _progress(f"Repair type: {repair_type_str.upper()}")
+
+    if repair_type_str == "full":
+        _progress("\n⚠️  WARNING: Full Online Repair may reinstall excluded applications!")
+        _progress("    This operation requires internet connectivity and may take 30-60 minutes.\n")
+        config = repair.RepairConfig.full_repair(
+            platform=platform,
+            culture=culture,
+            silent=silent,
+        )
+    else:
+        _progress("Quick Repair runs locally and typically completes in 5-15 minutes.")
+        config = repair.RepairConfig.quick_repair(
+            platform=platform,
+            culture=culture,
+            silent=silent,
+        )
+
+    # Confirm with user unless in auto mode
+    if not dry_run and not getattr(args, "force", False):
+        _progress("Confirm repair operation?", newline=False)
+        proceed = confirm.request_scrub_confirmation(dry_run=dry_run, force=False)
+        if not proceed:
+            _progress_skip("cancelled by user")
+            human_log.info("Repair cancelled by user")
+            return 0
+        _progress_ok()
+
+    # Execute repair
+    _progress("=" * 60)
+    _progress(f"Executing {repair_type_str.upper()} repair...")
+    _progress("=" * 60)
+
+    repair_result = repair.run_repair(config, dry_run=dry_run)
+
+    _progress("=" * 60)
+    if repair_result.success or repair_result.skipped:
+        _progress(f"Repair completed: {repair_result.summary}")
+        _progress("=" * 60)
+        if repair_result.skipped:
+            print(f"\n[DRY-RUN] {repair_result.summary}")
+        else:
+            print(f"\n✓ {repair_result.summary}")
+            print("\nNote: A system restart may be required to complete the repair.")
+        return 0
+    else:
+        _progress(f"Repair failed: {repair_result.summary}")
+        _progress("=" * 60)
+        print(f"\n✗ {repair_result.summary}")
+        if repair_result.stderr:
+            print(f"\nError details:\n{repair_result.stderr}")
+        return 1
+
+
+def _handle_oem_config_mode(
+    args: argparse.Namespace,
+    mode: str,
+    human_log: logging.Logger,
+    machine_log: logging.Logger,
+) -> int:
+    """!
+    @brief Handle OEM configuration execution.
+    @details Executes a bundled or custom XML configuration using ODT setup.exe.
+    @param args Parsed command-line arguments.
+    @param mode Mode string (oem-config:<preset-name>).
+    @param human_log Human-readable logger.
+    @param machine_log Machine-readable (JSONL) logger.
+    @returns Exit code (0 for success, non-zero for failure).
+    """
+    _progress("-" * 60)
+    _progress("OEM Configuration Mode")
+    _progress("-" * 60)
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    preset_name = mode.split(":", 1)[-1] if ":" in mode else getattr(args, "oem_config", "")
+
+    # List available presets if none specified
+    if not preset_name:
+        _progress("Available OEM configuration presets:")
+        for name, filename, exists in repair.list_oem_configs():
+            status = "✓" if exists else "✗ (missing)"
+            _progress(f"  {name}: {filename} {status}", indent=1)
+        return 0
+
+    # Resolve the config path
+    config_path = repair.get_oem_config_path(preset_name)
+    if config_path is None:
+        _progress(f"OEM config not found: {preset_name}", newline=False)
+        _progress_fail()
+        human_log.error(f"OEM config preset not found: {preset_name}")
+        machine_log.info(
+            "oem_config.error",
+            extra={"event": "oem_config.error", "preset": preset_name, "error": "not_found"},
+        )
+        _progress("\nAvailable presets:")
+        for name, _filename, exists in repair.list_oem_configs():
+            if exists:
+                _progress(f"  {name}", indent=1)
+        return 1
+
+    _progress(f"Preset: {preset_name}")
+    _progress(f"Config file: {config_path}")
+
+    # Check for ODT setup.exe
+    setup_exe = repair.find_odt_setup_exe()
+    if setup_exe is None:
+        _progress("ODT setup.exe not found", newline=False)
+        _progress_fail()
+        human_log.error("ODT setup.exe not found")
+        machine_log.info(
+            "oem_config.error",
+            extra={"event": "oem_config.error", "error": "setup_not_found"},
+        )
+        print("\nError: ODT setup.exe not found.")
+        print("Please ensure setup.exe is in the oem/ folder or download it from:")
+        print("  https://www.microsoft.com/en-us/download/details.aspx?id=49117")
+        return 1
+
+    _progress(f"Setup.exe: {setup_exe}")
+
+    # Warn about destructive operations
+    if preset_name in ("full-removal",):
+        _progress("\n⚠️  WARNING: This will REMOVE all Office installations!")
+        _progress("    This action cannot be undone.\n")
+    elif "repair" in preset_name.lower():
+        _progress("\nNote: Repair operations may take 5-60 minutes depending on type.\n")
+
+    # Confirm with user unless forced
+    if not dry_run and not getattr(args, "force", False):
+        _progress("Confirm operation?", newline=False)
+        proceed = confirm.request_scrub_confirmation(dry_run=dry_run, force=False)
+        if not proceed:
+            _progress_skip("cancelled by user")
+            human_log.info("OEM config cancelled by user")
+            return 0
+        _progress_ok()
+
+    # Execute
+    _progress("=" * 60)
+    _progress(f"Executing configuration: {preset_name}")
+    _progress("=" * 60)
+
+    result = repair.run_oem_config(
+        preset_name,
+        dry_run=dry_run,
+    )
+
+    _progress("=" * 60)
+    if result.returncode == 0 or result.skipped:
+        _progress("Configuration completed successfully")
+        _progress("=" * 60)
+        if result.skipped:
+            print(f"\n[DRY-RUN] Would execute: setup.exe /configure {config_path}")
+        else:
+            print(f"\n✓ Configuration '{preset_name}' applied successfully.")
+            print("\nNote: A system restart may be required to complete changes.")
+        return 0
+    else:
+        _progress(f"Configuration failed: {result.stderr or result.error}")
+        _progress("=" * 60)
+        print(f"\n✗ Configuration '{preset_name}' failed.")
+        if result.stderr:
+            print(f"\nError details:\n{result.stderr}")
+        return 1
+
+
 def _determine_mode(args: argparse.Namespace) -> str:
     """!
     @brief Map parsed arguments to a simple textual mode identifier.
@@ -620,6 +926,12 @@ def _determine_mode(args: argparse.Namespace) -> str:
         return "diagnose"
     if getattr(args, "cleanup_only", False):
         return "cleanup-only"
+    if getattr(args, "repair", None):
+        return f"repair:{args.repair}"
+    if getattr(args, "repair_config", None):
+        return "repair:config"
+    if getattr(args, "oem_config", None):
+        return f"oem-config:{args.oem_config}"
     return "interactive"
 
 
@@ -633,9 +945,7 @@ def _should_use_tui(args: argparse.Namespace) -> bool:
     if getattr(args, "no_color", False):
         return False
     if getattr(sys.stdout, "isatty", None) and sys.stdout.isatty():
-        return bool(
-            os.environ.get("WT_SESSION") or os.environ.get("TERM", "").lower() != "dumb"
-        )
+        return bool(os.environ.get("WT_SESSION") or os.environ.get("TERM", "").lower() != "dumb")
     return False
 
 
@@ -651,9 +961,7 @@ def _build_app_state(
 
     ui_events = new_event_queue()
 
-    def emit_event(
-        event: str, *, message: str | None = None, **payload: object
-    ) -> None:
+    def emit_event(event: str, *, message: str | None = None, **payload: object) -> None:
         """!
         @brief Publish progress events for interactive front-ends.
         @details Events are queued for consumption by the CLI/TUI layers so they
@@ -690,9 +998,7 @@ def _build_app_state(
         safety.perform_preflight_checks(generated_plan)
         return generated_plan
 
-    def executor(
-        plan_data: list[dict], overrides: Mapping[str, object] | None = None
-    ) -> bool:
+    def executor(plan_data: list[dict], overrides: Mapping[str, object] | None = None) -> bool:
         dry_run = bool(getattr(args, "dry_run", False))
         if overrides and "dry_run" in overrides:
             dry_run = bool(overrides["dry_run"])
@@ -702,14 +1008,10 @@ def _build_app_state(
             mode_override = str(overrides["mode"])
 
         inventory_override = overrides.get("inventory") if overrides else None
-        _handle_plan_artifacts(
-            args, plan_data, inventory_override, human_log, mode_override
-        )
+        _handle_plan_artifacts(args, plan_data, inventory_override, human_log, mode_override)
 
         if mode_override == "diagnose":
-            human_log.info(
-                "Diagnostics complete; plan written and no actions executed."
-            )
+            human_log.info("Diagnostics complete; plan written and no actions executed.")
             return True
 
         guard_options = dict(_collect_plan_options(args, mode_override))
@@ -774,9 +1076,7 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict:
         "diagnose": bool(getattr(args, "diagnose", False)),
         "cleanup_only": bool(getattr(args, "cleanup_only", False)),
         "auto_all": bool(getattr(args, "auto_all", False)),
-        "allow_unsupported_windows": bool(
-            getattr(args, "allow_unsupported_windows", False)
-        ),
+        "allow_unsupported_windows": bool(getattr(args, "allow_unsupported_windows", False)),
         "no_license": bool(
             getattr(args, "no_license", False) or getattr(args, "keep_license", False)
         ),
@@ -841,9 +1141,7 @@ def _run_detection(
                 limited_user=True, progress_callback=progress_callback
             )
         else:
-            inventory = detect.gather_office_inventory(
-                progress_callback=progress_callback
-            )
+            inventory = detect.gather_office_inventory(progress_callback=progress_callback)
         _progress("Inventory collection complete", indent=2, newline=False)
         _progress_ok()
     except KeyboardInterrupt:
@@ -862,13 +1160,9 @@ def _run_detection(
     inventory_path: pathlib.Path | None = None
     try:
         logdir_path.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
-            "%Y%m%d-%H%M%S"
-        )
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
         inventory_path = logdir_path / f"inventory-{timestamp}.json"
-        _progress(
-            f"Writing inventory to {inventory_path.name}...", indent=2, newline=False
-        )
+        _progress(f"Writing inventory to {inventory_path.name}...", indent=2, newline=False)
         inventory_path.write_text(
             json.dumps(inventory, indent=2, sort_keys=True, default=str),
             encoding="utf-8",
@@ -919,9 +1213,7 @@ def _handle_plan_artifacts(
     _progress("Processing plan artifacts...", indent=1)
 
     plan_steps = list(plan_data)
-    logdir = pathlib.Path(
-        getattr(args, "logdir", _resolve_log_directory(None))
-    ).expanduser()
+    logdir = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
     logdir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -970,13 +1262,9 @@ def _handle_plan_artifacts(
             context_step["metadata"] = metadata
 
         if resolved_backup is not None:
-            registry_steps = sum(
-                1 for s in plan_steps if s.get("category") == "registry-cleanup"
-            )
+            registry_steps = sum(1 for s in plan_steps if s.get("category") == "registry-cleanup")
             if registry_steps > 0:
-                _progress(
-                    f"Configuring backup for {registry_steps} registry steps", indent=2
-                )
+                _progress(f"Configuring backup for {registry_steps} registry steps", indent=2)
             for step in plan_steps:
                 if step.get("category") != "registry-cleanup":
                     continue
@@ -1102,9 +1390,7 @@ def _discover_blocking_processes() -> list[str]:
     @brief Enumerate Office-related processes that may block destructive actions.
     """
 
-    patterns = list(constants.DEFAULT_OFFICE_PROCESSES) + list(
-        constants.OFFICE_PROCESS_PATTERNS
-    )
+    patterns = list(constants.DEFAULT_OFFICE_PROCESSES) + list(constants.OFFICE_PROCESS_PATTERNS)
     try:
         return processes.enumerate_processes(patterns)
     except Exception:

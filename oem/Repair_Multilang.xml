@@ -1,0 +1,40 @@
+<!-- 
+  Repair_Multilang.xml - Multi-Language Office Repair Configuration
+  
+  Repair configuration template for multi-language Office installations.
+  Includes common language packs alongside US English.
+  
+  Usage:
+    setup.exe /configure Repair_Multilang.xml
+  
+  Products Included:
+  - Office 365 ProPlus
+  
+  Languages:
+  - en-us (English - US) - Primary
+  - es-es (Spanish - Spain)
+  - fr-fr (French - France)
+  - de-de (German)
+  - pt-br (Portuguese - Brazil)
+  
+  Note: The first language listed becomes the Shell UI language.
+  Modify the language list as needed for your environment.
+-->
+<Configuration>
+  <Add OfficeClientEdition="64" Channel="Current">
+    <Product ID="O365ProPlusRetail">
+      <!-- Primary language (Shell UI) -->
+      <Language ID="en-us" />
+      <!-- Additional languages -->
+      <Language ID="es-es" />
+      <Language ID="fr-fr" />
+      <Language ID="de-de" />
+      <Language ID="pt-br" />
+    </Product>
+  </Add>
+  
+  <Updates Enabled="TRUE" />
+  <Display Level="None" AcceptEULA="TRUE" />
+  <Logging Level="Standard" Path="%temp%" />
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+</Configuration>

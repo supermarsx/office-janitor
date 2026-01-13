@@ -1,11 +1,27 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+from pathlib import Path
+
+# Collect all OEM files (XML configs and binaries)
+oem_dir = Path('oem')
+oem_files = []
+if oem_dir.exists():
+    for f in oem_dir.iterdir():
+        if f.is_file():
+            oem_files.append((str(f), 'oem'))
+
+# Include VERSION file from package
+version_file = Path('src/office_janitor/VERSION')
+datas_list = oem_files.copy()
+if version_file.exists():
+    datas_list.append((str(version_file), 'office_janitor'))
 
 a = Analysis(
     ['oj_entry.py'],
     pathex=['src'],
     binaries=[],
-    datas=[],
+    datas=datas_list,
     hiddenimports=['office_janitor', 'office_janitor.main'],
     hookspath=[],
     hooksconfig={},

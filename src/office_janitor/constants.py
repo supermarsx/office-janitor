@@ -258,6 +258,7 @@ REGISTRY_RESIDUE_PATHS = _sort_registry_entries_deepest_first(
 """
 
 RESIDUE_PATH_TEMPLATES = (
+    # Licensing directories
     {
         "label": "programdata_office_licenses",
         "path": r"%PROGRAMDATA%\\Microsoft\\Office\\Licenses",
@@ -278,6 +279,7 @@ RESIDUE_PATH_TEMPLATES = (
         "path": r"%LOCALAPPDATA%\\Microsoft\\Office\\16.0\\Licensing",
         "category": "licenses",
     },
+    # Identity and authentication caches
     {
         "label": "localappdata_identity_cache",
         "path": r"%LOCALAPPDATA%\\Microsoft\\IdentityCache",
@@ -288,6 +290,7 @@ RESIDUE_PATH_TEMPLATES = (
         "path": r"%LOCALAPPDATA%\\Microsoft\\OneAuth",
         "category": "identity",
     },
+    # Click-to-Run cache and installation directories
     {
         "label": "programdata_clicktorun",
         "path": r"%PROGRAMDATA%\\Microsoft\\ClickToRun",
@@ -302,6 +305,47 @@ RESIDUE_PATH_TEMPLATES = (
         "label": "programfiles_clicktorun_x64",
         "path": r"C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun",
         "category": "c2r_cache",
+    },
+    # ProgramData Office directories (left behind after partial uninstall)
+    {
+        "label": "programdata_office",
+        "path": r"%PROGRAMDATA%\\Microsoft\\Office",
+        "category": "office_data",
+    },
+    # Windows Installer cache (common leftover)
+    {
+        "label": "windows_installer_office_cache_x86",
+        "path": r"C:\\Windows\\Installer\\{90160000-",
+        "category": "installer_cache",
+    },
+    # VBA directories
+    {
+        "label": "appdata_vba",
+        "path": r"%APPDATA%\\Microsoft\\VBA",
+        "category": "vba",
+    },
+    {
+        "label": "localappdata_vba",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\VBA",
+        "category": "vba",
+    },
+    # Office Setup bootstrap and update directories
+    {
+        "label": "programdata_office_updates",
+        "path": r"%PROGRAMDATA%\\Microsoft\\Office\\Updates",
+        "category": "updates",
+    },
+    {
+        "label": "programfiles_office_updates_x86",
+        "path": r"C:\\Program Files (x86)\\Microsoft Office 15",
+        "architecture": "x86",
+        "category": "legacy_office",
+    },
+    {
+        "label": "programfiles_office_updates_x64",
+        "path": r"C:\\Program Files\\Microsoft Office 15",
+        "architecture": "x64",
+        "category": "legacy_office",
     },
 )
 """!
@@ -958,6 +1002,20 @@ purge consent.
 """
 
 INSTALL_ROOT_TEMPLATES = (
+    # Parent Microsoft Office directories - catch all leftover content after partial uninstall
+    {
+        "label": "msoffice_root_x86",
+        "path": r"C:\\Program Files (x86)\\Microsoft Office",
+        "architecture": "x86",
+        "release": "all",
+    },
+    {
+        "label": "msoffice_root_x64",
+        "path": r"C:\\Program Files\\Microsoft Office",
+        "architecture": "x64",
+        "release": "all",
+    },
+    # Specific subdirectories (also listed for granular detection)
     {
         "label": "c2r_root_x86",
         "path": r"C:\\Program Files (x86)\\Microsoft Office\\root",
@@ -987,6 +1045,85 @@ INSTALL_ROOT_TEMPLATES = (
         "path": r"C:\\Program Files (x86)\\Microsoft Office\\Office15",
         "architecture": "x86",
         "release": "2013",
+    },
+    {
+        "label": "office15_x64",
+        "path": r"C:\\Program Files\\Microsoft Office\\Office15",
+        "architecture": "x64",
+        "release": "2013",
+    },
+    {
+        "label": "office14_x86",
+        "path": r"C:\\Program Files (x86)\\Microsoft Office\\Office14",
+        "architecture": "x86",
+        "release": "2010",
+    },
+    {
+        "label": "office14_x64",
+        "path": r"C:\\Program Files\\Microsoft Office\\Office14",
+        "architecture": "x64",
+        "release": "2010",
+    },
+    {
+        "label": "office12_x86",
+        "path": r"C:\\Program Files (x86)\\Microsoft Office\\Office12",
+        "architecture": "x86",
+        "release": "2007",
+    },
+    {
+        "label": "office12_x64",
+        "path": r"C:\\Program Files\\Microsoft Office\\Office12",
+        "architecture": "x64",
+        "release": "2007",
+    },
+    # Common Files shared Office components
+    {
+        "label": "shared_office_x86",
+        "path": r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE16",
+        "architecture": "x86",
+        "release": "2016",
+    },
+    {
+        "label": "shared_office_x64",
+        "path": r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16",
+        "architecture": "x64",
+        "release": "2016",
+    },
+    {
+        "label": "shared_office15_x86",
+        "path": r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE15",
+        "architecture": "x86",
+        "release": "2013",
+    },
+    {
+        "label": "shared_office15_x64",
+        "path": r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE15",
+        "architecture": "x64",
+        "release": "2013",
+    },
+    {
+        "label": "shared_office14_x86",
+        "path": r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE14",
+        "architecture": "x86",
+        "release": "2010",
+    },
+    {
+        "label": "shared_office14_x64",
+        "path": r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE14",
+        "architecture": "x64",
+        "release": "2010",
+    },
+    {
+        "label": "shared_office12_x86",
+        "path": r"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\OFFICE12",
+        "architecture": "x86",
+        "release": "2007",
+    },
+    {
+        "label": "shared_office12_x64",
+        "path": r"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE12",
+        "architecture": "x64",
+        "release": "2007",
     },
 )
 

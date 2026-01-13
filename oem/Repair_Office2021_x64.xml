@@ -1,0 +1,25 @@
+<!-- 
+  Repair_Office2021_x64.xml - Office 2021 Professional Plus 64-bit Repair Configuration
+  
+  Repair configuration for Office 2021 Professional Plus (volume license) installations.
+  
+  Usage:
+    setup.exe /configure Repair_Office2021_x64.xml
+  
+  Products Included:
+  - Office 2021 Professional Plus (Volume License)
+  
+  Language: en-us (US English)
+-->
+<Configuration>
+  <Add OfficeClientEdition="64" Channel="PerpetualVL2021">
+    <Product ID="ProPlus2021Volume">
+      <Language ID="en-us" />
+    </Product>
+  </Add>
+  
+  <Updates Enabled="TRUE" />
+  <Display Level="None" AcceptEULA="TRUE" />
+  <Logging Level="Standard" Path="%temp%" />
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+</Configuration>

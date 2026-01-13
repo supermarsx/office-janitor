@@ -1,0 +1,39 @@
+<!-- 
+  Repair_ProPlus_Visio_Project.xml - Office 365 with Visio and Project Repair Configuration
+  
+  Comprehensive repair configuration for environments with Office 365 ProPlus,
+  Visio Pro, and Project Pro installed together.
+  
+  Usage:
+    setup.exe /configure Repair_ProPlus_Visio_Project.xml
+  
+  Products Included:
+  - Office 365 ProPlus (all applications)
+  - Visio Professional
+  - Project Professional
+  
+  Language: en-us (US English)
+-->
+<Configuration>
+  <Add OfficeClientEdition="64" Channel="Current">
+    <!-- Office 365 ProPlus -->
+    <Product ID="O365ProPlusRetail">
+      <Language ID="en-us" />
+    </Product>
+    
+    <!-- Visio Professional -->
+    <Product ID="VisioProRetail">
+      <Language ID="en-us" />
+    </Product>
+    
+    <!-- Project Professional -->
+    <Product ID="ProjectProRetail">
+      <Language ID="en-us" />
+    </Product>
+  </Add>
+  
+  <Updates Enabled="TRUE" />
+  <Display Level="None" AcceptEULA="TRUE" />
+  <Logging Level="Standard" Path="%temp%" />
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+</Configuration>

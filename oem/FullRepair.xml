@@ -1,0 +1,44 @@
+<!-- 
+  FullRepair.xml - Office Click-to-Run Full Online Repair Configuration
+  
+  This configuration triggers a Full Online Repair of Office C2R installations.
+  Full Repair downloads and reinstalls Office components from Microsoft CDN,
+  providing the most thorough repair option.
+  
+  Usage with ODT setup.exe:
+    setup.exe /configure FullRepair.xml
+  
+  Alternatively use OfficeClickToRun.exe directly:
+    OfficeClickToRun.exe scenario=Repair platform=x64 culture=en-us RepairType=FullRepair
+  
+  ⚠️ WARNINGS:
+  - Full Repair WILL reinstall previously excluded applications!
+  - Requires active internet connection
+  - May take 30-60 minutes depending on connection speed
+  - Consider using Quick Repair first for most issues
+  
+  Notes:
+  - Downloads approximately 2-4 GB of data
+  - Resets Office to default state
+  - User customizations are generally preserved
+-->
+<Configuration>
+  <!-- Full reinstall from CDN -->
+  <Add OfficeClientEdition="64">
+    <Product ID="O365ProPlusRetail">
+      <Language ID="en-us" />
+    </Product>
+  </Add>
+  
+  <!-- Enable updates from Microsoft CDN -->
+  <Updates Enabled="TRUE" />
+  
+  <!-- Silent installation with EULA acceptance -->
+  <Display Level="None" AcceptEULA="TRUE" />
+  
+  <!-- Standard logging to temp directory -->
+  <Logging Level="Standard" Path="%temp%" />
+  
+  <!-- Force close any running Office applications -->
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+</Configuration>

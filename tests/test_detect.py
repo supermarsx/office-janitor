@@ -204,9 +204,11 @@ class TestRegistryDetectionScenarios:
         monkeypatch.setenv("LOCALAPPDATA", r"C:\\Users\\Default\\AppData\\Local")
         monkeypatch.setenv("APPDATA", r"C:\\Users\\Default\\AppData\\Roaming")
 
+        # Use the main Microsoft Office parent directory and a specific version subdirectory
+        # (template indices: 0=msoffice_root_x86, 4=office16_x86)
         valid_paths = {
-            str(Path(constants.INSTALL_ROOT_TEMPLATES[0]["path"])),
-            str(Path(constants.INSTALL_ROOT_TEMPLATES[2]["path"])),
+            str(Path(constants.INSTALL_ROOT_TEMPLATES[0]["path"])),  # msoffice_root_x86
+            str(Path(constants.INSTALL_ROOT_TEMPLATES[4]["path"])),  # office16_x86
             *(
                 str(Path(os.path.expandvars(template["path"])))
                 for template in constants.RESIDUE_PATH_TEMPLATES
@@ -266,7 +268,7 @@ class TestRegistryDetectionScenarios:
         assert len(inventory["filesystem"]) == len(valid_paths)
         labels = {entry["label"] for entry in inventory["filesystem"]}
         expected_labels = {
-            "c2r_root_x86",
+            "msoffice_root_x86",
             "office16_x86",
             *[template["label"] for template in constants.RESIDUE_PATH_TEMPLATES],
         }
