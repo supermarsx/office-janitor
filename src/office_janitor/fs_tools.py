@@ -297,7 +297,9 @@ def discover_paths(
 
 
 def _handle_readonly(
-    function: Callable[[str], None], path: str, exc_info: tuple[type[BaseException], BaseException, Any]
+    function: Callable[[str], None],
+    path: str,
+    exc_info: tuple[type[BaseException], BaseException, Any],
 ) -> None:  # pragma: no cover - defensive callback
     """!
     @brief Clear read-only attributes before retrying removal.

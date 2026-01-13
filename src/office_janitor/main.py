@@ -1010,7 +1010,9 @@ def _build_app_state(
         safety.perform_preflight_checks(generated_plan)
         return generated_plan
 
-    def executor(plan_data: list[dict[str, object]], overrides: Mapping[str, object] | None = None) -> bool:
+    def executor(
+        plan_data: list[dict[str, object]], overrides: Mapping[str, object] | None = None
+    ) -> bool:
         dry_run = bool(getattr(args, "dry_run", False))
         if overrides and "dry_run" in overrides:
             dry_run = bool(overrides["dry_run"])

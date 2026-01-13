@@ -63,12 +63,12 @@ class OfficeJanitorTUI:
         self.human_logger = self.app_state.get("human_logger")
         self.machine_logger = self.app_state.get("machine_logger")
         self.detector: Callable[[], Mapping[str, object]] = self.app_state["detector"]
-        self.planner: Callable[[Mapping[str, object], Mapping[str, object] | None], list[dict[str, object]]] = (
-            self.app_state["planner"]
-        )
-        self.executor: Callable[[list[dict[str, object]], Mapping[str, object] | None], bool | None] = (
-            self.app_state["executor"]
-        )
+        self.planner: Callable[
+            [Mapping[str, object], Mapping[str, object] | None], list[dict[str, object]]
+        ] = self.app_state["planner"]
+        self.executor: Callable[
+            [list[dict[str, object]], Mapping[str, object] | None], bool | None
+        ] = self.app_state["executor"]
         confirm_callable = self.app_state.get("confirm")
         self._confirm_requestor: Callable[..., bool] | None = (
             confirm_callable if callable(confirm_callable) else None
