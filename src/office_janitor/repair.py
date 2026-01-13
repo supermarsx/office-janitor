@@ -13,7 +13,6 @@ from __future__ import annotations
 import glob
 import os
 import re
-import subprocess
 import threading
 import time
 from collections.abc import Mapping, MutableMapping, Sequence
@@ -568,13 +567,15 @@ def run_repair(
             exe_path=str(exe_path),
         )
 
-    # Execute repair
-    result = command_runner.run_command(
-        command,
-        event="repair_exec",
-        timeout=config.effective_timeout,
-        dry_run=dry_run,
-    )
+    # Execute repair with log tailing
+    log.info("Tailing Office repair logs from %temp%...")
+    with LogTailer():
+        result = command_runner.run_command(
+            command,
+            event="repair_exec",
+            timeout=config.effective_timeout,
+            dry_run=dry_run,
+        )
 
     repair_result = RepairResult(
         success=result.returncode == 0,
@@ -736,7 +737,7 @@ class LogTailer:
             current_size = filepath.stat().st_size
 
             if current_size > pos:
-                with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                with open(filepath, encoding="utf-8", errors="replace") as f:
                     f.seek(pos)
                     new_content = f.read()
                     if new_content.strip():
@@ -746,7 +747,7 @@ class LogTailer:
                                 print(f"  [ODT] {line}")
                     self._file_positions[str_path] = f.tell()
 
-        except (OSError, IOError):
+        except OSError:
             pass  # File may be locked or deleted
 
     def _monitor_loop(self) -> None:
@@ -774,7 +775,7 @@ class LogTailer:
         self._thread = None
         self._log.debug("Log tailer stopped")
 
-    def __enter__(self) -> "LogTailer":
+    def __enter__(self) -> LogTailer:
         self.start()
         return self
 
@@ -864,12 +865,24 @@ def reconfigure_office(
         },
     )
 
-    return command_runner.run_command(
-        command,
-        event="reconfigure_exec",
-        timeout=timeout,
-        dry_run=dry_run,
-    )
+    # Use log tailer to stream ODT logs to console
+    if not dry_run:
+        log.info("Tailing ODT logs from %temp%...")
+        with LogTailer():
+            result = command_runner.run_command(
+                command,
+                event="reconfigure_exec",
+                timeout=timeout,
+                dry_run=dry_run,
+            )
+        return result
+    else:
+        return command_runner.run_command(
+            command,
+            event="reconfigure_exec",
+            timeout=timeout,
+            dry_run=dry_run,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -987,6 +1000,7 @@ __all__ = [
     "DisplayLevel",
     "RepairConfig",
     "RepairResult",
+    "LogTailer",
     "OFFICECLICKTORUN_CANDIDATES",
     "BUNDLED_OFFICECLICKTORUN",
     "PLATFORM_X86",
@@ -995,6 +1009,7 @@ __all__ = [
     "SUPPORTED_CULTURES",
     "REPAIR_TIMEOUT_QUICK",
     "REPAIR_TIMEOUT_FULL",
+    "ODT_LOG_PATTERNS",
     "find_officeclicktorun_exe",
     "is_c2r_office_installed",
     "get_installed_c2r_info",
