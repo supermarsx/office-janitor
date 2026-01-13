@@ -451,16 +451,28 @@ def main(argv: Iterable[str] | None = None, *, start_time: float | None = None) 
     # Use provided start_time for continuous timestamps, or start fresh
     _MAIN_START_TIME = start_time if start_time is not None else time.perf_counter()
 
+    # Check for elevation marker and set environment flag
+    argv_list = list(argv) if argv is not None else None
+    if argv_list is None:
+        argv_list = sys.argv[1:]
+    if argv_list and argv_list[0] == "--_elevated-marker":
+        os.environ["OFFICE_JANITOR_ELEVATED"] = "1"
+        argv_list = argv_list[1:]  # Remove the marker from args
+
     # Install signal handler for clean Ctrl+C shutdown
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
     if hasattr(signal, "SIGBREAK"):  # Windows-specific
         signal.signal(signal.SIGBREAK, _handle_shutdown_signal)  # type: ignore[attr-defined]
 
     try:
-        return _main_impl(argv)
+        exit_code = _main_impl(argv_list)
     except KeyboardInterrupt:
         _print_shutdown_message()
-        return 130  # Standard exit code for SIGINT
+        exit_code = 130  # Standard exit code for SIGINT
+
+    # Keep console open if this was an auto-elevated process
+    elevation.pause_if_elevated(exit_code)
+    return exit_code
 
 
 def _main_impl(argv: Iterable[str] | None = None) -> int:

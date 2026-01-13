@@ -3,9 +3,9 @@
 Build the Office Janitor PyInstaller onefile executable and prepare release artifacts.
 
 .DESCRIPTION
-Invokes PyInstaller with the configuration described in spec.md, ensures the src
-package directory is available on PYTHONPATH, and archives the generated
-executable into the artifacts folder for distribution.
+Invokes PyInstaller using the pre-configured office-janitor.spec file which includes
+all OEM files (XML configs, setup.exe, OfficeClickToRun.exe) and the VERSION file.
+Archives the generated executable into the artifacts folder for distribution.
 #>
 
 param(
@@ -22,10 +22,13 @@ Set-Location $repoRoot
 Write-Host "Installing PyInstaller..."
 & $Python -m pip install --upgrade pyinstaller | Write-Output
 
-$command = "$Python -m PyInstaller --clean --onefile --uac-admin --name office-janitor --hidden-import office_janitor --hidden-import office_janitor.main oj_entry.py --paths src"
+$specFile = Join-Path $repoRoot "office-janitor.spec"
+if (-not (Test-Path $specFile)) {
+    throw "Spec file not found at $specFile"
+}
 
-Write-Host "Running PyInstaller: $command"
-Invoke-Expression $command | Write-Output
+Write-Host "Building with spec file: $specFile"
+& $Python -m PyInstaller --clean --noconfirm $specFile | Write-Output
 
 if (-not (Test-Path $ArtifactFolder)) {
     New-Item -ItemType Directory -Path $ArtifactFolder | Out-Null

@@ -51,9 +51,24 @@ def current_username() -> str:
     return ""
 
 
+# Environment variable used to signal the process was auto-elevated
+_ELEVATED_MARKER_ENV = "OFFICE_JANITOR_ELEVATED"
+
+
+def was_auto_elevated() -> bool:
+    """!
+    @brief Check if this process was launched via auto-elevation.
+    @details Returns True if the process was relaunched with elevated privileges
+    by relaunch_as_admin(), indicating the console window should be kept open.
+    """
+    return os.environ.get(_ELEVATED_MARKER_ENV, "") == "1"
+
+
 def relaunch_as_admin(argv: Sequence[str] | None = None) -> bool:
     """!
     @brief Relaunch the current interpreter with administrative rights.
+    @details Sets an environment marker so the elevated process knows it was
+    auto-elevated and should keep the console window open on exit.
     @returns ``True`` when the relaunch request was issued successfully.
     """
 
@@ -65,9 +80,38 @@ def relaunch_as_admin(argv: Sequence[str] | None = None) -> bool:
         return False
 
     arguments = list(argv) if argv is not None else list(sys.argv[1:])
+    # Prepend environment marker to the arguments
+    # This passes the marker to the elevated process
+    marker_arg = "--_elevated-marker"
+    arguments = [marker_arg] + arguments
     params = subprocess.list2cmdline(arguments)
     result = shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
     return int(result) > 32
+
+
+def pause_if_elevated(exit_code: int = 0) -> None:
+    """!
+    @brief Pause the console if this was an auto-elevated process.
+    @details When the process was launched via UAC elevation, the console window
+    would normally close immediately on exit. This function pauses execution to
+    allow the user to see the output before closing.
+    @param exit_code The exit code that will be returned (shown in message).
+    """
+    if was_auto_elevated():
+        print()
+        if exit_code == 0:
+            print("=" * 60)
+            print("Operation completed successfully.")
+            print("=" * 60)
+        else:
+            print("=" * 60)
+            print(f"Operation finished with exit code: {exit_code}")
+            print("=" * 60)
+        print()
+        try:
+            input("Press Enter to close this window...")
+        except (EOFError, KeyboardInterrupt):
+            pass  # Handle non-interactive or Ctrl+C gracefully
 
 
 def run_as_limited_user(
@@ -128,4 +172,11 @@ def run_as_limited_user(
     )
 
 
-__all__ = ["is_admin", "current_username", "relaunch_as_admin", "run_as_limited_user"]
+__all__ = [
+    "is_admin",
+    "current_username",
+    "relaunch_as_admin",
+    "run_as_limited_user",
+    "was_auto_elevated",
+    "pause_if_elevated",
+]
