@@ -1175,24 +1175,31 @@ class TestCLIArgumentParsing:
     def test_all_flags_combined(self) -> None:
         """Test multiple flags can be combined."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--force",
-            "--dry-run",
-            "--no-restore-point",
-            "--no-license",
-            "--keep-templates",
-            "--quiet",
-            "--json",
-            "--no-color",
-            "--allow-unsupported-windows",
-            "--limited-user",
-            "--include", "visio",
-            "--timeout", "60",
-            "--logdir", "/tmp/logs",
-            "--backup", "/tmp/backup",
-            "--plan", "/tmp/plan.json",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--force",
+                "--dry-run",
+                "--no-restore-point",
+                "--no-license",
+                "--keep-templates",
+                "--quiet",
+                "--json",
+                "--no-color",
+                "--allow-unsupported-windows",
+                "--limited-user",
+                "--include",
+                "visio",
+                "--timeout",
+                "60",
+                "--logdir",
+                "/tmp/logs",
+                "--backup",
+                "/tmp/backup",
+                "--plan",
+                "/tmp/plan.json",
+            ]
+        )
         assert args.auto_all is True
         assert args.force is True
         assert args.dry_run is True
@@ -1332,15 +1339,18 @@ class TestCLIFlagBehavior:
         monkeypatch.setattr(main, "enable_vt_mode_if_possible", _no_op)
         monkeypatch.setattr(main, "_resolve_log_directory", lambda c: tmp_path)
         monkeypatch.setattr(main.detect, "gather_office_inventory", lambda **kw: {})
-        monkeypatch.setattr(main.plan_module, "build_plan", lambda i, o: [
-            {"id": "ctx", "category": "context", "metadata": {"mode": o["mode"]}},
-        ])
+        monkeypatch.setattr(
+            main.plan_module,
+            "build_plan",
+            lambda i, o: [
+                {"id": "ctx", "category": "context", "metadata": {"mode": o["mode"]}},
+            ],
+        )
         monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda p: None)
 
         scrub_dry_run: list[bool] = []
         monkeypatch.setattr(
-            main.scrub, "execute_plan",
-            lambda plan, dry_run=False: scrub_dry_run.append(dry_run)
+            main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_dry_run.append(dry_run)
         )
         monkeypatch.setattr(main, "_enforce_runtime_guards", lambda o, *, dry_run=False: None)
 
@@ -1372,4 +1382,3 @@ class TestCLIFlagBehavior:
         assert args.tui is True
         assert args.tui_compact is True
         assert args.tui_refresh == 100
-

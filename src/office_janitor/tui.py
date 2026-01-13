@@ -499,8 +499,11 @@ class OfficeJanitorTUI:
         for index in range(max_lines):
             left_text = nav_lines[index] if index < len(nav_lines) else ""
             right_text = content_lines[index] if index < len(content_lines) else ""
+            # Calculate visible length (excluding ANSI codes) for proper padding
+            visible_len = len(_strip_ansi(left_text))
+            padding = " " * max(0, left_width - visible_len)
             sys.stdout.write(
-                f"{left_text.ljust(left_width)} {right_text[: width - left_width - 1]}\n"
+                f"{left_text}{padding} {right_text[: width - left_width - 1]}\n"
             )
 
         sys.stdout.write(_divider(width) + "\n")
@@ -519,11 +522,16 @@ class OfficeJanitorTUI:
         lines: list[str] = ["Navigation:"]
         for index, item in enumerate(self.navigation):
             prefix = "➤" if index == self.nav_index else " "
-            if not self.ansi_supported or index != self.nav_index:
-                line = f"{prefix} {item.label}"
+            # Build visible text first, truncate to width, then apply ANSI
+            visible_text = f"{prefix} {item.label}"
+            truncated = visible_text[:width]
+            if self.ansi_supported and index == self.nav_index:
+                # Pad to width so highlight fills the column, then apply reverse video
+                padded = truncated.ljust(width)
+                line = f"\x1b[7m{padded}\x1b[0m"
             else:
-                line = f"\x1b[7m{prefix} {item.label}\x1b[0m"
-            lines.append(line[:width])
+                line = truncated
+            lines.append(line)
         lines.append("")
         lines.append("Status log:")
         lines.extend(self.status_lines[-(12 if self.compact_layout else 18) :])
@@ -690,44 +698,56 @@ class OfficeJanitorTUI:
 
     def _toggle_plan_option(self, index: int) -> None:
         pane = self.panes.get("plan")
-        keys = (
-            list(pane.lines)
-            if pane is not None and pane.lines
-            else list(self.plan_overrides.keys())
-        )
+        if pane is None:
+            return
+        # Refresh pane.lines to get current filtered keys
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
         if not keys:
+            self._append_status("No plan options available to toggle.")
             return
         safe_index = max(0, min(index, len(keys) - 1))
         key = keys[safe_index]
+        if key not in self.plan_overrides:
+            self._append_status(f"Unknown plan option: {key}")
+            return
         self.plan_overrides[key] = not self.plan_overrides[key]
         self._append_status(f"Plan option '{key}' set to {self.plan_overrides[key]}")
 
     def _toggle_target(self, index: int) -> None:
         pane = self.panes.get("targeted")
-        keys = (
-            list(pane.lines)
-            if pane is not None and pane.lines
-            else list(self.target_overrides.keys())
-        )
+        if pane is None:
+            return
+        # Refresh pane.lines to get current filtered keys
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
         if not keys:
+            self._append_status("No target versions available to toggle.")
             return
         safe_index = max(0, min(index, len(keys) - 1))
         key = keys[safe_index]
+        if key not in self.target_overrides:
+            self._append_status(f"Unknown target version: {key}")
+            return
         self.target_overrides[key] = not self.target_overrides[key]
         state = "selected" if self.target_overrides[key] else "cleared"
         self._append_status(f"Target version {key} {state}.")
 
     def _toggle_setting(self, index: int) -> None:
         pane = self.panes.get("settings")
-        keys = (
-            list(pane.lines)
-            if pane is not None and pane.lines
-            else list(self.settings_overrides.keys())
-        )
+        if pane is None:
+            return
+        # Refresh pane.lines to get current filtered keys
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
         if not keys:
+            self._append_status("No settings available to toggle.")
             return
         safe_index = max(0, min(index, len(keys) - 1))
         key = keys[safe_index]
+        if key not in self.settings_overrides:
+            self._append_status(f"Unknown setting: {key}")
+            return
         self.settings_overrides[key] = not self.settings_overrides[key]
         self._append_status(f"Setting '{key}' toggled to {self.settings_overrides[key]}")
 
@@ -1172,6 +1192,12 @@ def _decode_key(raw: str) -> str:
 def _clear_screen() -> None:
     sys.stdout.write("\x1b[2J\x1b[H")
     sys.stdout.flush()
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text to get visible length."""
+    import re
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 def _divider(width: int) -> str:

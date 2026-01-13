@@ -70,7 +70,7 @@ class TestSafetyPreflight:
                 "id": "filesystem-0",
                 "category": "filesystem-cleanup",
                 "metadata": {
-                    "paths": [r"C:\\Program Files\\Microsoft Office"],
+                    "paths": [r"C:\Program Files\Microsoft Office"],
                     "dry_run": False,
                 },
             },
@@ -78,7 +78,7 @@ class TestSafetyPreflight:
                 "id": "registry-0",
                 "category": "registry-cleanup",
                 "metadata": {
-                    "keys": [r"HKLM\\SOFTWARE\\Microsoft\\Office\\16.0"],
+                    "keys": [r"HKLM\SOFTWARE\Microsoft\Office\16.0"],
                     "dry_run": False,
                 },
             },
