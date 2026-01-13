@@ -84,6 +84,7 @@ _OFFICE_EXCLUSIONS = (
     "vs20",
     # .NET Aspire and SDK templates
     "aspire",
+    "aspire.projecttemplates",
     ".net sdk",
     "dotnet",
     # Development tools
