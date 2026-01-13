@@ -64,7 +64,7 @@ def test_main_auto_all_executes_scrub_pipeline(monkeypatch, tmp_path) -> None:
 
     scrub_calls: list[bool] = []
     monkeypatch.setattr(
-        main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(bool(dry_run))
+        main.scrub, "execute_plan", lambda plan, dry_run=False, **kw: scrub_calls.append(bool(dry_run))
     )
 
     guard_calls: list[tuple[dict, bool]] = []
@@ -113,7 +113,7 @@ def test_main_requires_confirmation_before_execution(monkeypatch, tmp_path) -> N
 
     scrub_calls: list[bool] = []
     monkeypatch.setattr(
-        main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(True)
+        main.scrub, "execute_plan", lambda plan, dry_run=False, **kw: scrub_calls.append(True)
     )
 
     confirm_calls: list[dict] = []
@@ -195,7 +195,7 @@ def test_main_diagnose_skips_execution(monkeypatch, tmp_path) -> None:
 
     scrub_calls: list[bool] = []
     monkeypatch.setattr(
-        main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_calls.append(True)
+        main.scrub, "execute_plan", lambda plan, dry_run=False, **kw: scrub_calls.append(True)
     )
 
     guard_calls: list[tuple[dict, bool]] = []
@@ -423,7 +423,7 @@ def test_main_target_mode_passes_all_options(monkeypatch, tmp_path) -> None:
 
     scrub_calls: list[bool] = []
 
-    def fake_execute(plan, dry_run=False):  # type: ignore[no-untyped-def]
+    def fake_execute(plan, dry_run=False, **kw):  # type: ignore[no-untyped-def]
         scrub_calls.append(bool(dry_run))
 
     monkeypatch.setattr(main.scrub, "execute_plan", fake_execute)
@@ -943,7 +943,7 @@ def test_main_diagnose_writes_default_artifacts(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(main.plan_module, "build_plan", fake_plan)
     monkeypatch.setattr(main.safety, "perform_preflight_checks", lambda plan: None)
-    monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False: None)
+    monkeypatch.setattr(main.scrub, "execute_plan", lambda plan, dry_run=False, **kw: None)
 
     guard_calls: list[tuple[dict, bool]] = []
 
@@ -1350,7 +1350,7 @@ class TestCLIFlagBehavior:
 
         scrub_dry_run: list[bool] = []
         monkeypatch.setattr(
-            main.scrub, "execute_plan", lambda plan, dry_run=False: scrub_dry_run.append(dry_run)
+            main.scrub, "execute_plan", lambda plan, dry_run=False, **kw: scrub_dry_run.append(dry_run)
         )
         monkeypatch.setattr(main, "_enforce_runtime_guards", lambda o, *, dry_run=False: None)
 

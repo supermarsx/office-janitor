@@ -1036,31 +1036,36 @@ def gather_office_inventory(
 
     def _detect_processes() -> list[dict[str, object]]:
         _report("Enumerating running Office processes")
-        result = gather_running_office_processes()
+        raw = gather_running_office_processes()
+        result: list[dict[str, object]] = list(raw)  # type: ignore[arg-type]
         _report("Enumerating running Office processes", "ok")
         return result
 
     def _detect_services() -> list[dict[str, object]]:
         _report("Checking Office services")
-        result = gather_office_services()
+        raw = gather_office_services()
+        result: list[dict[str, object]] = list(raw)  # type: ignore[arg-type]
         _report("Checking Office services", "ok")
         return result
 
     def _detect_tasks() -> list[dict[str, object]]:
         _report("Checking scheduled tasks")
-        result = gather_office_tasks()
+        raw = gather_office_tasks()
+        result: list[dict[str, object]] = list(raw)  # type: ignore[arg-type]
         _report("Checking scheduled tasks", "ok")
         return result
 
     def _detect_appx() -> list[dict[str, object]]:
         _report("Scanning AppX/MSIX packages")
-        result = detect_appx_packages()
+        raw = detect_appx_packages()
+        result: list[dict[str, object]] = list(raw)  # type: ignore[arg-type]
         _report("Scanning AppX/MSIX packages", "ok")
         return result
 
     def _detect_uninstall_entries() -> list[dict[str, object]]:
         _report("Scanning Control Panel uninstall entries")
-        result = detect_uninstall_entries()
+        raw = detect_uninstall_entries()
+        result: list[dict[str, object]] = list(raw)  # type: ignore[arg-type]
         _report("Scanning Control Panel uninstall entries", "ok")
         return result
 
@@ -1072,7 +1077,8 @@ def gather_office_inventory(
 
     def _detect_registry() -> list[dict[str, object]]:
         _report("Scanning registry for residue")
-        result = gather_registry_residue()
+        raw = gather_registry_residue()
+        result: list[dict[str, object]] = list(raw)  # type: ignore[arg-type]
         _report("Scanning registry for residue", "ok")
         return result
 
