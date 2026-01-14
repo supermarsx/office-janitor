@@ -4,10 +4,14 @@
 APIs so the scrubber can remove product keys without shipping separate script
 files. The orchestration coordinates registry backups, subprocess invocation,
 and filesystem cleanup while respecting global safety constraints.
+
+Additionally provides fallback to OSPP.VBS (Microsoft's official tool) when
+the PowerShell approach fails.
 """
 
 from __future__ import annotations
 
+import os
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -21,6 +25,25 @@ OFFICE_APPLICATION_ID = "0ff1ce15-a989-479d-af46-f275c6370663"
 """!
 @brief The Application ID used by Office in the Software Licensing Service.
 @details This GUID identifies Office licenses in SoftwareLicensingProduct WMI queries.
+"""
+
+# OSPP.VBS search locations (bundled and system-installed)
+OSPP_VBS_SEARCH_PATHS: tuple[str, ...] = (
+    # Bundled with office-janitor (oem folder)
+    r"oem\OSPP.VBS",
+    # Office 2016/2019/2021/365 (64-bit)
+    r"C:\Program Files\Microsoft Office\Office16\OSPP.VBS",
+    # Office 2016/2019/2021/365 (32-bit on 64-bit Windows)
+    r"C:\Program Files (x86)\Microsoft Office\Office16\OSPP.VBS",
+    # Click-to-Run installations
+    r"C:\Program Files\Microsoft Office\root\Office16\OSPP.VBS",
+    r"C:\Program Files (x86)\Microsoft Office\root\Office16\OSPP.VBS",
+    # Office 2013
+    r"C:\Program Files\Microsoft Office\Office15\OSPP.VBS",
+    r"C:\Program Files (x86)\Microsoft Office\Office15\OSPP.VBS",
+)
+"""!
+@brief Candidate paths to locate OSPP.VBS for license management fallback.
 """
 
 LICENSE_SCRIPT_TEMPLATE = Template(
@@ -336,6 +359,7 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
 
     if include_spp:
         script_path: Path | None = None
+        spp_success = False
         try:
             script_body = _render_license_script(options)
             script_path = _write_powershell_script(script_body)
@@ -357,8 +381,11 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
             )
             if not result.skipped:
                 if result.returncode != 0 or result.error:
-                    human_logger.error("SPP cleanup failed with exit code %s", result.returncode)
-                    machine_logger.error(
+                    human_logger.warning(
+                        "SPP cleanup via PowerShell failed (exit code %s); will try OSPP.VBS fallback",
+                        result.returncode,
+                    )
+                    machine_logger.warning(
                         "licensing_spp_failure",
                         extra={
                             "event": "licensing_spp_failure",
@@ -366,25 +393,65 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
                             "stdout": result.stdout,
                             "stderr": result.stderr,
                             "error": result.error,
+                            "will_fallback": True,
                         },
                     )
-                    raise RuntimeError("SPP license removal failed")
-                counts = _parse_license_results(result.stdout)
-                machine_logger.info(
-                    "licensing_spp_success",
-                    extra={
-                        "event": "licensing_spp_success",
-                        "stdout": result.stdout,
-                        "stderr": result.stderr,
-                        "removed": counts,
-                    },
-                )
+                else:
+                    counts = _parse_license_results(result.stdout)
+                    spp_success = True
+                    machine_logger.info(
+                        "licensing_spp_success",
+                        extra={
+                            "event": "licensing_spp_success",
+                            "stdout": result.stdout,
+                            "stderr": result.stderr,
+                            "removed": counts,
+                        },
+                    )
+            else:
+                spp_success = True  # Dry-run counts as success
+        except Exception as exc:
+            human_logger.warning("SPP cleanup exception: %s; will try OSPP.VBS fallback", exc)
+            machine_logger.warning(
+                "licensing_spp_exception",
+                extra={
+                    "event": "licensing_spp_exception",
+                    "error": repr(exc),
+                    "will_fallback": True,
+                },
+            )
         finally:
             if script_path is not None:
                 try:
                     script_path.unlink(missing_ok=True)
                 except OSError:  # pragma: no cover - best effort cleanup
                     pass
+
+        # OSPP.VBS fallback if PowerShell approach failed
+        if not spp_success:
+            human_logger.info("Attempting license cleanup via OSPP.VBS...")
+            try:
+                ospp_removed = clean_licenses_via_ospp(dry_run=dry_run)
+                if ospp_removed:
+                    machine_logger.info(
+                        "licensing_ospp_vbs_success",
+                        extra={
+                            "event": "licensing_ospp_vbs_success",
+                            "removed_keys": ospp_removed,
+                        },
+                    )
+                else:
+                    human_logger.info("OSPP.VBS found no licenses to remove")
+            except Exception as fallback_exc:
+                human_logger.error("OSPP.VBS fallback also failed: %s", fallback_exc)
+                machine_logger.error(
+                    "licensing_ospp_vbs_failure",
+                    extra={
+                        "event": "licensing_ospp_vbs_failure",
+                        "error": repr(fallback_exc),
+                    },
+                )
+                raise RuntimeError("All license removal methods failed") from fallback_exc
 
     if include_ospp:
         command = options.get("ospp_command", DEFAULT_OSPP_COMMAND)
@@ -736,23 +803,286 @@ def clean_scl_cache(*, dry_run: bool = False) -> int:
     return len(existing)
 
 
+# ---------------------------------------------------------------------------
+# OSPP.VBS Integration (Microsoft's Official License Tool)
+# ---------------------------------------------------------------------------
+
+
+def find_ospp_vbs() -> Path | None:
+    """!
+    @brief Locate OSPP.VBS on the system.
+    @details Searches bundled location first, then common Office install paths.
+    @returns Path to OSPP.VBS if found, None otherwise.
+    """
+    # First check relative to this module (bundled version)
+    module_dir = Path(__file__).parent.parent.parent  # src/office_janitor -> repo root
+    bundled = module_dir / "oem" / "OSPP.VBS"
+    if bundled.exists():
+        return bundled
+
+    # Check system locations
+    for candidate in OSPP_VBS_SEARCH_PATHS:
+        path = Path(candidate)
+        if path.exists():
+            return path
+
+    return None
+
+
+def _run_ospp_command(
+    ospp_path: Path,
+    command: str,
+    *,
+    dry_run: bool = False,
+    timeout: int = 120,
+) -> exec_utils.CommandResult:
+    """!
+    @brief Execute an OSPP.VBS command via cscript.
+    @param ospp_path Path to OSPP.VBS.
+    @param command The OSPP command (e.g., "/dstatus", "/unpkey:XXXXX").
+    @param dry_run If True, log but don't execute.
+    @param timeout Seconds to wait for command completion.
+    @returns CommandResult with stdout, stderr, and return code.
+    """
+    cmd = [
+        "cscript.exe",
+        "//NoLogo",
+        str(ospp_path),
+        command,
+    ]
+
+    return exec_utils.run_command(
+        cmd,
+        event="ospp_vbs",
+        timeout=timeout,
+        dry_run=dry_run,
+        human_message=f"Running OSPP.VBS {command}",
+        extra={"ospp_path": str(ospp_path), "command": command},
+    )
+
+
+def query_ospp_status(ospp_path: Path | None = None) -> list[dict[str, str]]:
+    """!
+    @brief Query license status using OSPP.VBS /dstatus.
+    @param ospp_path Path to OSPP.VBS, or None to auto-detect.
+    @returns List of license info dicts with Name, PartialProductKey, Status.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    if ospp_path is None:
+        ospp_path = find_ospp_vbs()
+        if ospp_path is None:
+            human_logger.debug("OSPP.VBS not found on system")
+            return []
+
+    result = _run_ospp_command(ospp_path, "/dstatus")
+    if result.returncode != 0 or not result.stdout:
+        human_logger.debug("OSPP.VBS /dstatus failed or returned no output")
+        return []
+
+    return _parse_ospp_dstatus(result.stdout)
+
+
+def _parse_ospp_dstatus(output: str) -> list[dict[str, str]]:
+    """!
+    @brief Parse OSPP.VBS /dstatus output into structured data.
+    @param output Raw stdout from /dstatus command.
+    @returns List of license dicts with parsed fields.
+    """
+    licenses: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        # Each license block starts with LICENSE NAME:
+        if line.startswith("LICENSE NAME:"):
+            if current:
+                licenses.append(current)
+            current = {"name": line.split(":", 1)[1].strip()}
+        elif line.startswith("LICENSE DESCRIPTION:"):
+            current["description"] = line.split(":", 1)[1].strip()
+        elif line.startswith("LICENSE STATUS:"):
+            current["status"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Last 5 characters of installed product key:"):
+            current["partial_key"] = line.split(":", 1)[1].strip()
+        elif line.startswith("SKU ID:"):
+            current["sku_id"] = line.split(":", 1)[1].strip()
+        elif line.startswith("ERROR CODE:"):
+            current["error_code"] = line.split(":", 1)[1].strip()
+
+    if current:
+        licenses.append(current)
+
+    return licenses
+
+
+def uninstall_ospp_key(
+    partial_key: str,
+    ospp_path: Path | None = None,
+    *,
+    dry_run: bool = False,
+) -> bool:
+    """!
+    @brief Uninstall a product key using OSPP.VBS /unpkey.
+    @param partial_key The last 5 characters of the product key.
+    @param ospp_path Path to OSPP.VBS, or None to auto-detect.
+    @param dry_run If True, log but don't execute.
+    @returns True if key was uninstalled successfully.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    if len(partial_key) != 5:
+        human_logger.warning("Invalid partial key length: %s (expected 5 characters)", partial_key)
+        return False
+
+    if ospp_path is None:
+        ospp_path = find_ospp_vbs()
+        if ospp_path is None:
+            human_logger.warning("OSPP.VBS not found; cannot uninstall key")
+            return False
+
+    result = _run_ospp_command(ospp_path, f"/unpkey:{partial_key}", dry_run=dry_run)
+
+    if result.skipped:
+        return True  # Dry-run counts as success
+
+    # Check for success messages in output
+    stdout = result.stdout or ""
+    if "Product key uninstall successful" in stdout or "<Product key uninstall successful>" in stdout:
+        human_logger.info("Successfully uninstalled product key ending in %s", partial_key)
+        return True
+
+    if "Product key not found" in stdout:
+        human_logger.debug("Product key %s not found (may already be removed)", partial_key)
+        return True  # Not an error if already gone
+
+    human_logger.warning("Failed to uninstall product key %s: %s", partial_key, stdout)
+    return False
+
+
+def clean_licenses_via_ospp(
+    ospp_path: Path | None = None,
+    *,
+    dry_run: bool = False,
+) -> list[str]:
+    """!
+    @brief Remove all Office licenses using OSPP.VBS as fallback.
+    @details Queries /dstatus to find all installed keys, then uses /unpkey
+    to remove each one. This is the official Microsoft approach.
+    @param ospp_path Path to OSPP.VBS, or None to auto-detect.
+    @param dry_run If True, log but don't execute.
+    @returns List of partial keys that were removed.
+    """
+    human_logger = logging_ext.get_human_logger()
+    machine_logger = logging_ext.get_machine_logger()
+
+    if ospp_path is None:
+        ospp_path = find_ospp_vbs()
+        if ospp_path is None:
+            human_logger.warning("OSPP.VBS not found; skipping OSPP-based license cleanup")
+            return []
+
+    human_logger.info("Querying license status via OSPP.VBS...")
+    licenses = query_ospp_status(ospp_path)
+
+    if not licenses:
+        human_logger.info("No Office licenses found via OSPP.VBS")
+        return []
+
+    # Filter to licenses that have a partial key (can be uninstalled)
+    removable = [lic for lic in licenses if lic.get("partial_key")]
+    if not removable:
+        human_logger.info("No removable licenses found (no partial keys)")
+        return []
+
+    human_logger.info("Found %d Office license(s) to remove via OSPP.VBS", len(removable))
+    machine_logger.info(
+        "ospp_licenses_found",
+        extra={
+            "event": "ospp_licenses_found",
+            "count": len(removable),
+            "licenses": [
+                {"name": lic.get("name", ""), "partial_key": lic.get("partial_key", "")}
+                for lic in removable
+            ],
+        },
+    )
+
+    removed: list[str] = []
+    for lic in removable:
+        partial_key = lic.get("partial_key", "")
+        name = lic.get("name", "Unknown")
+
+        if dry_run:
+            human_logger.info("[DRY-RUN] Would remove license: %s (key: %s)", name, partial_key)
+            removed.append(partial_key)
+            continue
+
+        if uninstall_ospp_key(partial_key, ospp_path, dry_run=False):
+            removed.append(partial_key)
+            machine_logger.info(
+                "ospp_license_removed",
+                extra={
+                    "event": "ospp_license_removed",
+                    "name": name,
+                    "partial_key": partial_key,
+                },
+            )
+        else:
+            machine_logger.warning(
+                "ospp_license_removal_failed",
+                extra={
+                    "event": "ospp_license_removal_failed",
+                    "name": name,
+                    "partial_key": partial_key,
+                },
+            )
+
+    return removed
+
+
 def full_license_cleanup(
     *,
     dry_run: bool = False,
     keep_license: bool = False,
+    use_ospp_fallback: bool = True,
 ) -> dict[str, Any]:
     """!
     @brief Complete Office license cleanup combining all license removal methods.
     @details VBS parity: CleanOSPP + ClearVNextLicCache combined.
+    Falls back to OSPP.VBS if WMI-based cleanup fails or finds no licenses.
     @param dry_run If True, only report what would be removed.
     @param keep_license If True, skip license cleanup entirely.
+    @param use_ospp_fallback If True, use OSPP.VBS when WMI approach fails.
     @returns Dict with counts of cleaned items per category.
     """
+    human_logger = logging_ext.get_human_logger()
+
     if keep_license:
         return {"skipped": True, "reason": "keep_license flag set"}
 
     results: dict[str, Any] = {}
-    results["ospp_wmi"] = clean_ospp_licenses_wmi(dry_run=dry_run)
+
+    # Try WMI-based cleanup first
+    try:
+        results["ospp_wmi"] = clean_ospp_licenses_wmi(dry_run=dry_run)
+    except Exception as exc:
+        human_logger.warning("WMI-based license cleanup failed: %s", exc)
+        results["ospp_wmi"] = []
+        results["ospp_wmi_error"] = str(exc)
+
+    # Fallback to OSPP.VBS if WMI found nothing or failed
+    if use_ospp_fallback and not results.get("ospp_wmi"):
+        human_logger.info("Attempting license cleanup via OSPP.VBS fallback...")
+        try:
+            results["ospp_vbs"] = clean_licenses_via_ospp(dry_run=dry_run)
+        except Exception as exc:
+            human_logger.warning("OSPP.VBS fallback failed: %s", exc)
+            results["ospp_vbs_error"] = str(exc)
+
     results["vnext_cache"] = clean_vnext_cache(dry_run=dry_run)
     results["activation_tokens"] = clean_activation_tokens(dry_run=dry_run)
     results["scl_cache"] = clean_scl_cache(dry_run=dry_run)
@@ -764,6 +1094,11 @@ __all__ = [
     "cleanup_licenses",
     "get_cleanoffice_embedded",
     "OFFICE_APPLICATION_ID",
+    "OSPP_VBS_SEARCH_PATHS",
+    "find_ospp_vbs",
+    "query_ospp_status",
+    "uninstall_ospp_key",
+    "clean_licenses_via_ospp",
     "clean_ospp_licenses_wmi",
     "clean_vnext_cache",
     "clean_activation_tokens",
