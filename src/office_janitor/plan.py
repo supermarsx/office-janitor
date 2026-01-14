@@ -129,69 +129,151 @@ def build_plan(
 
     include_uninstalls = (not diagnose_mode) and mode not in {"cleanup-only"}
 
+    # Extract uninstall method filtering options
+    uninstall_method = str(normalized_options.get("uninstall_method", "auto")).lower()
+    include_c2r = uninstall_method in ("auto", "c2r", "click-to-run")
+    include_msi = uninstall_method in ("auto", "msi")
+    product_code_filter = normalized_options.get("product_codes")
+    release_id_filter = normalized_options.get("release_ids")
+
+    # Extract retry options for step metadata
+    retries = int(normalized_options.get("retries", 9) or 9)
+    retry_delay = int(normalized_options.get("retry_delay", 3) or 3)
+    retry_delay_max = int(normalized_options.get("retry_delay_max", 30) or 30)
+    force_app_shutdown = bool(normalized_options.get("force_app_shutdown", False))
+
     uninstall_steps: list[str] = []
     prerequisites = [detect_step_id]
 
     if include_uninstalls:
-        c2r_records = list(
-            enumerate(_filter_records_by_target(planning_inventory.get("c2r", []), targets))
-        )
-        c2r_records.sort(
-            key=lambda item: (
-                _c2r_uninstall_priority(_infer_version(item[1])),
-                item[0],
+        # C2R uninstall steps (if not filtered out)
+        if include_c2r:
+            c2r_records = list(
+                enumerate(_filter_records_by_target(planning_inventory.get("c2r", []), targets))
             )
-        )
-        for index, (_, record) in enumerate(c2r_records):
-            version = _infer_version(record)
-            uninstall_id = f"c2r-{pass_index}-{index}"
-            plan.append(
-                {
-                    "id": uninstall_id,
-                    "category": "c2r-uninstall",
-                    "description": record.get("description", "Uninstall Click-to-Run packages"),
-                    "depends_on": prerequisites,
-                    "metadata": {
-                        "installation": record,
-                        "version": version,
-                        "dry_run": dry_run,
-                    },
-                }
+            # Apply release_id filter if specified
+            if release_id_filter:
+                filter_set = set(
+                    str(rid).strip().lower()
+                    for rid in (
+                        release_id_filter
+                        if isinstance(release_id_filter, list)
+                        else [release_id_filter]
+                    )
+                )
+                c2r_records = [
+                    (idx, rec)
+                    for idx, rec in c2r_records
+                    if _record_matches_release_filter(rec, filter_set)
+                ]
+            c2r_records.sort(
+                key=lambda item: (
+                    _c2r_uninstall_priority(_infer_version(item[1])),
+                    item[0],
+                )
             )
-            uninstall_steps.append(uninstall_id)
+            for index, (_, record) in enumerate(c2r_records):
+                version = _infer_version(record)
+                uninstall_id = f"c2r-{pass_index}-{index}"
+                plan.append(
+                    {
+                        "id": uninstall_id,
+                        "category": "c2r-uninstall",
+                        "description": record.get(
+                            "description", "Uninstall Click-to-Run packages"
+                        ),
+                        "depends_on": prerequisites,
+                        "metadata": {
+                            "installation": record,
+                            "version": version,
+                            "dry_run": dry_run,
+                            "force": force_app_shutdown,
+                            "retries": retries,
+                            "retry_delay": retry_delay,
+                            "retry_delay_max": retry_delay_max,
+                        },
+                    }
+                )
+                uninstall_steps.append(uninstall_id)
 
-        msi_records = list(
-            enumerate(_filter_records_by_target(planning_inventory.get("msi", []), targets))
-        )
-        msi_records.sort(
-            key=lambda item: (
-                _msi_uninstall_priority(item[1]),
-                item[0],
+        # MSI uninstall steps (if not filtered out)
+        if include_msi:
+            msi_records = list(
+                enumerate(_filter_records_by_target(planning_inventory.get("msi", []), targets))
             )
-        )
-        for index, (_, record) in enumerate(msi_records):
-            version = _infer_version(record)
-            uninstall_id = f"msi-{pass_index}-{index}"
-            plan.append(
-                {
-                    "id": uninstall_id,
-                    "category": "msi-uninstall",
-                    "description": record.get(
-                        "display_name",
-                        f"Uninstall MSI product {record.get('product_code', 'unknown')}",
-                    ),
-                    "depends_on": prerequisites,
-                    "metadata": {
-                        "product": record,
-                        "version": version,
-                        "dry_run": dry_run,
-                    },
-                }
+            # Apply product_code filter if specified
+            if product_code_filter:
+                filter_set = set(
+                    str(pc).strip().upper()
+                    for pc in (
+                        product_code_filter
+                        if isinstance(product_code_filter, list)
+                        else [product_code_filter]
+                    )
+                )
+                msi_records = [
+                    (idx, rec)
+                    for idx, rec in msi_records
+                    if _record_matches_product_code_filter(rec, filter_set)
+                ]
+            msi_records.sort(
+                key=lambda item: (
+                    _msi_uninstall_priority(item[1]),
+                    item[0],
+                )
             )
-            uninstall_steps.append(uninstall_id)
+            for index, (_, record) in enumerate(msi_records):
+                version = _infer_version(record)
+                uninstall_id = f"msi-{pass_index}-{index}"
+                plan.append(
+                    {
+                        "id": uninstall_id,
+                        "category": "msi-uninstall",
+                        "description": record.get(
+                            "display_name",
+                            f"Uninstall MSI product {record.get('product_code', 'unknown')}",
+                        ),
+                        "depends_on": prerequisites,
+                        "metadata": {
+                            "product": record,
+                            "version": version,
+                            "dry_run": dry_run,
+                            "force": force_app_shutdown,
+                            "retries": retries,
+                            "retry_delay": retry_delay,
+                            "retry_delay_max": retry_delay_max,
+                        },
+                    }
+                )
+                uninstall_steps.append(uninstall_id)
 
     cleanup_dependencies: list[str] = uninstall_steps or [detect_step_id]
     licensing_step_id = ""
+
+    # Extract skip flags
+    skip_tasks = bool(normalized_options.get("skip_tasks", False))
+    skip_services = bool(normalized_options.get("skip_services", False))
+    skip_filesystem = bool(normalized_options.get("skip_filesystem", False))
+    skip_registry = bool(normalized_options.get("skip_registry", False))
+
+    # Extract license cleanup granularity flags
+    clean_spp = bool(normalized_options.get("clean_spp", False))
+    clean_ospp = bool(normalized_options.get("clean_ospp", False))
+    clean_vnext = bool(normalized_options.get("clean_vnext", False))
+    clean_all_licenses = bool(normalized_options.get("clean_all_licenses", False))
+
+    # Extract extended cleanup flags
+    clean_msocache = bool(normalized_options.get("clean_msocache", False))
+    clean_appx = bool(normalized_options.get("clean_appx", False))
+    clean_wi_metadata = bool(normalized_options.get("clean_wi_metadata", False))
+
+    # Extract registry cleanup granularity flags
+    clean_addin_registry = bool(normalized_options.get("clean_addin_registry", False))
+    clean_com_registry = bool(normalized_options.get("clean_com_registry", False))
+    clean_shell_extensions = bool(normalized_options.get("clean_shell_extensions", False))
+    clean_typelibs = bool(normalized_options.get("clean_typelibs", False))
+    clean_protocol_handlers = bool(normalized_options.get("clean_protocol_handlers", False))
+    remove_vba = bool(normalized_options.get("remove_vba", False))
 
     if (not diagnose_mode) and not (
         normalized_options.get("no_license", False) or normalized_options.get("keep_license", False)
@@ -206,12 +288,24 @@ def build_plan(
                 "metadata": {
                     "dry_run": dry_run,
                     "mode": mode,
+                    # License cleanup granularity
+                    "clean_spp": clean_spp,
+                    "clean_ospp": clean_ospp,
+                    "clean_vnext": clean_vnext,
+                    "clean_all_licenses": clean_all_licenses,
+                    "retries": retries,
+                    "retry_delay": retry_delay,
                 },
             }
         )
         cleanup_dependencies = [licensing_step_id]
 
-    task_names = [] if diagnose_mode else _collect_task_names(planning_inventory.get("tasks", []))
+    # Task cleanup (unless skipped)
+    task_names = (
+        []
+        if (diagnose_mode or skip_tasks)
+        else _collect_task_names(planning_inventory.get("tasks", []))
+    )
     if task_names:
         task_step_id = f"tasks-{pass_index}-0"
         plan.append(
@@ -223,13 +317,18 @@ def build_plan(
                 "metadata": {
                     "tasks": task_names,
                     "dry_run": dry_run,
+                    "retries": retries,
+                    "retry_delay": retry_delay,
                 },
             }
         )
         cleanup_dependencies = [task_step_id]
 
+    # Service cleanup (unless skipped)
     service_names = (
-        [] if diagnose_mode else _collect_service_names(planning_inventory.get("services", []))
+        []
+        if (diagnose_mode or skip_services)
+        else _collect_service_names(planning_inventory.get("services", []))
     )
     if service_names:
         service_step_id = f"services-{pass_index}-0"
@@ -242,15 +341,20 @@ def build_plan(
                 "metadata": {
                     "services": service_names,
                     "dry_run": dry_run,
+                    "retries": retries,
+                    "retry_delay": retry_delay,
                 },
             }
         )
         cleanup_dependencies = [service_step_id]
 
+    # Filesystem cleanup (unless skipped)
     filesystem_entries = (
-        [] if diagnose_mode else _collect_paths(planning_inventory.get("filesystem", []))
+        []
+        if (diagnose_mode or skip_filesystem)
+        else _collect_paths(planning_inventory.get("filesystem", []))
     )
-    if filesystem_entries:
+    if filesystem_entries or clean_msocache or clean_appx:
         plan.append(
             {
                 "id": f"filesystem-{pass_index}-0",
@@ -263,14 +367,33 @@ def build_plan(
                     "purge_templates": bool(normalized_options.get("force", False))
                     and not bool(normalized_options.get("keep_templates", False)),
                     "dry_run": dry_run,
+                    "clean_msocache": clean_msocache,
+                    "clean_appx": clean_appx,
+                    "retries": retries,
+                    "retry_delay": retry_delay,
                 },
             }
         )
+        cleanup_dependencies = [f"filesystem-{pass_index}-0"]
 
+    # Registry cleanup (unless skipped)
     registry_entries = (
-        [] if diagnose_mode else _collect_registry_paths(planning_inventory.get("registry", []))
+        []
+        if (diagnose_mode or skip_registry)
+        else _collect_registry_paths(planning_inventory.get("registry", []))
     )
-    if registry_entries:
+    has_extended_registry = any(
+        [
+            clean_addin_registry,
+            clean_com_registry,
+            clean_shell_extensions,
+            clean_typelibs,
+            clean_protocol_handlers,
+            remove_vba,
+            clean_wi_metadata,
+        ]
+    )
+    if registry_entries or has_extended_registry:
         plan.append(
             {
                 "id": f"registry-{pass_index}-0",
@@ -280,6 +403,16 @@ def build_plan(
                 "metadata": {
                     "keys": registry_entries,
                     "dry_run": dry_run,
+                    # Extended registry cleanup options
+                    "clean_addin_registry": clean_addin_registry,
+                    "clean_com_registry": clean_com_registry,
+                    "clean_shell_extensions": clean_shell_extensions,
+                    "clean_typelibs": clean_typelibs,
+                    "clean_protocol_handlers": clean_protocol_handlers,
+                    "remove_vba": remove_vba,
+                    "clean_wi_metadata": clean_wi_metadata,
+                    "retries": retries,
+                    "retry_delay": retry_delay,
                 },
             }
         )
