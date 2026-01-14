@@ -353,6 +353,20 @@ class StepExecutor:
         self._current_attempt = attempt
         self._current_dry_run = dry_run
 
+        # Emit warnings for potentially slow operations (first attempt only)
+        if attempt == 1:
+            slow_step_warnings: dict[str, str] = {
+                "filesystem-cleanup": "Filesystem cleanup may take several minutes depending on data volume",
+                "registry-cleanup": "Registry cleanup may take a minute while exporting backups",
+                "msi-uninstall": "MSI uninstall may take several minutes per product",
+                "c2r-uninstall": "Click-to-Run uninstall may take several minutes",
+                "odt-uninstall": "ODT uninstall may take several minutes",
+                "offscrub-uninstall": "OffScrub cleanup may take several minutes",
+            }
+            warning = slow_step_warnings.get(str(category))
+            if warning:
+                _scrub_progress(f"Note: {warning}", indent=2)
+
         # Log the step start
         self._human_logger.info(
             "Executing step %s/%s (%s:%s) attempt %d",
@@ -507,10 +521,12 @@ class StepExecutor:
                     metadata,
                 )
             else:
+                product_name = product.get("name", product.get("product_code", "Unknown")) if isinstance(product, dict) else str(product)
+                _scrub_progress(f"Uninstalling MSI product: {product_name}", indent=3)
                 force = bool(metadata.get("force", False))
                 if force:
                     # Force mode: terminate Office processes before MSI uninstall
-                    self._human_logger.info("Force mode: terminating Office processes")
+                    _scrub_progress("Force mode: terminating Office processes...", indent=3)
                     processes.terminate_office_processes(constants.DEFAULT_OFFICE_PROCESSES)
                     processes.terminate_process_patterns(constants.OFFICE_PROCESS_PATTERNS)
                 msi_uninstall.uninstall_products([product], dry_run=dry_run)  # type: ignore[list-item]
@@ -522,10 +538,15 @@ class StepExecutor:
                     "Skipping C2R uninstall step without installation metadata",
                 )
             else:
+                release_id = installation.get("release_id", "Unknown") if isinstance(installation, dict) else str(installation)
+                _scrub_progress(f"Uninstalling Click-to-Run: {release_id}", indent=3)
                 force = bool(metadata.get("force", False))
+                if force:
+                    _scrub_progress("Force mode enabled for C2R uninstall", indent=3)
                 c2r_uninstall.uninstall_products(installation, dry_run=dry_run, force=force)
             return None
         if category == "licensing-cleanup":
+            _scrub_progress("Cleaning up Office licenses...", indent=3)
             extended = dict(metadata)
             extended["dry_run"] = dry_run
             licensing.cleanup_licenses(extended)
@@ -535,6 +556,7 @@ class StepExecutor:
             if not tasks:
                 self._human_logger.info("No scheduled tasks supplied; skipping step.")
             else:
+                _scrub_progress(f"Removing {len(tasks)} scheduled tasks...", indent=3)
                 tasks_services.remove_tasks(tasks, dry_run=dry_run)
             return None
         if category == "service-cleanup":
@@ -542,6 +564,7 @@ class StepExecutor:
             if not services:
                 self._human_logger.info("No services supplied; skipping step.")
             else:
+                _scrub_progress(f"Deleting {len(services)} services...", indent=3)
                 tasks_services.delete_services(services, dry_run=dry_run)
             return None
         if category == "filesystem-cleanup":
@@ -704,12 +727,15 @@ def execute_plan(
     options = dict(context_metadata.get("options", {})) if context_metadata else {}
 
     global_dry_run = bool(dry_run or context_metadata.get("dry_run", False))
-    max_pass_limit = int(
-        max_passes
-        or options.get("max_passes")
-        or context_metadata.get("max_passes", DEFAULT_MAX_PASSES)
-        or DEFAULT_MAX_PASSES
-    )
+    # Resolve max_passes carefully: 0 is a valid value (skip uninstall), so check for None explicitly
+    if max_passes is not None:
+        max_pass_limit = int(max_passes)
+    elif options.get("max_passes") is not None:
+        max_pass_limit = int(options["max_passes"])
+    elif context_metadata.get("max_passes") is not None:
+        max_pass_limit = int(context_metadata["max_passes"])
+    else:
+        max_pass_limit = DEFAULT_MAX_PASSES
 
     _scrub_progress(f"Configuration: dry_run={global_dry_run}, max_passes={max_pass_limit}")
 
@@ -1321,25 +1347,27 @@ def _perform_filesystem_cleanup(
         human_logger.info("Preserving user template path %s", template_path)
 
     if cleanup_targets:
+        _scrub_progress(f"Removing {len(cleanup_targets)} filesystem paths...", indent=3)
         fs_tools.remove_paths(cleanup_targets, dry_run=dry_run)
+        _scrub_progress(f"Filesystem path removal complete", indent=3)
     elif paths:
         human_logger.info("All filesystem cleanup targets were preserved; nothing to remove.")
 
     # Handle AppX package removal if requested
     if clean_appx:
-        human_logger.info("Removing Office AppX/Store packages")
+        _scrub_progress("Removing Office AppX/Store packages...", indent=3)
         try:
             removed = fs_tools.remove_office_appx_packages(dry_run=dry_run)
-            human_logger.info("AppX cleanup complete: %d packages processed", len(removed))
+            _scrub_progress(f"AppX cleanup complete: {len(removed)} packages processed", indent=3)
         except Exception as exc:  # pragma: no cover - defensive
             human_logger.warning("AppX cleanup encountered an error: %s", exc)
 
     # Handle shortcut cleanup if requested
     if clean_shortcuts:
-        human_logger.info("Removing Office shortcuts from Start Menu and Desktop")
+        _scrub_progress("Removing Office shortcuts from Start Menu and Desktop...", indent=3)
         try:
             shortcut_count = fs_tools.cleanup_office_shortcuts(dry_run=dry_run)
-            human_logger.info("Shortcut cleanup complete: %d shortcuts removed", shortcut_count)
+            _scrub_progress(f"Shortcut cleanup complete: {shortcut_count} shortcuts removed", indent=3)
         except Exception as exc:  # pragma: no cover - defensive
             human_logger.warning("Shortcut cleanup encountered an error: %s", exc)
 
@@ -1376,17 +1404,18 @@ def _perform_registry_cleanup(
 
     # Handle Windows Installer metadata cleanup (Published Components)
     if clean_wi_metadata:
-        human_logger.info("Cleaning Windows Installer published components")
+        _scrub_progress("Cleaning Windows Installer published components...", indent=3)
         try:
             wi_result = registry_tools.cleanup_published_components(dry_run=dry_run)
             extended_cleanups["wi_metadata"] = wi_result
+            _scrub_progress("Windows Installer metadata cleanup complete", indent=3)
         except Exception as exc:  # pragma: no cover - defensive
             human_logger.warning("WI metadata cleanup error: %s", exc)
             extended_cleanups["wi_metadata_error"] = str(exc)
 
     # Handle VBA path cleanup
     if remove_vba:
-        human_logger.info("Cleaning VBA registry paths")
+        _scrub_progress("Cleaning VBA registry paths...", indent=3)
         try:
             vba_keys = [
                 r"HKLM\Software\Microsoft\VBA",
@@ -1394,6 +1423,7 @@ def _perform_registry_cleanup(
             ]
             registry_tools.delete_keys(vba_keys, dry_run=dry_run)
             extended_cleanups["vba_removed"] = True
+            _scrub_progress("VBA registry cleanup complete", indent=3)
         except Exception as exc:  # pragma: no cover - defensive
             human_logger.warning("VBA cleanup error: %s", exc)
             extended_cleanups["vba_error"] = str(exc)
@@ -1427,17 +1457,16 @@ def _perform_registry_cleanup(
         )
     else:
         if step_backup is not None:
-            human_logger.info(
-                "Exporting %d registry keys to %s before deletion.",
-                len(keys),
-                step_backup,
-            )
+            _scrub_progress(f"Exporting {len(keys)} registry keys to backup...", indent=3)
             registry_tools.export_keys(keys, step_backup)
             backup_performed = True
+            _scrub_progress(f"Registry backup complete: {step_backup}", indent=3)
         else:
             human_logger.warning("Proceeding without registry backup; no destination available.")
 
+    _scrub_progress(f"Deleting {len(keys)} registry keys...", indent=3)
     registry_tools.delete_keys(keys, dry_run=dry_run)
+    _scrub_progress("Registry key deletion complete", indent=3)
 
     return {
         "backup_destination": step_backup,

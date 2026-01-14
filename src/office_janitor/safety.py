@@ -54,6 +54,10 @@ REGISTRY_WHITELIST = (
     r"HKCU\SOFTWARE\POLICIES\MICROSOFT\CLOUD\OFFICE",
     r"HKU\S-1-5-20\SOFTWARE\MICROSOFT\OFFICESOFTWAREPROTECTIONPLATFORM",
     r"HKU\S-1-5-20\SOFTWARE\MICROSOFT\WINDOWS NT\CURRENTVERSION\SOFTWAREPROTECTIONPLATFORM",
+    # Control Panel Uninstall entries (Add/Remove Programs)
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\UNINSTALL",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\UNINSTALL",
+    r"HKCU\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\UNINSTALL",
 )
 
 REGISTRY_BLACKLIST = (
@@ -274,9 +278,13 @@ def _path_allowed(path: str) -> bool:
 
 def _registry_allowed(key: str) -> bool:
     normalized = key.upper()
+    # Check whitelist first (more specific rules take precedence)
+    if any(normalized.startswith(allowed.upper()) for allowed in REGISTRY_WHITELIST):
+        return True
+    # Then check blacklist
     if any(normalized.startswith(blocked.upper()) for blocked in REGISTRY_BLACKLIST):
         return False
-    return any(normalized.startswith(allowed.upper()) for allowed in REGISTRY_WHITELIST)
+    return False
 
 
 def _enforce_template_guard(

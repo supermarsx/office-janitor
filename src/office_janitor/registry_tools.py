@@ -220,12 +220,18 @@ _BLOCKED_REGISTRY_PREFIXES = tuple(
 def _is_registry_path_allowed(key: str) -> bool:
     """!
     @brief Validate the registry path against the whitelist/blacklist rules.
+    @details Whitelist is checked first so more specific allowed paths take
+    precedence over broader blacklist entries.
     """
 
     normalized = _normalize_for_comparison(key)
+    # Check whitelist first (more specific rules take precedence)
+    if any(normalized.startswith(allowed) for allowed in _ALLOWED_REGISTRY_PREFIXES):
+        return True
+    # Then check blacklist
     if any(normalized.startswith(blocked) for blocked in _BLOCKED_REGISTRY_PREFIXES):
         return False
-    return any(normalized.startswith(allowed) for allowed in _ALLOWED_REGISTRY_PREFIXES)
+    return False
 
 
 def _validate_registry_keys(keys: Iterable[str]) -> list[str]:
