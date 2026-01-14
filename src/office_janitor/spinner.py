@@ -32,6 +32,7 @@ _last_line_len: int = 0
 _spinner_enabled: bool = True
 _spinner_thread: threading.Thread | None = None
 _spinner_stop_event: threading.Event | None = None
+_output_in_progress: bool = False  # Flag to suppress spinner during rapid output
 
 # Track active subprocesses for cleanup on SIGINT
 # Use Any for Popen type param since it's constrained to bytes|str
@@ -88,10 +89,14 @@ def _draw_spinner() -> None:
 
 def _spinner_loop() -> None:
     """Background thread loop that updates the spinner."""
+    global _output_in_progress
     while _spinner_stop_event is not None and not _spinner_stop_event.is_set():
         with _spinner_lock:
-            if _current_task is not None:
+            # Only draw if there's a task and no output is happening
+            if _current_task is not None and not _output_in_progress:
                 _draw_spinner()
+            # Reset the output flag - if no new output in this tick, we can draw next time
+            _output_in_progress = False
         _spinner_stop_event.wait(0.1)  # Update every 100ms
 
 
@@ -264,7 +269,8 @@ def set_task(task_name: str | None) -> None:
         if task_name is not None:
             _task_start_time = time.monotonic()
             _spinner_idx = 0
-            _draw_spinner()
+            # Don't draw immediately - let the spinner thread handle it
+            # This keeps all drawing in one place and prevents flicker
 
 
 def clear_task() -> None:
@@ -277,27 +283,32 @@ def pause_for_output() -> None:
     Temporarily clear spinner for other output.
     Call resume_after_output() after printing.
     """
+    global _output_in_progress
     with _spinner_lock:
         _clear_line()
+        _output_in_progress = True  # Signal that output is happening
 
 
 def resume_after_output() -> None:
-    """Redraw spinner after other output was printed."""
-    with _spinner_lock:
-        if _current_task is not None:
-            _draw_spinner()
+    """
+    Signal that output is done. Spinner will redraw on its next tick.
+    Does NOT immediately redraw - lets spinner thread handle it for cleaner output.
+    """
+    # Don't redraw here - let the spinner thread handle it on its next 100ms tick
+    # This prevents spinner from appearing between rapid log lines
+    pass
 
 
 def spinner_print(message: str, **kwargs: object) -> None:
     """
     Print a message while preserving the spinner.
-    Clears spinner, prints message, redraws spinner.
+    Clears spinner, prints message. Spinner redraws on next tick.
     """
+    global _output_in_progress
     with _spinner_lock:
         _clear_line()
+        _output_in_progress = True
         print(message, **kwargs)
-        if _current_task is not None:
-            _draw_spinner()
 
 
 def enable_spinner(enabled: bool = True) -> None:
