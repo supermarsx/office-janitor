@@ -64,7 +64,7 @@
   "verbose": 0,
 
   "// Retry & Resilience": "",
-  "retries": 9,
+  "retries": 4,
   "retry-delay": 3,
   "retry-delay-max": 30,
   "no-reboot": false,

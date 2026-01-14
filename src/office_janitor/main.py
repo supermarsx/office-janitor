@@ -610,9 +610,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     retry_opts.add_argument(
         "--retries",
         type=int,
-        default=9,
+        default=None,
         metavar="N",
-        help="Number of retry attempts per step (default: 9).",
+        help="Number of retry attempts per step (default: 4).",
     )
     retry_opts.add_argument(
         "--retry-delay",
@@ -1687,7 +1687,7 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
         "backup": _get("backup", None),
         "verbose": _get("verbose", 0),
         # Retry & resilience
-        "retries": _get("retries", 9),
+        "retries": _get("retries", 4),
         "retry_delay": _get("retry_delay", 3),
         "retry_delay_max": _get("retry_delay_max", 30),
         "no_reboot": _get("no_reboot", False, is_bool=True),
