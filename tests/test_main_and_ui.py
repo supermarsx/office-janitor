@@ -1454,6 +1454,21 @@ class TestCLIArgumentsIntoPlanOptions:
         options = main._collect_plan_options(args, mode)
         assert options["max_passes"] == 0
 
+    def test_registry_only_sets_correct_options(self) -> None:
+        """Test --registry-only sets passes=0, skip_filesystem, no_license, etc."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--registry-only"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["max_passes"] == 0
+        assert options["skip_filesystem"] is True
+        assert options["skip_processes"] is True
+        assert options["skip_services"] is True
+        assert options["no_license"] is True
+        assert options["registry_only"] is True
+        # Registry should NOT be skipped
+        assert options["skip_registry"] is False
+
     def test_skip_flags_in_plan_options(self) -> None:
         """Test skip flags propagate to plan options."""
         parser = main.build_arg_parser()
