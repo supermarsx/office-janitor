@@ -1,5 +1,10 @@
 # Office Janitor
 
+<img width="1017" height="902" alt="image" src="https://github.com/user-attachments/assets/37748fbb-f3a6-446b-81ec-1c2780e7137b" />
+
+<br>
+<br>
+
 Office Janitor is a stdlib-only Python utility that inventories, uninstalls, and scrubs Microsoft Office across MSI and Click-to-Run deployments. The tool follows the architecture defined in [`spec.md`](spec.md) and can be packaged into a single-file Windows executable with PyInstaller.
 
 ## Installation
