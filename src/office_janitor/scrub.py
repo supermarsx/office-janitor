@@ -78,30 +78,37 @@ def _scrub_progress(message: str, *, newline: bool = True, indent: int = 0) -> N
     timestamp = f"[{_get_scrub_elapsed_secs():12.6f}]"
     prefix = "  " * indent
     # Update spinner task with current progress (strip trailing "..." for cleaner display)
-    task_msg = message.rstrip(".")
-    spinner.set_task(task_msg)
+    # Only set task when starting a new complete line
+    if newline:
+        task_msg = message.rstrip(".")
+        spinner.set_task(task_msg)
     # Use spinner-aware printing
     spinner.pause_for_output()
     if newline:
         print(f"{timestamp} {prefix}{message}", flush=True)
     else:
+        # For incomplete lines, print directly without spinner interference
         print(f"{timestamp} {prefix}{message}", end="", flush=True)
-    spinner.resume_after_output()
+    # Only resume spinner if we printed a complete line
+    if newline:
+        spinner.resume_after_output()
 
 
 def _scrub_ok(extra: str = "") -> None:
     """Print OK status in Linux init style [  OK  ]."""
     suffix = f" {extra}" if extra else ""
-    spinner.pause_for_output()
+    # Don't pause - we're continuing a line that was already started
     print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
+    # Now resume spinner since line is complete
     spinner.resume_after_output()
 
 
 def _scrub_fail(reason: str = "") -> None:
     """Print FAIL status in Linux init style [FAILED]."""
     suffix = f" ({reason})" if reason else ""
-    spinner.pause_for_output()
+    # Don't pause - we're continuing a line that was already started
     print(f" [\033[31mFAILED\033[0m]{suffix}", flush=True)
+    # Now resume spinner since line is complete
     spinner.resume_after_output()
 
 

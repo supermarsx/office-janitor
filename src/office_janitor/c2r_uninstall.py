@@ -7,6 +7,7 @@ state to confirm the Click-to-Run footprint has been removed.
 
 from __future__ import annotations
 
+import sys
 import time
 from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
@@ -52,6 +53,32 @@ C2R_SETUP_CANDIDATES = (
 """!
 @brief Default filesystem locations checked for ``setup.exe`` fallback.
 """
+
+# Bundled OEM directory for fallback executables
+BUNDLED_OEM_DIR = "oem"
+"""!
+@brief Directory name for bundled OEM executables (OfficeClickToRun.exe, setup.exe).
+"""
+
+
+def _get_oem_dir() -> Path | None:
+    """!
+    @brief Get the path to the bundled OEM directory.
+    @returns Path to oem/ directory or None if not found.
+    """
+    try:
+        if getattr(sys, "frozen", False):
+            # Running as PyInstaller bundle
+            base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+        else:
+            # Running from source - oem/ is at repository root
+            base_path = Path(__file__).parent.parent.parent
+        oem_path = base_path / BUNDLED_OEM_DIR
+        if oem_path.exists() and oem_path.is_dir():
+            return oem_path
+    except Exception:
+        pass
+    return None
 
 C2R_TIMEOUT = 3600
 """!
@@ -250,6 +277,12 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
     for base in install_paths:
         client_candidates.append(base / "OfficeC2RClient.exe")
     client_candidates.extend(C2R_CLIENT_CANDIDATES)
+    # Add bundled OEM fallback (OfficeClickToRun.exe works like OfficeC2RClient.exe)
+    oem_dir = _get_oem_dir()
+    if oem_dir:
+        oem_client = oem_dir / "OfficeClickToRun.exe"
+        if oem_client.exists():
+            client_candidates.append(oem_client)
 
     setup_candidates: list[Path] = []
     raw_setup = mapping.get("setup_path") or property_map.get("setup_path")
@@ -265,6 +298,11 @@ def _normalise_c2r_entry(config: Mapping[str, object]) -> _C2RTarget:
     for base in install_paths:
         setup_candidates.append(base / "setup.exe")
     setup_candidates.extend(C2R_SETUP_CANDIDATES)
+    # Add bundled OEM fallback for setup.exe
+    if oem_dir:
+        oem_setup = oem_dir / "setup.exe"
+        if oem_setup.exists():
+            setup_candidates.append(oem_setup)
 
     return _C2RTarget(
         display_name=display_name,

@@ -416,8 +416,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # License & Activation Options
     # -------------------------------------------------------------------------
     license_opts = parser.add_argument_group("License & Activation Options")
-    license_opts.add_argument(
-        "--no-restore-point", action="store_true", help="Skip creating a system restore point."
+    restore_point_group = license_opts.add_mutually_exclusive_group()
+    restore_point_group.add_argument(
+        "--restore-point",
+        "--create-restore-point",
+        action="store_true",
+        dest="create_restore_point",
+        help="Create a system restore point before scrubbing (default: enabled).",
+    )
+    restore_point_group.add_argument(
+        "--no-restore-point",
+        action="store_true",
+        help="Skip creating a system restore point.",
     )
     license_opts.add_argument(
         "--no-license", action="store_true", help="Skip license cleanup steps."
@@ -1552,7 +1562,12 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
         "clean_appx": bool(getattr(args, "clean_appx", False)),
         "clean_wi_metadata": bool(getattr(args, "clean_wi_metadata", False)),
         # License & activation
-        "create_restore_point": not bool(getattr(args, "no_restore_point", False)),
+        # Restore point: enabled by default unless --no-restore-point is specified
+        # or explicitly enabled with --restore-point/--create-restore-point
+        "create_restore_point": (
+            bool(getattr(args, "create_restore_point", False))
+            or not bool(getattr(args, "no_restore_point", False))
+        ),
         "no_license": bool(
             getattr(args, "no_license", False) or getattr(args, "keep_license", False)
         ),
