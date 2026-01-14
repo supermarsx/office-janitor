@@ -118,19 +118,18 @@ def _draw_status_line() -> None:
     if len(status) > width - 1:
         status = status[: width - 4] + "..."
 
-    # Always write on current line with carriage return
-    # Use cyan color for visibility
-    sys.stdout.write(f"\r\x1b[2K\x1b[36m{status}\x1b[0m")
+    # Write on current line with carriage return
+    # Use cyan color and bold for visibility
+    sys.stdout.write(f"\r\x1b[2K\x1b[1;36m{status}\x1b[0m")
     sys.stdout.flush()
     _status_line_active = True
 
 
 def _clear_status_line() -> None:
-    """Clear the status line content and move to next line."""
+    """Clear the status line content."""
     global _status_line_active
 
     if _status_line_active:
-        # Clear the spinner line and move to next line for clean output
         sys.stdout.write("\r\x1b[2K")
         sys.stdout.flush()
         _status_line_active = False
@@ -141,7 +140,7 @@ def _finalize_status_line() -> None:
     global _status_line_active
 
     if _status_line_active:
-        # Just print newline to preserve the last status
+        # Print newline to preserve the last status in output
         sys.stdout.write("\n")
         sys.stdout.flush()
         _status_line_active = False
@@ -369,22 +368,24 @@ def clear_task() -> None:
 
 def pause_for_output() -> None:
     """
-    Prepare for log output by clearing current line and moving to new line.
+    Prepare for log output by clearing spinner line.
     Call resume_after_output() when done printing.
     """
-    global _output_paused
+    global _output_paused, _status_line_active
     with _spinner_lock:
         if not _output_paused:
             if _status_line_active:
-                # Clear spinner line, print newline so logs go above
+                # Clear the spinner line - log will print here
                 sys.stdout.write("\r\x1b[2K")
                 sys.stdout.flush()
+                _status_line_active = False
             _output_paused = True
 
 
 def resume_after_output() -> None:
     """
     Redraw the status line after log output is complete.
+    The log output ends with newline, so spinner goes on the next line.
     """
     global _output_paused
     with _spinner_lock:
