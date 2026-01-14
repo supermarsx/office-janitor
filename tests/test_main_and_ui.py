@@ -1366,11 +1366,15 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_product_codes_in_plan_options(self) -> None:
         """Test --product-code propagates to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--product-code", "{00000000-0000-0000-0000-000000000001}",
-            "--product-code", "{00000000-0000-0000-0000-000000000002}",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--product-code",
+                "{00000000-0000-0000-0000-000000000001}",
+                "--product-code",
+                "{00000000-0000-0000-0000-000000000002}",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["product_codes"] == [
@@ -1381,11 +1385,15 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_release_ids_in_plan_options(self) -> None:
         """Test --release-id propagates to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--release-id", "O365ProPlusRetail",
-            "--release-id", "VisioProRetail",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--release-id",
+                "O365ProPlusRetail",
+                "--release-id",
+                "VisioProRetail",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["release_ids"] == ["O365ProPlusRetail", "VisioProRetail"]
@@ -1409,14 +1417,16 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_skip_flags_in_plan_options(self) -> None:
         """Test skip flags propagate to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--skip-processes",
-            "--skip-services",
-            "--skip-tasks",
-            "--skip-registry",
-            "--skip-filesystem",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--skip-processes",
+                "--skip-services",
+                "--skip-tasks",
+                "--skip-registry",
+                "--skip-filesystem",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["skip_processes"] is True
@@ -1428,12 +1438,14 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_clean_flags_in_plan_options(self) -> None:
         """Test clean flags propagate to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--clean-msocache",
-            "--clean-appx",
-            "--clean-wi-metadata",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--clean-msocache",
+                "--clean-appx",
+                "--clean-wi-metadata",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["clean_msocache"] is True
@@ -1443,12 +1455,14 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_license_flags_in_plan_options(self) -> None:
         """Test license cleanup flags propagate to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--clean-spp",
-            "--clean-ospp",
-            "--clean-vnext",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--clean-spp",
+                "--clean-ospp",
+                "--clean-vnext",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["clean_spp"] is True
@@ -1458,12 +1472,14 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_user_data_flags_in_plan_options(self) -> None:
         """Test user data flags propagate to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--keep-user-settings",
-            "--keep-outlook-data",
-            "--clean-shortcuts",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--keep-user-settings",
+                "--keep-outlook-data",
+                "--clean-shortcuts",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["keep_user_settings"] is True
@@ -1473,15 +1489,17 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_registry_cleanup_flags_in_plan_options(self) -> None:
         """Test registry cleanup flags propagate to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--clean-addin-registry",
-            "--clean-com-registry",
-            "--clean-shell-extensions",
-            "--clean-typelibs",
-            "--clean-protocol-handlers",
-            "--remove-vba",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--clean-addin-registry",
+                "--clean-com-registry",
+                "--clean-shell-extensions",
+                "--clean-typelibs",
+                "--clean-protocol-handlers",
+                "--remove-vba",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["clean_addin_registry"] is True
@@ -1494,12 +1512,17 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_retry_options_in_plan_options(self) -> None:
         """Test retry options propagate to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--retries", "5",
-            "--retry-delay", "10",
-            "--retry-delay-max", "60",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--retries",
+                "5",
+                "--retry-delay",
+                "10",
+                "--retry-delay-max",
+                "60",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["retries"] == 5
@@ -1525,13 +1548,15 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_advanced_flags_in_plan_options(self) -> None:
         """Test advanced flags propagate to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--skip-preflight",
-            "--skip-backup",
-            "--skip-verification",
-            "--schedule-reboot",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--skip-preflight",
+                "--skip-backup",
+                "--skip-verification",
+                "--schedule-reboot",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["skip_preflight"] is True
@@ -1550,14 +1575,16 @@ class TestCLIArgumentsIntoPlanOptions:
     def test_offscrub_flags_in_plan_options(self) -> None:
         """Test OffScrub legacy flags propagate to plan options."""
         parser = main.build_arg_parser()
-        args = parser.parse_args([
-            "--auto-all",
-            "--offscrub-all",
-            "--offscrub-ose",
-            "--offscrub-offline",
-            "--offscrub-quiet",
-            "--offscrub-test-rerun",
-        ])
+        args = parser.parse_args(
+            [
+                "--auto-all",
+                "--offscrub-all",
+                "--offscrub-ose",
+                "--offscrub-offline",
+                "--offscrub-quiet",
+                "--offscrub-test-rerun",
+            ]
+        )
         mode = main._determine_mode(args)
         options = main._collect_plan_options(args, mode)
         assert options["offscrub_all"] is True

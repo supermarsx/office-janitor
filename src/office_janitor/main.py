@@ -251,21 +251,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # -------------------------------------------------------------------------
     core_opts = parser.add_argument_group("Core Options")
     core_opts.add_argument(
-        "--include", metavar="COMPONENTS", help="Additional suites/apps to include (visio,project,onenote)."
+        "--include",
+        metavar="COMPONENTS",
+        help="Additional suites/apps to include (visio,project,onenote).",
     )
-    core_opts.add_argument("--force", "-f", action="store_true", help="Relax certain guardrails when safe.")
+    core_opts.add_argument(
+        "--force", "-f", action="store_true", help="Relax certain guardrails when safe."
+    )
     core_opts.add_argument(
         "--allow-unsupported-windows",
         action="store_true",
         help="Permit execution on Windows releases below the supported minimum.",
     )
     core_opts.add_argument(
-        "--dry-run", "-n",
+        "--dry-run",
+        "-n",
         action="store_true",
         help="Simulate actions without modifying the system.",
     )
     core_opts.add_argument(
-        "--yes", "-y",
+        "--yes",
+        "-y",
         action="store_true",
         help="Skip confirmation prompts (assume yes).",
     )
@@ -393,7 +399,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     license_opts.add_argument(
         "--no-restore-point", action="store_true", help="Skip creating a system restore point."
     )
-    license_opts.add_argument("--no-license", action="store_true", help="Skip license cleanup steps.")
+    license_opts.add_argument(
+        "--no-license", action="store_true", help="Skip license cleanup steps."
+    )
     license_opts.add_argument(
         "--keep-license",
         action="store_true",
@@ -497,15 +505,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     output_opts.add_argument(
         "--plan", metavar="OUT", help="Write the computed action plan to a JSON file."
     )
-    output_opts.add_argument("--logdir", metavar="DIR", help="Directory for human/JSONL log output.")
-    output_opts.add_argument("--backup", metavar="DIR", help="Destination for registry/file backups.")
-    output_opts.add_argument("--timeout", metavar="SEC", type=int, help="Per-step timeout in seconds.")
+    output_opts.add_argument(
+        "--logdir", metavar="DIR", help="Directory for human/JSONL log output."
+    )
+    output_opts.add_argument(
+        "--backup", metavar="DIR", help="Destination for registry/file backups."
+    )
+    output_opts.add_argument(
+        "--timeout", metavar="SEC", type=int, help="Per-step timeout in seconds."
+    )
     output_opts.add_argument(
         "--quiet", "-q", action="store_true", help="Minimal console output (errors only)."
     )
-    output_opts.add_argument("--json", action="store_true", help="Mirror structured events to stdout.")
     output_opts.add_argument(
-        "--verbose", "-v",
+        "--json", action="store_true", help="Mirror structured events to stdout."
+    )
+    output_opts.add_argument(
+        "--verbose",
+        "-v",
         action="count",
         default=0,
         help="Increase output verbosity (-v, -vv, -vvv).",
@@ -664,8 +681,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # OffScrub Legacy Compatibility Flags
     # -------------------------------------------------------------------------
     offscrub_opts = parser.add_argument_group(
-        "OffScrub Legacy Compatibility",
-        "Flags for compatibility with legacy OffScrub VBS scripts."
+        "OffScrub Legacy Compatibility", "Flags for compatibility with legacy OffScrub VBS scripts."
     )
     offscrub_opts.add_argument(
         "--offscrub-all",

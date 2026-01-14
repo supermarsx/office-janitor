@@ -748,9 +748,7 @@ class TestUninstallMethodFiltering:
         @brief uninstall_method='msi' should exclude C2R steps.
         """
         inventory: dict[str, list[dict]] = {
-            "msi": [
-                {"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}
-            ],
+            "msi": [{"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}],
             "c2r": [{"release_ids": ["O365ProPlusRetail"], "version": "365"}],
         }
         options = {"auto_all": True, "uninstall_method": "msi"}
@@ -765,9 +763,7 @@ class TestUninstallMethodFiltering:
         @brief uninstall_method='c2r' should exclude MSI steps.
         """
         inventory: dict[str, list[dict]] = {
-            "msi": [
-                {"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}
-            ],
+            "msi": [{"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}],
             "c2r": [{"release_ids": ["O365ProPlusRetail"], "version": "365"}],
         }
         options = {"auto_all": True, "uninstall_method": "c2r"}
@@ -782,9 +778,7 @@ class TestUninstallMethodFiltering:
         @brief uninstall_method='auto' (default) should include both MSI and C2R.
         """
         inventory: dict[str, list[dict]] = {
-            "msi": [
-                {"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}
-            ],
+            "msi": [{"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}],
             "c2r": [{"release_ids": ["O365ProPlusRetail"], "version": "365"}],
         }
         options = {"auto_all": True, "uninstall_method": "auto"}
@@ -808,9 +802,7 @@ class TestExtendedCleanupOptions:
         options = {"auto_all": True, "clean_msocache": True}
 
         plan_steps = plan.build_plan(inventory, options)
-        fs_step = next(
-            (s for s in plan_steps if s["category"] == "filesystem-cleanup"), None
-        )
+        fs_step = next((s for s in plan_steps if s["category"] == "filesystem-cleanup"), None)
         assert fs_step is not None
         assert fs_step["metadata"]["clean_msocache"] is True
 
@@ -822,9 +814,7 @@ class TestExtendedCleanupOptions:
         options = {"auto_all": True, "clean_appx": True}
 
         plan_steps = plan.build_plan(inventory, options)
-        fs_step = next(
-            (s for s in plan_steps if s["category"] == "filesystem-cleanup"), None
-        )
+        fs_step = next((s for s in plan_steps if s["category"] == "filesystem-cleanup"), None)
         assert fs_step is not None
         assert fs_step["metadata"]["clean_appx"] is True
 
@@ -841,9 +831,7 @@ class TestExtendedCleanupOptions:
         }
 
         plan_steps = plan.build_plan(inventory, options)
-        lic_step = next(
-            (s for s in plan_steps if s["category"] == "licensing-cleanup"), None
-        )
+        lic_step = next((s for s in plan_steps if s["category"] == "licensing-cleanup"), None)
         assert lic_step is not None
         assert lic_step["metadata"]["clean_spp"] is True
         assert lic_step["metadata"]["clean_ospp"] is True
@@ -862,9 +850,7 @@ class TestExtendedCleanupOptions:
         }
 
         plan_steps = plan.build_plan(inventory, options)
-        reg_step = next(
-            (s for s in plan_steps if s["category"] == "registry-cleanup"), None
-        )
+        reg_step = next((s for s in plan_steps if s["category"] == "registry-cleanup"), None)
         assert reg_step is not None
         assert reg_step["metadata"]["clean_wi_metadata"] is True
         assert reg_step["metadata"]["remove_vba"] is True
@@ -875,16 +861,12 @@ class TestExtendedCleanupOptions:
         @brief Retry options should be propagated to uninstall step metadata.
         """
         inventory: dict[str, list[dict]] = {
-            "msi": [
-                {"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}
-            ],
+            "msi": [{"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}],
         }
         options = {"auto_all": True, "retries": 5, "retry_delay": 10}
 
         plan_steps = plan.build_plan(inventory, options)
-        msi_step = next(
-            (s for s in plan_steps if s["category"] == "msi-uninstall"), None
-        )
+        msi_step = next((s for s in plan_steps if s["category"] == "msi-uninstall"), None)
         assert msi_step is not None
         assert msi_step["metadata"]["retries"] == 5
         assert msi_step["metadata"]["retry_delay"] == 10
@@ -940,16 +922,12 @@ class TestScrubLevelBehavior:
         plan_steps = plan.build_plan(inventory, options)
 
         # Aggressive should auto-enable shortcuts
-        fs_step = next(
-            (s for s in plan_steps if s["category"] == "filesystem-cleanup"), None
-        )
+        fs_step = next((s for s in plan_steps if s["category"] == "filesystem-cleanup"), None)
         assert fs_step is not None
         assert fs_step["metadata"]["clean_shortcuts"] is True
 
         # Aggressive should auto-enable registry cleanup options
-        reg_step = next(
-            (s for s in plan_steps if s["category"] == "registry-cleanup"), None
-        )
+        reg_step = next((s for s in plan_steps if s["category"] == "registry-cleanup"), None)
         assert reg_step is not None
         assert reg_step["metadata"]["clean_addin_registry"] is True
         assert reg_step["metadata"]["clean_com_registry"] is True
@@ -974,18 +952,14 @@ class TestScrubLevelBehavior:
         assert "published-components-cleanup" in categories
 
         # Nuclear should enable all filesystem cleanup options
-        fs_step = next(
-            (s for s in plan_steps if s["category"] == "filesystem-cleanup"), None
-        )
+        fs_step = next((s for s in plan_steps if s["category"] == "filesystem-cleanup"), None)
         assert fs_step is not None
         assert fs_step["metadata"]["clean_msocache"] is True
         assert fs_step["metadata"]["clean_appx"] is True
         assert fs_step["metadata"]["clean_shortcuts"] is True
 
         # Nuclear should enable all registry cleanup options
-        reg_step = next(
-            (s for s in plan_steps if s["category"] == "registry-cleanup"), None
-        )
+        reg_step = next((s for s in plan_steps if s["category"] == "registry-cleanup"), None)
         assert reg_step is not None
         assert reg_step["metadata"]["clean_wi_metadata"] is True
         assert reg_step["metadata"]["remove_vba"] is True
@@ -993,9 +967,7 @@ class TestScrubLevelBehavior:
         assert reg_step["metadata"]["clean_protocol_handlers"] is True
 
         # Nuclear should enable all license cleanup
-        lic_step = next(
-            (s for s in plan_steps if s["category"] == "licensing-cleanup"), None
-        )
+        lic_step = next((s for s in plan_steps if s["category"] == "licensing-cleanup"), None)
         assert lic_step is not None
         assert lic_step["metadata"]["clean_spp"] is True
         assert lic_step["metadata"]["clean_ospp"] is True

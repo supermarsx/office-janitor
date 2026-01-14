@@ -414,13 +414,13 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
                 )
                 raise RuntimeError("OSPP license removal failed")
                 machine_logger.info(
-                "licensing_ospp_success",
-                extra={
-                    "event": "licensing_ospp_success",
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                },
-            )
+                    "licensing_ospp_success",
+                    extra={
+                        "event": "licensing_ospp_success",
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                    },
+                )
 
     # vNext identity/token cleanup
     if include_vnext:

@@ -15,14 +15,126 @@ import os
 import shlex
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from . import constants, elevation, exec_utils, logging_ext, registry_tools
 
 _LOGGER = logging.getLogger(__name__)
+
+# Progress update intervals for long-running operations (in seconds)
+_PROGRESS_INTERVALS = (30, 60, 120, 300, 600, 1800)  # 30s, 1m, 2m, 5m, 10m, 30m
+
+# Spinner animation frames
+_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+_T = TypeVar("_T")
+
+
+def _format_elapsed(seconds: float) -> str:
+    """!
+    @brief Format elapsed seconds into a human-readable string.
+    @param seconds Elapsed time in seconds.
+    @return Formatted string like "30s", "1m 30s", "2h 15m".
+    """
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    elif seconds < 3600:
+        mins = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{mins}m {secs}s" if secs else f"{mins}m"
+    else:
+        hours = int(seconds // 3600)
+        mins = int((seconds % 3600) // 60)
+        return f"{hours}h {mins}m" if mins else f"{hours}h"
+
+
+def _wait_with_progress(
+    future: concurrent.futures.Future[_T],
+    task_name: str,
+    report_fn: Callable[[str], None] | None = None,
+    poll_interval: float = 0.15,
+    expected_time: float | None = None,
+    use_spinner: bool = True,
+) -> _T:
+    """!
+    @brief Wait on a future while showing a spinner and periodic progress messages.
+    @details Monitors a future for completion while displaying an animated spinner
+    and periodically logging status updates at predefined intervals (30s, 1m, 2m,
+    5m, 10m, 30m) to reassure users that long-running operations have not stalled.
+
+    @param future The concurrent.futures.Future to wait on.
+    @param task_name Descriptive name for logging (e.g., "WMI probes").
+    @param report_fn Optional callback for status messages; falls back to _LOGGER.info.
+    @param poll_interval How often (in seconds) to update the spinner/check status.
+    @param expected_time Optional expected duration in seconds for time estimate display.
+    @param use_spinner Whether to show the animated spinner on the console.
+    @return The result of the future once complete.
+    @raises Any exception raised by the future's underlying task.
+    """
+    start_time = time.monotonic()
+    next_intervals = list(_PROGRESS_INTERVALS)  # Mutable copy to track which have fired
+    spinner_idx = 0
+    last_line_len = 0
+
+    def _emit(msg: str) -> None:
+        if report_fn is not None:
+            report_fn(msg)
+        else:
+            _LOGGER.info(msg)
+
+    def _clear_spinner_line() -> None:
+        nonlocal last_line_len
+        if last_line_len > 0:
+            # Clear the spinner line by overwriting with spaces
+            print(f"\r{' ' * last_line_len}\r", end="", flush=True)
+            last_line_len = 0
+
+    def _show_spinner(elapsed: float) -> None:
+        nonlocal spinner_idx, last_line_len
+        if not use_spinner:
+            return
+        frame = _SPINNER_FRAMES[spinner_idx % len(_SPINNER_FRAMES)]
+        spinner_idx += 1
+
+        elapsed_str = _format_elapsed(elapsed)
+        if expected_time and expected_time > 0:
+            remaining = max(0, expected_time - elapsed)
+            if remaining > 0:
+                line = f"\r{frame} Working on {task_name}... ({elapsed_str} / ~{_format_elapsed(expected_time)} expected)"
+            else:
+                over = elapsed - expected_time
+                line = f"\r{frame} Working on {task_name}... ({elapsed_str}, +{_format_elapsed(over)} over estimate)"
+        else:
+            line = f"\r{frame} Working on {task_name}... ({elapsed_str})"
+
+        last_line_len = len(line)
+        print(line, end="", flush=True)
+
+    try:
+        while not future.done():
+            try:
+                future.result(timeout=poll_interval)
+                break  # Completed successfully
+            except concurrent.futures.TimeoutError:
+                elapsed = time.monotonic() - start_time
+                # Update spinner
+                _show_spinner(elapsed)
+                # Check if we've crossed any progress thresholds for log messages
+                while next_intervals and elapsed >= next_intervals[0]:
+                    threshold = next_intervals.pop(0)
+                    elapsed_str = _format_elapsed(threshold)
+                    _clear_spinner_line()
+                    _emit(f"Still working on {task_name}... ({elapsed_str} elapsed)")
+    finally:
+        # Clear spinner line when done
+        _clear_spinner_line()
+
+    return future.result()
+
 
 
 _OFFICE_PROCESS_TARGETS = tuple(
@@ -1173,8 +1285,27 @@ def gather_office_inventory(
                     if wmi_future is not None and ps_future is not None:
                         try:
                             _report("Waiting for WMI/PowerShell probes")
-                            _merge_fallback_metadata(probe_fallbacks, wmi_future.result())
-                            _merge_fallback_metadata(probe_fallbacks, ps_future.result())
+                            human_logger.info(
+                                "WMI/PowerShell probes may take 1-3 minutes depending on system..."
+                            )
+                            # Use progress-aware waiting with spinner and time estimate
+                            # WMI typically takes 60-120s, PS takes 30-60s
+                            wmi_result = _wait_with_progress(
+                                wmi_future,
+                                "WMI probes",
+                                lambda msg: _LOGGER.info(msg),
+                                expected_time=90.0,  # ~1.5 min typical
+                                use_spinner=True,
+                            )
+                            _merge_fallback_metadata(probe_fallbacks, wmi_result)
+                            ps_result = _wait_with_progress(
+                                ps_future,
+                                "PowerShell probes",
+                                lambda msg: _LOGGER.info(msg),
+                                expected_time=45.0,  # ~45s typical
+                                use_spinner=True,
+                            )
+                            _merge_fallback_metadata(probe_fallbacks, ps_result)
                             _report("Waiting for WMI/PowerShell probes", "ok")
                         except (KeyboardInterrupt, concurrent.futures.CancelledError):
                             _report("Waiting for WMI/PowerShell probes", "skip")

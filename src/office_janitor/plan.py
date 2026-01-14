@@ -179,9 +179,7 @@ def build_plan(
                     {
                         "id": uninstall_id,
                         "category": "c2r-uninstall",
-                        "description": record.get(
-                            "description", "Uninstall Click-to-Run packages"
-                        ),
+                        "description": record.get("description", "Uninstall Click-to-Run packages"),
                         "depends_on": prerequisites,
                         "metadata": {
                             "installation": record,
@@ -285,11 +283,17 @@ def build_plan(
     clean_shortcuts = is_aggressive or bool(normalized_options.get("clean_shortcuts", False))
 
     # Extract registry cleanup granularity flags - aggressive/nuclear enable more
-    clean_addin_registry = is_aggressive or bool(normalized_options.get("clean_addin_registry", False))
+    clean_addin_registry = is_aggressive or bool(
+        normalized_options.get("clean_addin_registry", False)
+    )
     clean_com_registry = is_aggressive or bool(normalized_options.get("clean_com_registry", False))
-    clean_shell_extensions = is_aggressive or bool(normalized_options.get("clean_shell_extensions", False))
+    clean_shell_extensions = is_aggressive or bool(
+        normalized_options.get("clean_shell_extensions", False)
+    )
     clean_typelibs = is_nuclear or bool(normalized_options.get("clean_typelibs", False))
-    clean_protocol_handlers = is_nuclear or bool(normalized_options.get("clean_protocol_handlers", False))
+    clean_protocol_handlers = is_nuclear or bool(
+        normalized_options.get("clean_protocol_handlers", False)
+    )
     remove_vba = is_nuclear or bool(normalized_options.get("remove_vba", False))
 
     if (not diagnose_mode) and not (
@@ -516,9 +520,7 @@ def _record_matches_release_filter(record: Mapping[str, object], filter_set: set
     return False
 
 
-def _record_matches_product_code_filter(
-    record: Mapping[str, object], filter_set: set[str]
-) -> bool:
+def _record_matches_product_code_filter(record: Mapping[str, object], filter_set: set[str]) -> bool:
     """!
     @brief Check if an MSI record matches any product_code in the filter set.
     """

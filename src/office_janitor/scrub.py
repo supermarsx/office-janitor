@@ -1215,7 +1215,15 @@ def _perform_filesystem_cleanup(
     if clean_msocache:
         msocache_paths = [
             r"C:\MSOCache",
-            str(Path.home() / "AppData" / "Local" / "Microsoft" / "Office" / "16.0" / "OfficeFileCache"),
+            str(
+                Path.home()
+                / "AppData"
+                / "Local"
+                / "Microsoft"
+                / "Office"
+                / "16.0"
+                / "OfficeFileCache"
+            ),
         ]
         for mso_path in msocache_paths:
             if mso_path not in paths:
@@ -1227,7 +1235,15 @@ def _perform_filesystem_cleanup(
         shortcut_paths = [
             str(Path.home() / "Desktop"),  # Will filter for Office .lnk files
             str(Path(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs")),
-            str(Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs"),
+            str(
+                Path.home()
+                / "AppData"
+                / "Roaming"
+                / "Microsoft"
+                / "Windows"
+                / "Start Menu"
+                / "Programs"
+            ),
         ]
         human_logger.info("Including Office shortcut cleanup")
 

@@ -566,3 +566,74 @@ class TestCreateArpEntriesForOrphans:
 
         detect.create_arp_entries_for_orphans(dry_run=True)
         assert called[0]
+
+
+class TestWaitWithProgress:
+    """Tests for _wait_with_progress helper function."""
+
+    def test_returns_future_result_immediately_if_done(self) -> None:
+        """Should return result immediately when future is already done."""
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(lambda: "quick result")
+            # Wait a tiny bit to ensure it completes
+            future.result(timeout=1.0)
+
+            messages: list[str] = []
+            result = detect._wait_with_progress(
+                future,
+                "test task",
+                report_fn=messages.append,
+                poll_interval=0.1,
+            )
+            assert result == "quick result"
+            # Should not have emitted any progress (finished too fast)
+            assert len(messages) == 0
+
+    def test_emits_progress_messages_at_intervals(self) -> None:
+        """Should emit progress messages at specified intervals."""
+        import concurrent.futures
+        import time
+
+        # Temporarily override progress intervals for faster testing
+        original_intervals = detect._PROGRESS_INTERVALS
+        detect._PROGRESS_INTERVALS = (0.1, 0.2, 0.3)  # type: ignore[misc]
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                # Task that takes long enough to trigger progress messages
+                future = executor.submit(lambda: (time.sleep(0.5), "slow result")[1])
+
+                messages: list[str] = []
+                result = detect._wait_with_progress(
+                    future,
+                    "slow task",
+                    report_fn=messages.append,
+                    poll_interval=0.05,
+                )
+                assert result == "slow result"
+                # Should have emitted some progress messages
+                assert len(messages) > 0
+                assert all("slow task" in msg for msg in messages)
+        finally:
+            detect._PROGRESS_INTERVALS = original_intervals  # type: ignore[misc]
+
+    def test_propagates_exception_from_future(self) -> None:
+        """Should raise exception if the future raises."""
+        import concurrent.futures
+
+        def failing_task() -> str:
+            raise ValueError("intentional failure")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(failing_task)
+
+            messages: list[str] = []
+            with pytest.raises(ValueError, match="intentional failure"):
+                detect._wait_with_progress(
+                    future,
+                    "failing task",
+                    report_fn=messages.append,
+                    poll_interval=0.1,
+                )
