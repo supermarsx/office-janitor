@@ -335,9 +335,12 @@ def _read_values_with_fallback(root: int, path: str) -> dict[str, Any]:
     return _powershell_read_values(root, path)
 
 
-def _key_exists_with_fallback(root: int, path: str) -> bool:
+def _key_exists_with_fallback(root: int, path: str, *, use_powershell: bool = False) -> bool:
     """!
-    @brief Determine whether ``root\\path`` exists using registry or PowerShell probes.
+    @brief Determine whether ``root\\path`` exists using registry probes.
+    @details PowerShell fallback is disabled by default because it's extremely slow
+    when called for many registry keys. Only enable for critical checks.
+    @param use_powershell If True, fall back to PowerShell when native check fails.
     """
 
     try:
@@ -348,12 +351,19 @@ def _key_exists_with_fallback(root: int, path: str) -> bool:
     except OSError:
         pass
 
+    # PowerShell fallback disabled by default - too slow for bulk checks
+    if not use_powershell:
+        return False
+
     provider_path = _powershell_registry_path(root, path)
     script = (
         "$ErrorActionPreference='SilentlyContinue';"
         f"if(Test-Path '{_powershell_escape(provider_path)}'){{'True'}}else{{'False'}}"
     )
-    code, output = _run_command(["powershell", "-NoProfile", "-Command", script])
+    code, output = _run_command(
+        ["powershell", "-NoProfile", "-Command", script],
+        timeout=5,  # 5 second timeout per key
+    )
     if code != 0 or not output.strip():
         return False
     result = output.strip().splitlines()[-1].strip().lower()
@@ -1110,7 +1120,11 @@ def gather_office_inventory(
     probe_executor: concurrent.futures.ThreadPoolExecutor | None = None
 
     if not fast_mode and parallel:
-        _report("Starting WMI/PowerShell probes (background)")
+        # Don't track as parallel task - this is just informational that probes started
+        # The actual waiting happens later with _wait_with_progress
+        if progress_callback:
+            progress_callback("Starting WMI/PowerShell probes (background)", "start")
+            progress_callback("Starting WMI/PowerShell probes (background)", "ok")
         probe_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="msi_probe"
         )
