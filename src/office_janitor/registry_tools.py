@@ -877,14 +877,22 @@ def export_keys(
             continue
 
         if reg_executable:
-            exec_utils.run_command(
-                [reg_executable, "export", key, str(export_path), "/y"],
-                event="registry_export",
-                dry_run=dry_run,
-                check=True,
-                extra={"key": key, "path": str(export_path)},
-            )
-            exported.append(export_path)
+            try:
+                exec_utils.run_command(
+                    [reg_executable, "export", key, str(export_path), "/y"],
+                    event="registry_export",
+                    dry_run=dry_run,
+                    check=True,
+                    extra={"key": key, "path": str(export_path)},
+                )
+                exported.append(export_path)
+            except Exception as exc:
+                # Export failure is non-fatal - key may not exist or access denied
+                logger.warning(
+                    "Registry export failed for %s: %s (continuing without backup)",
+                    key,
+                    exc,
+                )
             continue
 
         export_path.write_text(
@@ -904,6 +912,7 @@ def delete_keys(
 ) -> None:
     """!
     @brief Remove registry keys while respecting dry-run safeguards.
+    @details Continues processing remaining keys even if individual deletions fail.
     """
 
     logger = logger or _LOGGER
@@ -917,13 +926,21 @@ def delete_keys(
         )
         if not reg_executable:
             continue
-        exec_utils.run_command(
-            [reg_executable, "delete", key, "/f"],
-            event="registry_delete",
-            dry_run=dry_run,
-            check=True,
-            extra={"key": key},
-        )
+        try:
+            exec_utils.run_command(
+                [reg_executable, "delete", key, "/f"],
+                event="registry_delete",
+                dry_run=dry_run,
+                check=True,
+                extra={"key": key},
+            )
+        except Exception as exc:
+            # Deletion failure is non-fatal - key may not exist or access denied
+            logger.warning(
+                "Registry deletion failed for %s: %s (continuing with remaining keys)",
+                key,
+                exc,
+            )
 
 
 # ---------------------------------------------------------------------------
