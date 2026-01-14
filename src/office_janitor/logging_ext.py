@@ -67,6 +67,25 @@ _UI_EVENT_EMITTER: Callable[..., object] | None = None
 _UI_EVENT_QUEUE: MutableSequence[dict[str, object]] | deque[dict[str, object]] | None = None
 
 
+class _SpinnerAwareStreamHandler(logging.StreamHandler):  # type: ignore[type-arg]
+    """!
+    @brief Stream handler that clears spinner before logging and redraws after.
+    @details Ensures log output doesn't mix with the spinner animation on the
+    same line. The spinner is paused, the log line is emitted, then the spinner
+    resumes at its current task.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        # Import here to avoid circular dependency
+        from . import spinner
+
+        spinner.pause_for_output()
+        try:
+            super().emit(record)
+        finally:
+            spinner.resume_after_output()
+
+
 class _ChannelFilter(logging.Filter):
     """!
     @brief Inject a fixed ``channel`` attribute on log records.
@@ -285,7 +304,7 @@ def setup_logging(
 
     machine_handlers: list[logging.Handler] = [machine_file]
     if json_to_stdout:
-        machine_handlers.append(logging.StreamHandler(stream=sys.stdout))
+        machine_handlers.append(_SpinnerAwareStreamHandler(stream=sys.stdout))
 
     _configure_logger(human_logger, human_formatter, [human_file])
     _configure_logger(machine_logger, machine_formatter, machine_handlers)
@@ -483,7 +502,7 @@ def _ensure_stdout_handler(machine_logger: logging.Logger) -> None:
             and getattr(handler, "stream", None) is sys.stdout
         ):
             return
-    stdout_handler = logging.StreamHandler(stream=sys.stdout)
+    stdout_handler = _SpinnerAwareStreamHandler(stream=sys.stdout)
     stdout_handler.setFormatter(_JsonLineFormatter())
     machine_logger.addHandler(stdout_handler)
 

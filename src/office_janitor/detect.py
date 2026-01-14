@@ -21,111 +21,54 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
-from . import constants, elevation, exec_utils, logging_ext, registry_tools
+from . import constants, elevation, exec_utils, logging_ext, registry_tools, spinner
 
 _LOGGER = logging.getLogger(__name__)
 
 # Progress update intervals for long-running operations (in seconds)
 _PROGRESS_INTERVALS = (30, 60, 120, 300, 600, 1800)  # 30s, 1m, 2m, 5m, 10m, 30m
 
-# Spinner animation frames
-_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-
 _T = TypeVar("_T")
-
-
-def _format_elapsed(seconds: float) -> str:
-    """!
-    @brief Format elapsed seconds into a human-readable string.
-    @param seconds Elapsed time in seconds.
-    @return Formatted string like "30s", "1m 30s", "2h 15m".
-    """
-    if seconds < 60:
-        return f"{int(seconds)}s"
-    elif seconds < 3600:
-        mins = int(seconds // 60)
-        secs = int(seconds % 60)
-        return f"{mins}m {secs}s" if secs else f"{mins}m"
-    else:
-        hours = int(seconds // 3600)
-        mins = int((seconds % 3600) // 60)
-        return f"{hours}h {mins}m" if mins else f"{hours}h"
 
 
 def _wait_with_progress(
     future: concurrent.futures.Future[_T],
     task_name: str,
     report_fn: Callable[[str], None] | None = None,
-    poll_interval: float = 0.15,
+    poll_interval: float = 0.5,
     expected_time: float | None = None,
     use_spinner: bool = True,
 ) -> _T:
     """!
-    @brief Wait on a future while showing a spinner and periodic progress messages.
-    @details Monitors a future for completion while displaying an animated spinner
-    and periodically logging status updates at predefined intervals (30s, 1m, 2m,
+    @brief Wait on a future while showing progress via the global spinner.
+    @details Uses the global spinner module to display the current task.
+    Periodically emits log messages at predefined intervals (30s, 1m, 2m,
     5m, 10m, 30m) to reassure users that long-running operations have not stalled.
-
-    The spinner line is always redrawn after log messages to show current task.
-    Log messages never include the spinner character - only the spinner line does.
 
     @param future The concurrent.futures.Future to wait on.
     @param task_name Descriptive name for logging (e.g., "WMI probes").
     @param report_fn Optional callback for status messages; falls back to _LOGGER.info.
-    @param poll_interval How often (in seconds) to update the spinner/check status.
-    @param expected_time Optional expected duration in seconds for time estimate display.
-    @param use_spinner Whether to show the animated spinner on the console.
+    @param poll_interval How often (in seconds) to check the future's status.
+    @param expected_time Optional expected duration (for documentation; spinner handles display).
+    @param use_spinner Whether to update the global spinner with this task.
     @return The result of the future once complete.
     @raises Any exception raised by the future's underlying task.
     """
     start_time = time.monotonic()
     next_intervals = list(_PROGRESS_INTERVALS)  # Mutable copy to track which have fired
-    spinner_idx = 0
-    last_line_len = 0
 
     def _emit_log(msg: str) -> None:
-        """Emit a log message (no spinner character)."""
+        """Emit a log message."""
         if report_fn is not None:
             report_fn(msg)
         else:
             _LOGGER.info(msg)
 
-    def _clear_spinner_line() -> None:
-        """Clear the current spinner line from console."""
-        nonlocal last_line_len
-        if last_line_len > 0:
-            # Clear the spinner line by overwriting with spaces and returning to start
-            print(f"\r{' ' * last_line_len}\r", end="", flush=True)
-            last_line_len = 0
-
-    def _draw_spinner(elapsed: float) -> None:
-        """Draw/update the spinner line on console."""
-        nonlocal spinner_idx, last_line_len
-        if not use_spinner:
-            return
-        frame = _SPINNER_FRAMES[spinner_idx % len(_SPINNER_FRAMES)]
-        spinner_idx += 1
-
-        elapsed_str = _format_elapsed(elapsed)
-        if expected_time and expected_time > 0:
-            remaining = max(0, expected_time - elapsed)
-            if remaining > 0:
-                line = f"{frame} Working on {task_name}... ({elapsed_str} / ~{_format_elapsed(expected_time)} expected)"
-            else:
-                over = elapsed - expected_time
-                line = f"{frame} Working on {task_name}... ({elapsed_str}, +{_format_elapsed(over)} over estimate)"
-        else:
-            line = f"{frame} Working on {task_name}... ({elapsed_str})"
-
-        # Use carriage return to overwrite previous spinner line
-        print(f"\r{line}", end="", flush=True)
-        last_line_len = len(line)
+    # Set the global spinner task
+    if use_spinner:
+        spinner.set_task(task_name)
 
     try:
-        # Show spinner immediately before first poll
-        elapsed = time.monotonic() - start_time
-        _draw_spinner(elapsed)
-
         while not future.done():
             try:
                 future.result(timeout=poll_interval)
@@ -134,21 +77,15 @@ def _wait_with_progress(
                 elapsed = time.monotonic() - start_time
 
                 # Check if we've crossed any progress thresholds for log messages
-                emitted_log = False
                 while next_intervals and elapsed >= next_intervals[0]:
                     threshold = next_intervals.pop(0)
-                    elapsed_str = _format_elapsed(threshold)
-                    # Clear spinner, emit log, then redraw spinner
-                    _clear_spinner_line()
+                    elapsed_str = spinner._format_elapsed(threshold)
                     _emit_log(f"Still working on {task_name}... ({elapsed_str} elapsed)")
-                    emitted_log = True
-
-                # Always redraw spinner (updates animation frame and elapsed time)
-                _draw_spinner(elapsed)
 
     finally:
-        # Clear spinner line when done
-        _clear_spinner_line()
+        # Clear spinner task when done (but don't stop the spinner thread)
+        if use_spinner:
+            spinner.clear_task()
 
     return future.result()
 
@@ -1090,10 +1027,17 @@ def gather_office_inventory(
            60-120+ seconds to under 1 second, but may miss some edge-case installations).
     """
 
-    # Thread-safe progress reporting
+    # Start the spinner thread for persistent status display
+    spinner.start_spinner_thread()
+    spinner.set_task("Gathering Office inventory")
+
+    # Thread-safe progress reporting with spinner integration
     _report_lock = threading.Lock()
 
     def _report(phase: str, status: str = "start") -> None:
+        # Update spinner with current phase
+        if status == "start":
+            spinner.set_task(phase)
         if progress_callback:
             with _report_lock:
                 progress_callback(phase, status)

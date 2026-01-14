@@ -34,6 +34,7 @@ from . import (
     repair,
     safety,
     scrub,
+    spinner,
     tui,
     ui,
     version,
@@ -63,81 +64,100 @@ def _progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
     """Print a progress message with dmesg-style timestamp."""
     global _PENDING_LINE_OWNER
     with _PROGRESS_LOCK:
-        # If another thread left an incomplete line, finish it first
-        if _PENDING_LINE_OWNER is not None and _PENDING_LINE_OWNER != threading.get_ident():
-            print(flush=True)  # Force newline
-            _PENDING_LINE_OWNER = None
+        # Clear spinner before output
+        spinner.pause_for_output()
+        try:
+            # If another thread left an incomplete line, finish it first
+            if _PENDING_LINE_OWNER is not None and _PENDING_LINE_OWNER != threading.get_ident():
+                print(flush=True)  # Force newline
+                _PENDING_LINE_OWNER = None
 
-        timestamp = f"[{_get_elapsed_secs():12.6f}]"
-        prefix = "  " * indent
-        if newline:
-            print(f"{timestamp} {prefix}{message}", flush=True)
-            _PENDING_LINE_OWNER = None
-        else:
-            print(f"{timestamp} {prefix}{message}", end="", flush=True)
-            _PENDING_LINE_OWNER = threading.get_ident()
+            timestamp = f"[{_get_elapsed_secs():12.6f}]"
+            prefix = "  " * indent
+            if newline:
+                print(f"{timestamp} {prefix}{message}", flush=True)
+                _PENDING_LINE_OWNER = None
+            else:
+                print(f"{timestamp} {prefix}{message}", end="", flush=True)
+                _PENDING_LINE_OWNER = threading.get_ident()
+        finally:
+            # Only resume spinner if we completed a line
+            if newline:
+                spinner.resume_after_output()
 
 
 def _progress_ok(extra: str = "") -> None:
     """Print OK status in Linux init style [  OK  ]."""
     global _PENDING_LINE_OWNER
     with _PROGRESS_LOCK:
-        current_thread = threading.get_ident()
-        # Only print inline if we own the pending line
-        if _PENDING_LINE_OWNER == current_thread:
-            suffix = f" {extra}" if extra else ""
-            print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
-            _PENDING_LINE_OWNER = None
-        else:
-            # Another thread's line or no pending line - print on new line
-            if _PENDING_LINE_OWNER is not None:
-                print(flush=True)  # Finish the other thread's line
-            suffix = f" {extra}" if extra else ""
-            print(
-                f"[{_get_elapsed_secs():12.6f}]  [  \033[32mOK\033[0m  ]{suffix}",
-                flush=True,
-            )
-            _PENDING_LINE_OWNER = None
+        spinner.pause_for_output()
+        try:
+            current_thread = threading.get_ident()
+            # Only print inline if we own the pending line
+            if _PENDING_LINE_OWNER == current_thread:
+                suffix = f" {extra}" if extra else ""
+                print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
+                _PENDING_LINE_OWNER = None
+            else:
+                # Another thread's line or no pending line - print on new line
+                if _PENDING_LINE_OWNER is not None:
+                    print(flush=True)  # Finish the other thread's line
+                suffix = f" {extra}" if extra else ""
+                print(
+                    f"[{_get_elapsed_secs():12.6f}]  [  \033[32mOK\033[0m  ]{suffix}",
+                    flush=True,
+                )
+                _PENDING_LINE_OWNER = None
+        finally:
+            spinner.resume_after_output()
 
 
 def _progress_fail(reason: str = "") -> None:
     """Print FAIL status in Linux init style [FAILED]."""
     global _PENDING_LINE_OWNER
     with _PROGRESS_LOCK:
-        current_thread = threading.get_ident()
-        if _PENDING_LINE_OWNER == current_thread:
-            suffix = f" ({reason})" if reason else ""
-            print(f" [\033[31mFAILED\033[0m]{suffix}", flush=True)
-            _PENDING_LINE_OWNER = None
-        else:
-            if _PENDING_LINE_OWNER is not None:
-                print(flush=True)
-            suffix = f" ({reason})" if reason else ""
-            print(
-                f"[{_get_elapsed_secs():12.6f}]  [\033[31mFAILED\033[0m]{suffix}",
-                flush=True,
-            )
-            _PENDING_LINE_OWNER = None
+        spinner.pause_for_output()
+        try:
+            current_thread = threading.get_ident()
+            if _PENDING_LINE_OWNER == current_thread:
+                suffix = f" ({reason})" if reason else ""
+                print(f" [\033[31mFAILED\033[0m]{suffix}", flush=True)
+                _PENDING_LINE_OWNER = None
+            else:
+                if _PENDING_LINE_OWNER is not None:
+                    print(flush=True)
+                suffix = f" ({reason})" if reason else ""
+                print(
+                    f"[{_get_elapsed_secs():12.6f}]  [\033[31mFAILED\033[0m]{suffix}",
+                    flush=True,
+                )
+                _PENDING_LINE_OWNER = None
+        finally:
+            spinner.resume_after_output()
 
 
 def _progress_skip(reason: str = "") -> None:
     """Print SKIP status in Linux init style [ SKIP ]."""
     global _PENDING_LINE_OWNER
     with _PROGRESS_LOCK:
-        current_thread = threading.get_ident()
-        if _PENDING_LINE_OWNER == current_thread:
-            suffix = f" ({reason})" if reason else ""
-            print(f" [ \033[33mSKIP\033[0m ]{suffix}", flush=True)
-            _PENDING_LINE_OWNER = None
-        else:
-            if _PENDING_LINE_OWNER is not None:
-                print(flush=True)
-            suffix = f" ({reason})" if reason else ""
-            print(
-                f"[{_get_elapsed_secs():12.6f}]  [ \033[33mSKIP\033[0m ]{suffix}",
-                flush=True,
-            )
-            _PENDING_LINE_OWNER = None
+        spinner.pause_for_output()
+        try:
+            current_thread = threading.get_ident()
+            if _PENDING_LINE_OWNER == current_thread:
+                suffix = f" ({reason})" if reason else ""
+                print(f" [ \033[33mSKIP\033[0m ]{suffix}", flush=True)
+                _PENDING_LINE_OWNER = None
+            else:
+                if _PENDING_LINE_OWNER is not None:
+                    print(flush=True)
+                suffix = f" ({reason})" if reason else ""
+                print(
+                    f"[{_get_elapsed_secs():12.6f}]  [ \033[33mSKIP\033[0m ]{suffix}",
+                    flush=True,
+                )
+                _PENDING_LINE_OWNER = None
+        finally:
+            spinner.resume_after_output()
 
 
 def enable_vt_mode_if_possible() -> None:

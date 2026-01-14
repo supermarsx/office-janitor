@@ -26,6 +26,7 @@ from . import (
     processes,
     registry_tools,
     restore_point,
+    spinner,
     tasks_services,
 )
 from . import (
@@ -76,22 +77,29 @@ def _scrub_progress(message: str, *, newline: bool = True, indent: int = 0) -> N
     """Print a scrub progress message with dmesg-style timestamp."""
     timestamp = f"[{_get_scrub_elapsed_secs():12.6f}]"
     prefix = "  " * indent
+    # Use spinner-aware printing
+    spinner.pause_for_output()
     if newline:
         print(f"{timestamp} {prefix}{message}", flush=True)
     else:
         print(f"{timestamp} {prefix}{message}", end="", flush=True)
+    spinner.resume_after_output()
 
 
 def _scrub_ok(extra: str = "") -> None:
     """Print OK status in Linux init style [  OK  ]."""
     suffix = f" {extra}" if extra else ""
+    spinner.pause_for_output()
     print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
+    spinner.resume_after_output()
 
 
 def _scrub_fail(reason: str = "") -> None:
     """Print FAIL status in Linux init style [FAILED]."""
     suffix = f" ({reason})" if reason else ""
+    spinner.pause_for_output()
     print(f" [\033[31mFAILED\033[0m]{suffix}", flush=True)
+    spinner.resume_after_output()
 
 
 @dataclass
@@ -320,8 +328,11 @@ class StepExecutor:
         index: int,
         progress: float,
     ) -> None:
-        # Print visible substep progress
+        # Update spinner with current step
         step_label = f"{step_id}" if step_id else f"{category}"
+        spinner.set_task(f"{step_label} [{index}/{self._total_steps}]")
+        
+        # Print visible substep progress
         attempt_info = f" (attempt {attempt})" if attempt > 1 else ""
         dry_run_marker = " [DRY-RUN]" if dry_run else ""
         _scrub_progress(
@@ -639,6 +650,10 @@ def execute_plan(
     global _SCRUB_START_TIME
     # Use provided start_time for continuous timestamps, or start fresh
     _SCRUB_START_TIME = start_time if start_time is not None else time.perf_counter()
+
+    # Start the spinner thread for persistent status display
+    spinner.start_spinner_thread()
+    spinner.set_task("Initializing scrub engine")
 
     _scrub_progress("=" * 50)
     _scrub_progress("Scrub Execution Engine Starting")

@@ -641,34 +641,164 @@ class TestWaitWithProgress:
                     use_spinner=False,  # Disable spinner for clean test output
                 )
 
-    def test_spinner_shows_expected_time(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Should show expected time estimate when provided."""
+    def test_with_spinner_enabled(self) -> None:
+        """Should work with spinner enabled (uses global spinner module)."""
         import concurrent.futures
         import time
 
+        from office_janitor import spinner
+
+        # Ensure spinner thread is running
+        spinner.start_spinner_thread()
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            # Task that takes long enough to show spinner output
-            future = executor.submit(lambda: (time.sleep(0.3), "result")[1])
+            future = executor.submit(lambda: (time.sleep(0.2), "result")[1])
 
             result = detect._wait_with_progress(
                 future,
-                "timed task",
+                "spinner task",
                 poll_interval=0.1,
-                expected_time=60.0,  # 1 minute expected
                 use_spinner=True,
             )
             assert result == "result"
-            # Spinner output goes to stdout - check it was cleared properly
-            captured = capsys.readouterr()
-            # The spinner line should have been cleared, but we can check
-            # it doesn't leave garbage (ends clean)
-            assert "timed task" not in captured.out or captured.out.endswith(("\r", " ", "\n", ""))
+            # Task should be cleared after completion
+            assert spinner.get_current_task() is None
+
+
+class TestSpinnerModule:
+    """Tests for the spinner module."""
 
     def test_format_elapsed_helper(self) -> None:
         """Test the _format_elapsed helper function."""
-        assert detect._format_elapsed(30) == "30s"
-        assert detect._format_elapsed(60) == "1m"
-        assert detect._format_elapsed(90) == "1m 30s"
-        assert detect._format_elapsed(3600) == "1h"
-        assert detect._format_elapsed(3660) == "1h 1m"
-        assert detect._format_elapsed(7200) == "2h"
+        from office_janitor import spinner
+
+        assert spinner._format_elapsed(30) == "30s"
+        assert spinner._format_elapsed(60) == "1m"
+        assert spinner._format_elapsed(90) == "1m 30s"
+        assert spinner._format_elapsed(3600) == "1h"
+        assert spinner._format_elapsed(3660) == "1h 1m"
+        assert spinner._format_elapsed(7200) == "2h"
+
+    def test_set_and_clear_task(self) -> None:
+        """Test setting and clearing tasks."""
+        from office_janitor import spinner
+
+        spinner.start_spinner_thread()
+        assert spinner.get_current_task() is None
+
+        spinner.set_task("Test task")
+        assert spinner.get_current_task() == "Test task"
+
+        spinner.clear_task()
+        assert spinner.get_current_task() is None
+
+    def test_spinner_task_context_manager(self) -> None:
+        """Test the SpinnerTask context manager."""
+        from office_janitor import spinner
+
+        spinner.start_spinner_thread()
+        spinner.clear_task()
+
+        with spinner.SpinnerTask("Context task"):
+            assert spinner.get_current_task() == "Context task"
+
+        assert spinner.get_current_task() is None
+
+    def test_sigint_handler_installation(self) -> None:
+        """Test that SIGINT handler can be installed and uninstalled."""
+        import signal
+
+        from office_janitor import spinner
+
+        # First ensure handler is NOT installed (may have been set by prior tests)
+        spinner.uninstall_sigint_handler()
+
+        # Capture current handler (should be default now)
+        original = signal.getsignal(signal.SIGINT)
+
+        # Install our handler
+        spinner.install_sigint_handler()
+        installed = signal.getsignal(signal.SIGINT)
+        assert installed == spinner._sigint_handler
+
+        # Second install should be no-op (idempotent)
+        spinner.install_sigint_handler()
+        assert signal.getsignal(signal.SIGINT) == spinner._sigint_handler
+
+        # Uninstall should restore original
+        spinner.uninstall_sigint_handler()
+        restored = signal.getsignal(signal.SIGINT)
+        assert restored == original
+
+        # Second uninstall should be no-op
+        spinner.uninstall_sigint_handler()
+
+    def test_process_registration(self) -> None:
+        """Test subprocess registration and unregistration."""
+        import subprocess
+
+        from office_janitor import spinner
+
+        # Clear any existing tracked processes
+        spinner._active_processes.clear()
+
+        # Create a mock subprocess that's already complete
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        proc.wait()
+
+        # Register and verify
+        spinner.register_process(proc)
+        assert proc in spinner._active_processes
+
+        # Unregister and verify
+        spinner.unregister_process(proc)
+        assert proc not in spinner._active_processes
+
+    def test_tracked_process_context_manager(self) -> None:
+        """Test TrackedProcess context manager."""
+        import subprocess
+
+        from office_janitor import spinner
+
+        # Clear any existing tracked processes
+        spinner._active_processes.clear()
+
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        with spinner.TrackedProcess(proc):
+            assert proc in spinner._active_processes
+            proc.wait()
+
+        assert proc not in spinner._active_processes
+
+    def test_kill_all_processes(self) -> None:
+        """Test killing all tracked processes."""
+        import subprocess
+
+        from office_janitor import spinner
+
+        # Clear any existing tracked processes
+        spinner._active_processes.clear()
+
+        # Create a process that sleeps briefly
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        proc.wait()  # Let it complete first
+
+        spinner.register_process(proc)
+        killed = spinner.kill_all_processes()
+
+        # Process was already done, so killed count is 0
+        assert killed == 0
+        assert len(spinner._active_processes) == 0
