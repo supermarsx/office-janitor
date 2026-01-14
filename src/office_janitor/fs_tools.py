@@ -20,7 +20,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from . import constants, exec_utils, logging_ext
+from . import constants, exec_utils, logging_ext, spinner
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import winreg as _winreg
@@ -470,8 +470,16 @@ def remove_paths(paths: Iterable[Path | str], *, dry_run: bool = False) -> None:
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
-    for raw in paths:
+    path_list = list(paths)
+    total_paths = len(path_list)
+
+    for idx, raw in enumerate(path_list, 1):
         target = Path(raw)
+        
+        # Update spinner with current path being cleaned
+        short_path = target.name if len(str(target)) > 50 else str(target)
+        spinner.set_task(f"Cleaning {short_path} ({idx}/{total_paths})")
+        
         machine_logger.info(
             "filesystem_remove_plan",
             extra={
