@@ -424,6 +424,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Skip filesystem cleanup after uninstall.",
     )
     scrub_opts.add_argument(
+        "--registry-only",
+        action="store_true",
+        help="Only perform registry cleanup (skip uninstall, filesystem, licensing).",
+    )
+    scrub_opts.add_argument(
         "--clean-msocache",
         action="store_true",
         help="Also remove MSOCache installation files.",
@@ -1622,12 +1627,17 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
             return config[cfg_key]
         return default
 
-    # Resolve max_passes: --skip-uninstall (=0) > --passes > --max-passes > config > default (1)
+    # Resolve max_passes: --registry-only or --skip-uninstall (=0) > --passes > --max-passes > config > default (1)
     skip_uninstall = _get("skip_uninstall", False, "skip-uninstall", is_bool=True)
+    registry_only = _get("registry_only", False, "registry-only", is_bool=True)
     cli_passes = getattr(args, "passes", None)
     cli_max_passes = getattr(args, "max_passes", None)
     config_passes = config.get("passes") or config.get("max-passes")
-    resolved_passes = 0 if skip_uninstall else (cli_passes or cli_max_passes or config_passes or 1)
+    resolved_passes = (
+        0
+        if (skip_uninstall or registry_only)
+        else (cli_passes or cli_max_passes or config_passes or 1)
+    )
 
     options: dict[str, object] = {
         # Mode & core
@@ -1650,11 +1660,12 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
         # Scrubbing
         "scrub_level": _get("scrub_level", "standard"),
         "max_passes": int(resolved_passes),
-        "skip_processes": _get("skip_processes", False, is_bool=True),
-        "skip_services": _get("skip_services", False, is_bool=True),
+        "skip_processes": _get("skip_processes", False, is_bool=True) or registry_only,
+        "skip_services": _get("skip_services", False, is_bool=True) or registry_only,
         "skip_tasks": _get("skip_tasks", False, is_bool=True),
         "skip_registry": _get("skip_registry", False, is_bool=True),
-        "skip_filesystem": _get("skip_filesystem", False, is_bool=True),
+        "skip_filesystem": _get("skip_filesystem", False, is_bool=True) or registry_only,
+        "registry_only": registry_only,
         "clean_msocache": _get("clean_msocache", False, is_bool=True),
         "clean_appx": _get("clean_appx", False, is_bool=True),
         "clean_wi_metadata": _get("clean_wi_metadata", False, is_bool=True),
@@ -1666,7 +1677,9 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
             or not _get("no_restore_point", False, is_bool=True)
         ),
         "no_license": (
-            _get("no_license", False, is_bool=True) or _get("keep_license", False, is_bool=True)
+            _get("no_license", False, is_bool=True)
+            or _get("keep_license", False, is_bool=True)
+            or registry_only
         ),
         "keep_license": _get("keep_license", False, is_bool=True),
         "clean_spp": _get("clean_spp", False, is_bool=True),
