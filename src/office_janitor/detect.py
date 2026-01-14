@@ -66,6 +66,9 @@ def _wait_with_progress(
     and periodically logging status updates at predefined intervals (30s, 1m, 2m,
     5m, 10m, 30m) to reassure users that long-running operations have not stalled.
 
+    The spinner line is always redrawn after log messages to show current task.
+    Log messages never include the spinner character - only the spinner line does.
+
     @param future The concurrent.futures.Future to wait on.
     @param task_name Descriptive name for logging (e.g., "WMI probes").
     @param report_fn Optional callback for status messages; falls back to _LOGGER.info.
@@ -80,20 +83,23 @@ def _wait_with_progress(
     spinner_idx = 0
     last_line_len = 0
 
-    def _emit(msg: str) -> None:
+    def _emit_log(msg: str) -> None:
+        """Emit a log message (no spinner character)."""
         if report_fn is not None:
             report_fn(msg)
         else:
             _LOGGER.info(msg)
 
     def _clear_spinner_line() -> None:
+        """Clear the current spinner line from console."""
         nonlocal last_line_len
         if last_line_len > 0:
-            # Clear the spinner line by overwriting with spaces
+            # Clear the spinner line by overwriting with spaces and returning to start
             print(f"\r{' ' * last_line_len}\r", end="", flush=True)
             last_line_len = 0
 
-    def _show_spinner(elapsed: float) -> None:
+    def _draw_spinner(elapsed: float) -> None:
+        """Draw/update the spinner line on console."""
         nonlocal spinner_idx, last_line_len
         if not use_spinner:
             return
@@ -104,31 +110,42 @@ def _wait_with_progress(
         if expected_time and expected_time > 0:
             remaining = max(0, expected_time - elapsed)
             if remaining > 0:
-                line = f"\r{frame} Working on {task_name}... ({elapsed_str} / ~{_format_elapsed(expected_time)} expected)"
+                line = f"{frame} Working on {task_name}... ({elapsed_str} / ~{_format_elapsed(expected_time)} expected)"
             else:
                 over = elapsed - expected_time
-                line = f"\r{frame} Working on {task_name}... ({elapsed_str}, +{_format_elapsed(over)} over estimate)"
+                line = f"{frame} Working on {task_name}... ({elapsed_str}, +{_format_elapsed(over)} over estimate)"
         else:
-            line = f"\r{frame} Working on {task_name}... ({elapsed_str})"
+            line = f"{frame} Working on {task_name}... ({elapsed_str})"
 
+        # Use carriage return to overwrite previous spinner line
+        print(f"\r{line}", end="", flush=True)
         last_line_len = len(line)
-        print(line, end="", flush=True)
 
     try:
+        # Show spinner immediately before first poll
+        elapsed = time.monotonic() - start_time
+        _draw_spinner(elapsed)
+
         while not future.done():
             try:
                 future.result(timeout=poll_interval)
                 break  # Completed successfully
             except concurrent.futures.TimeoutError:
                 elapsed = time.monotonic() - start_time
-                # Update spinner
-                _show_spinner(elapsed)
+
                 # Check if we've crossed any progress thresholds for log messages
+                emitted_log = False
                 while next_intervals and elapsed >= next_intervals[0]:
                     threshold = next_intervals.pop(0)
                     elapsed_str = _format_elapsed(threshold)
+                    # Clear spinner, emit log, then redraw spinner
                     _clear_spinner_line()
-                    _emit(f"Still working on {task_name}... ({elapsed_str} elapsed)")
+                    _emit_log(f"Still working on {task_name}... ({elapsed_str} elapsed)")
+                    emitted_log = True
+
+                # Always redraw spinner (updates animation frame and elapsed time)
+                _draw_spinner(elapsed)
+
     finally:
         # Clear spinner line when done
         _clear_spinner_line()
