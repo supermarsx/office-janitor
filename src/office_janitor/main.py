@@ -990,7 +990,11 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress(f"Running in non-interactive mode: {mode}")
     _progress("-" * 60)
 
+    # Start spinner for non-interactive mode
+    spinner.start_spinner_thread()
+
     # Phase 8: Detection
+    spinner.set_task("Detecting Office installations")
     _progress("Phase 8: Running Office detection...")
     logdir_path = pathlib.Path(getattr(args, "logdir", _resolve_log_directory(None))).expanduser()
     limited_flag = bool(getattr(args, "limited_user", False))
@@ -1005,6 +1009,7 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress(f"Detection complete: {item_count} items found", indent=1)
 
     # Phase 9: Plan generation
+    spinner.set_task("Building execution plan")
     _progress("Phase 9: Building execution plan...")
     options = _collect_plan_options(args, mode)
     _progress(
@@ -1015,6 +1020,7 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress(f"Generated {len(generated_plan)} plan steps", indent=1)
 
     # Phase 10: Safety checks (warnings only - never block execution)
+    spinner.set_task("Performing safety checks")
     _progress("Phase 10: Performing preflight safety checks...")
     try:
         safety.perform_preflight_checks(generated_plan)
@@ -1030,10 +1036,13 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
         human_log.warning("Unexpected preflight warning: %s", err)
 
     # Phase 11: Artifacts
+    spinner.set_task("Writing plan artifacts")
     _progress("Phase 11: Writing plan artifacts...")
     _handle_plan_artifacts(args, generated_plan, inventory, human_log, mode)
 
     if mode == "diagnose":
+        spinner.clear_task()
+        spinner.stop_spinner_thread()
         _progress("=" * 60)
         _progress("Diagnostics complete - no actions executed")
         _progress("=" * 60)
@@ -1041,6 +1050,7 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
         return 0
 
     # Phase 12: User confirmation
+    spinner.set_task("Awaiting confirmation")
     _progress("Phase 12: Requesting user confirmation...")
     scrub_dry_run = bool(getattr(args, "dry_run", False))
     is_auto_all = mode == "auto-all"
@@ -1049,6 +1059,8 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
         force=bool(getattr(args, "force", False)) or is_auto_all,
     )
     if not proceed:
+        spinner.clear_task()
+        spinner.stop_spinner_thread()
         _progress("User declined confirmation - aborting")
         human_log.info("Scrub cancelled by user confirmation prompt.")
         machine_log.info(
@@ -1062,6 +1074,7 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress("Confirmation received", indent=1)
 
     # Phase 13: Runtime guards (warnings only - never block execution)
+    spinner.set_task("Enforcing runtime guards")
     _progress("Phase 13: Enforcing runtime guards...")
     try:
         _enforce_runtime_guards(options, dry_run=scrub_dry_run)
@@ -1077,6 +1090,7 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
         human_log.warning("Unexpected runtime warning: %s", err)
 
     # Phase 14: Plan execution
+    spinner.set_task("Executing scrub plan")
     _progress("=" * 60)
     _progress(f"Phase 14: Executing plan ({'DRY RUN' if scrub_dry_run else 'LIVE'})...")
     _progress("=" * 60)
@@ -1099,6 +1113,10 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
         _progress(f"Error during execution: {err}", indent=1, newline=False)
         _progress_fail()
         human_log.exception("Error during plan execution (non-fatal)")
+
+    # Stop spinner before final messages
+    spinner.clear_task()
+    spinner.stop_spinner_thread()
 
     _progress("=" * 60)
     if fatal_error:
