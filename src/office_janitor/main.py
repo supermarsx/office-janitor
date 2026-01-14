@@ -200,7 +200,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     values without changing the public CLI signature.
     """
 
-    parser = argparse.ArgumentParser(prog="office-janitor", add_help=True)
+    parser = argparse.ArgumentParser(
+        prog="office-janitor",
+        add_help=True,
+        description="Detect, uninstall, and scrub Microsoft Office installations.",
+        epilog="For legacy OffScrub compatibility, see --offscrub-* options.",
+    )
     metadata = version.build_info()
     parser.add_argument(
         "-V",
@@ -209,6 +214,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         version=f"{metadata['version']} ({metadata['build']})",
     )
 
+    # -------------------------------------------------------------------------
+    # Mode Selection (mutually exclusive)
+    # -------------------------------------------------------------------------
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--auto-all", action="store_true", help="Run full detection and scrub.")
     modes.add_argument(
@@ -238,84 +246,364 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Repair/reconfigure using a custom XML configuration file.",
     )
 
-    parser.add_argument(
-        "--include", metavar="COMPONENTS", help="Additional suites/apps to include."
+    # -------------------------------------------------------------------------
+    # Core Options
+    # -------------------------------------------------------------------------
+    core_opts = parser.add_argument_group("Core Options")
+    core_opts.add_argument(
+        "--include", metavar="COMPONENTS", help="Additional suites/apps to include (visio,project,onenote)."
     )
-    parser.add_argument("--force", action="store_true", help="Relax certain guardrails when safe.")
-    parser.add_argument(
+    core_opts.add_argument("--force", "-f", action="store_true", help="Relax certain guardrails when safe.")
+    core_opts.add_argument(
         "--allow-unsupported-windows",
         action="store_true",
         help="Permit execution on Windows releases below the supported minimum.",
     )
-    parser.add_argument(
-        "--dry-run",
+    core_opts.add_argument(
+        "--dry-run", "-n",
         action="store_true",
         help="Simulate actions without modifying the system.",
     )
-    parser.add_argument(
-        "--no-restore-point", action="store_true", help="Skip creating a restore point."
+    core_opts.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompts (assume yes).",
     )
-    parser.add_argument("--no-license", action="store_true", help="Skip license cleanup steps.")
-    parser.add_argument(
+
+    # -------------------------------------------------------------------------
+    # Uninstall Method Options
+    # -------------------------------------------------------------------------
+    uninstall_opts = parser.add_argument_group("Uninstall Method Options")
+    uninstall_opts.add_argument(
+        "--uninstall-method",
+        choices=["auto", "msi", "c2r", "odt", "offscrub"],
+        default="auto",
+        metavar="METHOD",
+        help="Preferred uninstall method: auto (detect best), msi (msiexec), c2r (OfficeC2RClient), odt (Office Deployment Tool), offscrub (legacy VBS).",
+    )
+    uninstall_opts.add_argument(
+        "--msi-only",
+        action="store_const",
+        const="msi",
+        dest="uninstall_method",
+        help="Only uninstall MSI-based Office products.",
+    )
+    uninstall_opts.add_argument(
+        "--c2r-only",
+        action="store_const",
+        const="c2r",
+        dest="uninstall_method",
+        help="Only uninstall Click-to-Run Office products.",
+    )
+    uninstall_opts.add_argument(
+        "--use-odt",
+        action="store_const",
+        const="odt",
+        dest="uninstall_method",
+        help="Use Office Deployment Tool (setup.exe) for uninstall.",
+    )
+    uninstall_opts.add_argument(
+        "--force-app-shutdown",
+        action="store_true",
+        help="Force close running Office applications before uninstall.",
+    )
+    uninstall_opts.add_argument(
+        "--no-force-app-shutdown",
+        action="store_true",
+        help="Prompt user to close apps instead of forcing shutdown.",
+    )
+    uninstall_opts.add_argument(
+        "--product-code",
+        metavar="GUID",
+        action="append",
+        dest="product_codes",
+        help="Specific MSI product code(s) to uninstall. Can be specified multiple times.",
+    )
+    uninstall_opts.add_argument(
+        "--release-id",
+        metavar="ID",
+        action="append",
+        dest="release_ids",
+        help="Specific C2R release ID(s) to uninstall (e.g., O365ProPlusRetail). Can be specified multiple times.",
+    )
+
+    # -------------------------------------------------------------------------
+    # Scrubbing Options
+    # -------------------------------------------------------------------------
+    scrub_opts = parser.add_argument_group("Scrubbing Options")
+    scrub_opts.add_argument(
+        "--scrub-level",
+        choices=["minimal", "standard", "aggressive", "nuclear"],
+        default="standard",
+        metavar="LEVEL",
+        help="Scrub intensity: minimal (uninstall only), standard (+ residue), aggressive (+ deep registry), nuclear (everything).",
+    )
+    scrub_opts.add_argument(
+        "--max-passes",
+        type=int,
+        default=3,
+        metavar="N",
+        help="Maximum uninstall/re-detect passes (default: 3).",
+    )
+    scrub_opts.add_argument(
+        "--skip-processes",
+        action="store_true",
+        help="Skip terminating Office processes before uninstall.",
+    )
+    scrub_opts.add_argument(
+        "--skip-services",
+        action="store_true",
+        help="Skip stopping Office services before uninstall.",
+    )
+    scrub_opts.add_argument(
+        "--skip-tasks",
+        action="store_true",
+        help="Skip removing scheduled tasks.",
+    )
+    scrub_opts.add_argument(
+        "--skip-registry",
+        action="store_true",
+        help="Skip registry cleanup after uninstall.",
+    )
+    scrub_opts.add_argument(
+        "--skip-filesystem",
+        action="store_true",
+        help="Skip filesystem cleanup after uninstall.",
+    )
+    scrub_opts.add_argument(
+        "--clean-msocache",
+        action="store_true",
+        help="Also remove MSOCache installation files.",
+    )
+    scrub_opts.add_argument(
+        "--clean-appx",
+        action="store_true",
+        help="Also remove Office AppX/MSIX packages.",
+    )
+    scrub_opts.add_argument(
+        "--clean-wi-metadata",
+        action="store_true",
+        help="Clean orphaned Windows Installer metadata.",
+    )
+
+    # -------------------------------------------------------------------------
+    # License & Activation Options
+    # -------------------------------------------------------------------------
+    license_opts = parser.add_argument_group("License & Activation Options")
+    license_opts.add_argument(
+        "--no-restore-point", action="store_true", help="Skip creating a system restore point."
+    )
+    license_opts.add_argument("--no-license", action="store_true", help="Skip license cleanup steps.")
+    license_opts.add_argument(
         "--keep-license",
         action="store_true",
         help="Preserve Office licenses (alias of --no-license).",
     )
-    parser.add_argument(
+    license_opts.add_argument(
+        "--clean-spp",
+        action="store_true",
+        help="Clean Software Protection Platform (SPP) Office tokens.",
+    )
+    license_opts.add_argument(
+        "--clean-ospp",
+        action="store_true",
+        help="Clean Office Software Protection Platform (OSPP) tokens.",
+    )
+    license_opts.add_argument(
+        "--clean-vnext",
+        action="store_true",
+        help="Clean vNext/device-based licensing cache.",
+    )
+    license_opts.add_argument(
+        "--clean-all-licenses",
+        action="store_true",
+        help="Aggressively clean all license artifacts (SPP+OSPP+vNext).",
+    )
+
+    # -------------------------------------------------------------------------
+    # User Data Options
+    # -------------------------------------------------------------------------
+    data_opts = parser.add_argument_group("User Data Options")
+    data_opts.add_argument(
         "--keep-templates",
         action="store_true",
         help="Preserve user templates like normal.dotm.",
     )
-    parser.add_argument(
+    data_opts.add_argument(
+        "--keep-user-settings",
+        action="store_true",
+        help="Preserve user Office settings and customizations.",
+    )
+    data_opts.add_argument(
+        "--delete-user-settings",
+        action="store_true",
+        help="Remove user Office settings and customizations.",
+    )
+    data_opts.add_argument(
+        "--keep-outlook-data",
+        action="store_true",
+        help="Preserve Outlook OST/PST files and profiles.",
+    )
+    data_opts.add_argument(
+        "--clean-shortcuts",
+        action="store_true",
+        help="Remove Office shortcuts from Start Menu and Desktop.",
+    )
+    data_opts.add_argument(
+        "--skip-shortcut-detection",
+        action="store_true",
+        help="Skip detecting and cleaning orphaned shortcuts.",
+    )
+
+    # -------------------------------------------------------------------------
+    # Registry Cleanup Options
+    # -------------------------------------------------------------------------
+    reg_opts = parser.add_argument_group("Registry Cleanup Options")
+    reg_opts.add_argument(
+        "--clean-addin-registry",
+        action="store_true",
+        help="Clean Office add-in registry entries.",
+    )
+    reg_opts.add_argument(
+        "--clean-com-registry",
+        action="store_true",
+        help="Clean orphaned COM/ActiveX registrations.",
+    )
+    reg_opts.add_argument(
+        "--clean-shell-extensions",
+        action="store_true",
+        help="Clean orphaned shell extensions.",
+    )
+    reg_opts.add_argument(
+        "--clean-typelibs",
+        action="store_true",
+        help="Clean orphaned type libraries.",
+    )
+    reg_opts.add_argument(
+        "--clean-protocol-handlers",
+        action="store_true",
+        help="Clean Office protocol handlers (ms-word:, ms-excel:, etc.).",
+    )
+    reg_opts.add_argument(
+        "--remove-vba",
+        action="store_true",
+        help="Remove VBA-only package and related registry entries.",
+    )
+
+    # -------------------------------------------------------------------------
+    # Output & Logging Options
+    # -------------------------------------------------------------------------
+    output_opts = parser.add_argument_group("Output & Logging Options")
+    output_opts.add_argument(
         "--plan", metavar="OUT", help="Write the computed action plan to a JSON file."
     )
-    parser.add_argument("--logdir", metavar="DIR", help="Directory for human/JSONL log output.")
-    parser.add_argument("--backup", metavar="DIR", help="Destination for registry/file backups.")
-    parser.add_argument("--timeout", metavar="SEC", type=int, help="Per-step timeout in seconds.")
-    parser.add_argument(
-        "--quiet", action="store_true", help="Minimal console output (errors only)."
+    output_opts.add_argument("--logdir", metavar="DIR", help="Directory for human/JSONL log output.")
+    output_opts.add_argument("--backup", metavar="DIR", help="Destination for registry/file backups.")
+    output_opts.add_argument("--timeout", metavar="SEC", type=int, help="Per-step timeout in seconds.")
+    output_opts.add_argument(
+        "--quiet", "-q", action="store_true", help="Minimal console output (errors only)."
     )
-    parser.add_argument("--json", action="store_true", help="Mirror structured events to stdout.")
-    parser.add_argument("--tui", action="store_true", help="Force the interactive text UI mode.")
-    parser.add_argument("--no-color", action="store_true", help="Disable ANSI color codes.")
-    parser.add_argument(
+    output_opts.add_argument("--json", action="store_true", help="Mirror structured events to stdout.")
+    output_opts.add_argument(
+        "--verbose", "-v",
+        action="count",
+        default=0,
+        help="Increase output verbosity (-v, -vv, -vvv).",
+    )
+
+    # -------------------------------------------------------------------------
+    # TUI Options
+    # -------------------------------------------------------------------------
+    tui_opts = parser.add_argument_group("TUI Options")
+    tui_opts.add_argument("--tui", action="store_true", help="Force the interactive text UI mode.")
+    tui_opts.add_argument("--no-color", action="store_true", help="Disable ANSI color codes.")
+    tui_opts.add_argument(
         "--tui-compact",
         action="store_true",
         help="Use a compact TUI layout for small consoles.",
     )
-    parser.add_argument(
+    tui_opts.add_argument(
         "--tui-refresh",
         metavar="MS",
         type=int,
         help="Refresh interval for the TUI renderer in milliseconds.",
     )
-    parser.add_argument(
+    tui_opts.add_argument(
         "--limited-user",
         action="store_true",
         help="Run detection and uninstall stages under a limited user token when possible.",
     )
 
-    # Repair-specific arguments
-    parser.add_argument(
+    # -------------------------------------------------------------------------
+    # Retry & Resilience Options
+    # -------------------------------------------------------------------------
+    retry_opts = parser.add_argument_group("Retry & Resilience Options")
+    retry_opts.add_argument(
+        "--retries",
+        type=int,
+        default=9,
+        metavar="N",
+        help="Number of retry attempts per step (default: 9).",
+    )
+    retry_opts.add_argument(
+        "--retry-delay",
+        type=int,
+        default=3,
+        metavar="SEC",
+        help="Base delay between retries in seconds (default: 3).",
+    )
+    retry_opts.add_argument(
+        "--retry-delay-max",
+        type=int,
+        default=30,
+        metavar="SEC",
+        help="Maximum delay between retries in seconds (default: 30).",
+    )
+    retry_opts.add_argument(
+        "--no-reboot",
+        action="store_true",
+        help="Suppress reboot recommendations even if services require it.",
+    )
+    retry_opts.add_argument(
+        "--offline",
+        action="store_true",
+        help="Run in offline mode (no network access for downloads).",
+    )
+
+    # -------------------------------------------------------------------------
+    # Repair Options
+    # -------------------------------------------------------------------------
+    repair_opts = parser.add_argument_group("Repair Options")
+    repair_opts.add_argument(
         "--repair-culture",
         metavar="LANG",
         default="en-us",
         help="Language/culture code for repair (default: en-us).",
     )
-    parser.add_argument(
+    repair_opts.add_argument(
         "--repair-platform",
         choices=["x86", "x64"],
         metavar="ARCH",
         help="Architecture for repair (auto-detected if not specified).",
     )
-    parser.add_argument(
+    repair_opts.add_argument(
         "--repair-visible",
         action="store_true",
         help="Show repair UI instead of running silently.",
     )
+    repair_opts.add_argument(
+        "--repair-timeout",
+        type=int,
+        default=3600,
+        metavar="SEC",
+        help="Timeout for repair operations in seconds (default: 3600).",
+    )
 
-    # OEM configuration presets (bundled XML configs)
-    oem_configs = parser.add_mutually_exclusive_group()
+    # -------------------------------------------------------------------------
+    # OEM Configuration Presets
+    # -------------------------------------------------------------------------
+    oem_opts = parser.add_argument_group("OEM Configuration Presets")
+    oem_configs = oem_opts.add_mutually_exclusive_group()
     oem_configs.add_argument(
         "--oem-config",
         metavar="NAME",
@@ -371,6 +659,105 @@ def build_arg_parser() -> argparse.ArgumentParser:
         dest="oem_config",
         help="Repair Microsoft 365 Business x64 (alias for --oem-config business-x64).",
     )
+
+    # -------------------------------------------------------------------------
+    # OffScrub Legacy Compatibility Flags
+    # -------------------------------------------------------------------------
+    offscrub_opts = parser.add_argument_group(
+        "OffScrub Legacy Compatibility",
+        "Flags for compatibility with legacy OffScrub VBS scripts."
+    )
+    offscrub_opts.add_argument(
+        "--offscrub-all",
+        action="store_true",
+        help="OffScrub /ALL: Remove all detected Office products.",
+    )
+    offscrub_opts.add_argument(
+        "--offscrub-ose",
+        action="store_true",
+        help="OffScrub /OSE: Fix OSE service configuration before uninstall.",
+    )
+    offscrub_opts.add_argument(
+        "--offscrub-offline",
+        action="store_true",
+        help="OffScrub /OFFLINE: Mark C2R config as offline mode.",
+    )
+    offscrub_opts.add_argument(
+        "--offscrub-quiet",
+        action="store_true",
+        help="OffScrub /QUIET: Reduce human log verbosity.",
+    )
+    offscrub_opts.add_argument(
+        "--offscrub-test-rerun",
+        action="store_true",
+        help="OffScrub /TR: Run uninstall passes twice (test rerun).",
+    )
+    offscrub_opts.add_argument(
+        "--offscrub-bypass",
+        action="store_true",
+        help="OffScrub /BYPASS: Bypass certain safety checks.",
+    )
+    offscrub_opts.add_argument(
+        "--offscrub-fast-remove",
+        action="store_true",
+        help="OffScrub /FASTREMOVE: Skip verification probes after uninstall.",
+    )
+    offscrub_opts.add_argument(
+        "--offscrub-scan-components",
+        action="store_true",
+        help="OffScrub /SCANCOMPONENTS: Scan Windows Installer components.",
+    )
+    offscrub_opts.add_argument(
+        "--offscrub-return-error",
+        action="store_true",
+        help="OffScrub /RETERRORSUCCESS: Return error codes instead of success on partial.",
+    )
+
+    # -------------------------------------------------------------------------
+    # Advanced Options
+    # -------------------------------------------------------------------------
+    adv_opts = parser.add_argument_group("Advanced Options")
+    adv_opts.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Skip preflight safety checks (use with caution).",
+    )
+    adv_opts.add_argument(
+        "--skip-backup",
+        action="store_true",
+        help="Skip creating registry and file backups.",
+    )
+    adv_opts.add_argument(
+        "--skip-verification",
+        action="store_true",
+        help="Skip verification probes after uninstall.",
+    )
+    adv_opts.add_argument(
+        "--schedule-reboot",
+        action="store_true",
+        help="Schedule a reboot after completion if recommended.",
+    )
+    adv_opts.add_argument(
+        "--no-schedule-delete",
+        action="store_true",
+        help="Don't use MoveFileEx for locked file deletion on reboot.",
+    )
+    adv_opts.add_argument(
+        "--msiexec-args",
+        metavar="ARGS",
+        help="Additional arguments to pass to msiexec (e.g., '/l*v log.txt').",
+    )
+    adv_opts.add_argument(
+        "--c2r-args",
+        metavar="ARGS",
+        help="Additional arguments to pass to OfficeC2RClient.exe.",
+    )
+    adv_opts.add_argument(
+        "--odt-args",
+        metavar="ARGS",
+        help="Additional arguments to pass to ODT setup.exe.",
+    )
+
     return parser
 
 
@@ -1081,24 +1468,91 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
     @brief Translate parsed CLI arguments into planning options.
     """
 
-    options = {
+    options: dict[str, object] = {
+        # Mode & core
         "mode": mode,
         "dry_run": bool(getattr(args, "dry_run", False)),
         "force": bool(getattr(args, "force", False)),
+        "yes": bool(getattr(args, "yes", False)),
         "include": getattr(args, "include", None),
         "target": getattr(args, "target", None),
         "diagnose": bool(getattr(args, "diagnose", False)),
         "cleanup_only": bool(getattr(args, "cleanup_only", False)),
         "auto_all": bool(getattr(args, "auto_all", False)),
         "allow_unsupported_windows": bool(getattr(args, "allow_unsupported_windows", False)),
+        # Uninstall method
+        "uninstall_method": getattr(args, "uninstall_method", "auto"),
+        "force_app_shutdown": bool(getattr(args, "force_app_shutdown", False)),
+        "no_force_app_shutdown": bool(getattr(args, "no_force_app_shutdown", False)),
+        "product_codes": getattr(args, "product_codes", None),
+        "release_ids": getattr(args, "release_ids", None),
+        # Scrubbing
+        "scrub_level": getattr(args, "scrub_level", "standard"),
+        "max_passes": getattr(args, "max_passes", 3),
+        "skip_processes": bool(getattr(args, "skip_processes", False)),
+        "skip_services": bool(getattr(args, "skip_services", False)),
+        "skip_tasks": bool(getattr(args, "skip_tasks", False)),
+        "skip_registry": bool(getattr(args, "skip_registry", False)),
+        "skip_filesystem": bool(getattr(args, "skip_filesystem", False)),
+        "clean_msocache": bool(getattr(args, "clean_msocache", False)),
+        "clean_appx": bool(getattr(args, "clean_appx", False)),
+        "clean_wi_metadata": bool(getattr(args, "clean_wi_metadata", False)),
+        # License & activation
+        "create_restore_point": not bool(getattr(args, "no_restore_point", False)),
         "no_license": bool(
             getattr(args, "no_license", False) or getattr(args, "keep_license", False)
         ),
         "keep_license": bool(getattr(args, "keep_license", False)),
+        "clean_spp": bool(getattr(args, "clean_spp", False)),
+        "clean_ospp": bool(getattr(args, "clean_ospp", False)),
+        "clean_vnext": bool(getattr(args, "clean_vnext", False)),
+        "clean_all_licenses": bool(getattr(args, "clean_all_licenses", False)),
+        # User data
         "keep_templates": bool(getattr(args, "keep_templates", False)),
+        "keep_user_settings": bool(getattr(args, "keep_user_settings", False)),
+        "delete_user_settings": bool(getattr(args, "delete_user_settings", False)),
+        "keep_outlook_data": bool(getattr(args, "keep_outlook_data", False)),
+        "clean_shortcuts": bool(getattr(args, "clean_shortcuts", False)),
+        "skip_shortcut_detection": bool(getattr(args, "skip_shortcut_detection", False)),
+        # Registry cleanup
+        "clean_addin_registry": bool(getattr(args, "clean_addin_registry", False)),
+        "clean_com_registry": bool(getattr(args, "clean_com_registry", False)),
+        "clean_shell_extensions": bool(getattr(args, "clean_shell_extensions", False)),
+        "clean_typelibs": bool(getattr(args, "clean_typelibs", False)),
+        "clean_protocol_handlers": bool(getattr(args, "clean_protocol_handlers", False)),
+        "remove_vba": bool(getattr(args, "remove_vba", False)),
+        # Output & paths
         "timeout": getattr(args, "timeout", None),
         "backup": getattr(args, "backup", None),
-        "create_restore_point": not bool(getattr(args, "no_restore_point", False)),
+        "verbose": getattr(args, "verbose", 0),
+        # Retry & resilience
+        "retries": getattr(args, "retries", 9),
+        "retry_delay": getattr(args, "retry_delay", 3),
+        "retry_delay_max": getattr(args, "retry_delay_max", 30),
+        "no_reboot": bool(getattr(args, "no_reboot", False)),
+        "offline": bool(getattr(args, "offline", False)),
+        # Advanced
+        "skip_preflight": bool(getattr(args, "skip_preflight", False)),
+        "skip_backup": bool(getattr(args, "skip_backup", False)),
+        "skip_verification": bool(getattr(args, "skip_verification", False)),
+        "schedule_reboot": bool(getattr(args, "schedule_reboot", False)),
+        "no_schedule_delete": bool(getattr(args, "no_schedule_delete", False)),
+        "msiexec_args": getattr(args, "msiexec_args", None),
+        "c2r_args": getattr(args, "c2r_args", None),
+        "odt_args": getattr(args, "odt_args", None),
+        # OffScrub legacy
+        "offscrub_all": bool(getattr(args, "offscrub_all", False)),
+        "offscrub_ose": bool(getattr(args, "offscrub_ose", False)),
+        "offscrub_offline": bool(getattr(args, "offscrub_offline", False)),
+        "offscrub_quiet": bool(getattr(args, "offscrub_quiet", False)),
+        "offscrub_test_rerun": bool(getattr(args, "offscrub_test_rerun", False)),
+        "offscrub_bypass": bool(getattr(args, "offscrub_bypass", False)),
+        "offscrub_fast_remove": bool(getattr(args, "offscrub_fast_remove", False)),
+        "offscrub_scan_components": bool(getattr(args, "offscrub_scan_components", False)),
+        "offscrub_return_error": bool(getattr(args, "offscrub_return_error", False)),
+        # Repair options
+        "repair_timeout": getattr(args, "repair_timeout", 3600),
+        # Miscellaneous
         "limited_user": bool(getattr(args, "limited_user", False)),
     }
     return options

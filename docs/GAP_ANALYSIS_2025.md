@@ -158,6 +158,77 @@ Per spec.md Section 21, workflows are now split into:
 
 ---
 
+## Extensive CLI Arguments ✅
+
+**Status:** COMPLETED in `main.py`
+
+The CLI now supports 100+ arguments across 10 organized groups:
+
+### Mode Selection
+- `--auto-all` - Full detection and scrub
+- `--target VER` - Target specific Office version
+- `--diagnose` - Emit inventory without changes
+- `--cleanup-only` - Skip uninstalls, clean residue only
+- `--repair quick|full` - Repair Office C2R
+
+### Uninstall Method Options
+- `--uninstall-method auto|msi|c2r|odt|offscrub` - Choose uninstall method
+- `--msi-only`, `--c2r-only`, `--use-odt` - Method shortcuts
+- `--force-app-shutdown` - Force close Office apps
+- `--product-code GUID` - Target specific MSI products (repeatable)
+- `--release-id ID` - Target specific C2R release IDs (repeatable)
+
+### Scrubbing Options
+- `--scrub-level minimal|standard|aggressive|nuclear` - Intensity level
+- `--max-passes N` - Maximum uninstall/re-detect cycles
+- `--skip-processes`, `--skip-services`, `--skip-tasks` - Skip cleanup phases
+- `--skip-registry`, `--skip-filesystem` - Skip cleanup categories
+- `--clean-msocache`, `--clean-appx`, `--clean-wi-metadata` - Additional cleanup
+
+### License & Activation
+- `--no-license`, `--keep-license` - Skip license cleanup
+- `--clean-spp`, `--clean-ospp`, `--clean-vnext` - Specific license stores
+- `--clean-all-licenses` - Aggressive all-store cleanup
+
+### User Data Options
+- `--keep-templates`, `--keep-user-settings` - Preserve user data
+- `--delete-user-settings`, `--clean-shortcuts` - Additional cleanup
+- `--keep-outlook-data` - Preserve Outlook profiles
+
+### Registry Cleanup Options
+- `--clean-addin-registry` - Office add-in entries
+- `--clean-com-registry` - Orphaned COM registrations
+- `--clean-shell-extensions`, `--clean-typelibs` - Shell integration
+- `--clean-protocol-handlers` - Protocol handlers (ms-word:, etc.)
+- `--remove-vba` - VBA package cleanup
+
+### Retry & Resilience
+- `--retries N` - Retry attempts per step (default: 9)
+- `--retry-delay SEC`, `--retry-delay-max SEC` - Retry timing
+- `--no-reboot` - Suppress reboot recommendations
+- `--offline` - No network operations
+
+### OffScrub Legacy Compatibility
+- `--offscrub-all` - /ALL flag
+- `--offscrub-ose` - /OSE flag (fix service state)
+- `--offscrub-offline` - /OFFLINE flag
+- `--offscrub-quiet` - /QUIET flag
+- `--offscrub-test-rerun` - /TR flag (double pass)
+- `--offscrub-bypass` - /BYPASS flag
+- `--offscrub-fast-remove` - /FASTREMOVE flag
+- `--offscrub-scan-components` - /SCANCOMPONENTS flag
+
+### Advanced Options
+- `--skip-preflight` - Skip safety checks
+- `--skip-backup`, `--skip-verification` - Skip safety steps
+- `--msiexec-args`, `--c2r-args`, `--odt-args` - Custom arguments
+
+### Test Coverage
+- 34 new tests in `TestCLIArgumentsIntoPlanOptions`
+- 459 total tests passing (21 new)
+
+---
+
 ## Minor Gaps Remaining
 
 ### 1. TUI Widget Audit (Low Priority)
@@ -269,5 +340,5 @@ Optional improvements:
 
 ---
 
-*Document Version: 2025-01 (Updated)*
-*Based on 438 passing tests*
+*Document Version: 2025-01 (Updated January 2026)*
+*Based on 459 passing tests*
