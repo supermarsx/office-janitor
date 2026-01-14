@@ -1,8 +1,8 @@
 """!
 @brief Global persistent spinner for showing current task status.
-@details Provides a spinner that always shows the current operation at the
-bottom of the console output. The spinner redraws after log lines and updates
-to show the current task name with elapsed time.
+@details Provides a dedicated status line at the bottom of the console that
+never interferes with log output. Uses ANSI escape sequences to maintain
+a separate scrolling region for logs above the status line.
 
 Also provides SIGINT (Ctrl+C) handling for instant termination, including
 killing any tracked subprocesses.
@@ -43,7 +43,6 @@ def check_cancelled() -> None:
 
 
 # Spinner animation frames - use ASCII-safe characters for Windows compatibility
-# Traditional spinner: | / - \
 _SPINNER_FRAMES = ("|", "/", "-", "\\")
 
 # Global spinner state
@@ -51,14 +50,13 @@ _spinner_lock = threading.Lock()
 _current_task: str | None = None
 _task_start_time: float = 0.0
 _spinner_idx: int = 0
-_last_line_len: int = 0
 _spinner_enabled: bool = True
 _spinner_thread: threading.Thread | None = None
 _spinner_stop_event: threading.Event | None = None
-_last_output_time: float = 0.0  # Timestamp of last output - suppress spinner briefly after
+_status_line_active: bool = False  # Whether we've reserved a line for status
+_output_paused: bool = False  # Whether output is paused (status line cleared for logging)
 
 # Track active subprocesses for cleanup on SIGINT
-# Use Any for Popen type param since it's constrained to bytes|str
 _active_processes: set[subprocess.Popen[Any]] = set()
 _process_lock = threading.Lock()
 
@@ -81,46 +79,75 @@ def _format_elapsed(seconds: float) -> str:
         return f"{hours}h {mins}m" if mins else f"{hours}h"
 
 
-def _clear_line() -> None:
-    """Clear the current spinner line from console."""
-    global _last_line_len
-    if _last_line_len > 0:
-        # Use ANSI escape: \x1b[2K clears entire line, \r returns to start
-        sys.stdout.write(f"\x1b[2K\r")
-        sys.stdout.flush()
-        _last_line_len = 0
+def _get_terminal_width() -> int:
+    """Get terminal width, defaulting to 80 if unknown."""
+    try:
+        import shutil
+        return shutil.get_terminal_size().columns
+    except Exception:
+        return 80
 
 
-def _draw_spinner() -> None:
-    """Draw the spinner line showing current task."""
-    global _spinner_idx, _last_line_len
+def _get_terminal_height() -> int:
+    """Get terminal height, defaulting to 24 if unknown."""
+    try:
+        import shutil
+        return shutil.get_terminal_size().lines
+    except Exception:
+        return 24
+
+
+def _draw_status_line() -> None:
+    """Draw the status line at the very bottom of the terminal."""
+    global _status_line_active
 
     if not _spinner_enabled or _current_task is None:
         return
 
     frame = _SPINNER_FRAMES[_spinner_idx % len(_SPINNER_FRAMES)]
-    _spinner_idx += 1
 
     elapsed = time.monotonic() - _task_start_time
     elapsed_str = _format_elapsed(elapsed)
 
-    line = f"{frame} Working on: {_current_task}... ({elapsed_str})"
+    status = f"{frame} Working on: {_current_task}... ({elapsed_str})"
+    
+    # Truncate if too long for terminal
+    width = _get_terminal_width()
+    if len(status) > width - 1:
+        status = status[:width - 4] + "..."
 
-    sys.stdout.write(f"\r{line}")
+    # Use simpler approach: just overwrite current line with \r
+    # The key is we print on a SEPARATE line that we control
+    if _status_line_active:
+        # Already on status line, just update it
+        sys.stdout.write(f"\r\x1b[2K\x1b[36m{status}\x1b[0m")
+    else:
+        # First time - move to new line for status
+        sys.stdout.write(f"\n\x1b[36m{status}\x1b[0m")
+        _status_line_active = True
     sys.stdout.flush()
-    _last_line_len = len(line)
+
+
+def _clear_status_line() -> None:
+    """Clear the status line and move cursor back up."""
+    global _status_line_active
+    
+    if _status_line_active:
+        # Clear the status line and move cursor up
+        sys.stdout.write("\r\x1b[2K\x1b[1A")
+        sys.stdout.flush()
+        _status_line_active = False
 
 
 def _spinner_loop() -> None:
     """Background thread loop that updates the spinner."""
+    global _spinner_idx
+    
     while _spinner_stop_event is not None and not _spinner_stop_event.is_set():
         with _spinner_lock:
-            # Only draw if:
-            # 1. There's a task set
-            # 2. At least 250ms since last output (prevents drawing between log lines)
-            time_since_output = time.monotonic() - _last_output_time
-            if _current_task is not None and time_since_output > 0.25:
-                _draw_spinner()
+            if _current_task is not None and _spinner_enabled and not _output_paused:
+                _spinner_idx += 1
+                _draw_status_line()
         _spinner_stop_event.wait(0.1)  # Update every 100ms
 
 
@@ -138,9 +165,9 @@ def _sigint_handler(signum: int, frame: object) -> None:
     # Set the cancellation flag FIRST - this unblocks waiting operations
     request_cancellation()
 
-    # Clear spinner line
+    # Clear status line
     with _spinner_lock:
-        _clear_line()
+        _clear_status_line()
 
     # Print cancellation message
     sys.stdout.write("\n\033[33m[INTERRUPTED]\033[0m Ctrl+C received, terminating...\n")
@@ -278,13 +305,14 @@ def set_task(task_name: str | None) -> None:
     global _current_task, _task_start_time, _spinner_idx
 
     with _spinner_lock:
-        _clear_line()
+        if task_name is None:
+            _clear_status_line()
         _current_task = task_name
         if task_name is not None:
             _task_start_time = time.monotonic()
             _spinner_idx = 0
-            # Don't draw immediately - let the spinner thread handle it
-            # This keeps all drawing in one place and prevents flicker
+            # Draw immediately so status appears right away
+            _draw_status_line()
 
 
 def clear_task() -> None:
@@ -294,35 +322,33 @@ def clear_task() -> None:
 
 def pause_for_output() -> None:
     """
-    Temporarily clear spinner for other output.
-    Call resume_after_output() after printing.
+    Temporarily clear the status line so log output can print cleanly.
+    Call resume_after_output() when done printing.
     """
-    global _last_output_time
+    global _output_paused
     with _spinner_lock:
-        _clear_line()
-        _last_output_time = time.monotonic()  # Record when output happened
+        if not _output_paused:
+            _clear_status_line()
+            _output_paused = True
 
 
 def resume_after_output() -> None:
     """
-    Signal that output is done. Spinner will redraw on its next tick.
-    Does NOT immediately redraw - lets spinner thread handle it for cleaner output.
+    Redraw the status line after log output is complete.
     """
-    # Don't redraw here - let the spinner thread handle it on its next 100ms tick
-    # This prevents spinner from appearing between rapid log lines
-    pass
+    global _output_paused
+    with _spinner_lock:
+        if _output_paused:
+            _output_paused = False
+            if _current_task is not None:
+                _draw_status_line()
 
 
 def spinner_print(message: str, **kwargs: object) -> None:
     """
-    Print a message while preserving the spinner.
-    Clears spinner, prints message. Spinner redraws on next tick.
+    Print a message. Status line stays at bottom automatically.
     """
-    global _last_output_time
-    with _spinner_lock:
-        _clear_line()
-        _last_output_time = time.monotonic()
-        print(message, **kwargs)
+    print(message, **kwargs)
 
 
 def enable_spinner(enabled: bool = True) -> None:
@@ -330,7 +356,7 @@ def enable_spinner(enabled: bool = True) -> None:
     global _spinner_enabled
     with _spinner_lock:
         if not enabled:
-            _clear_line()
+            _clear_status_line()
         _spinner_enabled = enabled
 
 
@@ -405,7 +431,7 @@ class SpinnerTask:
 def _cleanup_spinner() -> None:
     """Cleanup spinner on program exit."""
     with _spinner_lock:
-        _clear_line()
+        _clear_status_line()
     stop_spinner_thread()
 
 
