@@ -275,15 +275,46 @@ def run_command(
 
     start = time.monotonic()
     try:
-        completed = subprocess.run(  # noqa: S603 - intentional command execution
+        # Use Popen with polling instead of run() for interruptibility
+        proc = subprocess.Popen(  # noqa: S603 - intentional command execution
             command_list,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=effective_timeout,
-            check=False,
             env=sanitized_env,
             cwd=cwd,
         )
+        
+        # Poll loop - allows SIGINT to be processed between iterations
+        stdout_data = ""
+        stderr_data = ""
+        while True:
+            try:
+                # Short timeout allows signal handling between polls
+                stdout_data, stderr_data = proc.communicate(timeout=0.1)
+                break  # Process finished
+            except subprocess.TimeoutExpired:
+                # Check if we've exceeded our timeout
+                if effective_timeout is not None:
+                    elapsed = time.monotonic() - start
+                    if elapsed >= effective_timeout:
+                        proc.kill()
+                        proc.wait()
+                        raise subprocess.TimeoutExpired(
+                            command_list, effective_timeout,
+                            output=stdout_data, stderr=stderr_data
+                        )
+                # Otherwise continue polling
+                continue
+        
+        # Build a result object similar to subprocess.run
+        class _CompletedProcess:
+            def __init__(self) -> None:
+                self.returncode = proc.returncode
+                self.stdout = stdout_data
+                self.stderr = stderr_data
+        
+        completed = _CompletedProcess()
     except FileNotFoundError as exc:
         duration = time.monotonic() - start
         human_logger.error("Command not found: %s", command_list[0])

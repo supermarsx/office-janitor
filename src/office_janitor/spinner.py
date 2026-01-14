@@ -33,6 +33,7 @@ _spinner_enabled: bool = True
 _spinner_thread: threading.Thread | None = None
 _spinner_stop_event: threading.Event | None = None
 _output_in_progress: bool = False  # Flag to suppress spinner during rapid output
+_last_output_time: float = 0.0  # Timestamp of last output - suppress spinner briefly after
 
 # Track active subprocesses for cleanup on SIGINT
 # Use Any for Popen type param since it's constrained to bytes|str
@@ -62,7 +63,8 @@ def _clear_line() -> None:
     """Clear the current spinner line from console."""
     global _last_line_len
     if _last_line_len > 0:
-        sys.stdout.write(f"\r{' ' * _last_line_len}\r")
+        # Use ANSI escape: \x1b[2K clears entire line, \r returns to start
+        sys.stdout.write(f"\x1b[2K\r")
         sys.stdout.flush()
         _last_line_len = 0
 
@@ -92,8 +94,14 @@ def _spinner_loop() -> None:
     global _output_in_progress
     while _spinner_stop_event is not None and not _spinner_stop_event.is_set():
         with _spinner_lock:
-            # Only draw if there's a task and no output is happening
-            if _current_task is not None and not _output_in_progress:
+            # Only draw if:
+            # 1. There's a task set
+            # 2. No output is currently happening
+            # 3. At least 150ms since last output (prevents drawing between log lines)
+            time_since_output = time.monotonic() - _last_output_time
+            if (_current_task is not None 
+                and not _output_in_progress 
+                and time_since_output > 0.15):
                 _draw_spinner()
             # Reset the output flag - if no new output in this tick, we can draw next time
             _output_in_progress = False
@@ -118,32 +126,23 @@ def _sigint_handler(signum: int, frame: object) -> None:
     # Print cancellation message
     print("\n\033[33m[INTERRUPTED]\033[0m Ctrl+C received, terminating...", flush=True)
     
-    # Kill all tracked subprocesses
+    # Kill all tracked subprocesses immediately (no waiting)
     with _process_lock:
         if _active_processes:
-            print(f"Terminating {len(_active_processes)} active subprocess(es)...", flush=True)
             for proc in list(_active_processes):
                 try:
                     if proc.poll() is None:  # Still running
-                        # On Windows, terminate() sends SIGTERM equivalent
-                        proc.terminate()
-                        try:
-                            proc.wait(timeout=2.0)
-                        except subprocess.TimeoutExpired:
-                            # Force kill if terminate didn't work
-                            proc.kill()
-                            proc.wait(timeout=1.0)
+                        proc.kill()  # Immediate kill, no graceful terminate
                 except Exception:
                     pass  # Best effort cleanup
             _active_processes.clear()
     
-    # Stop spinner thread
-    stop_spinner_thread()
+    # Don't wait for spinner thread - just exit
+    if _spinner_stop_event is not None:
+        _spinner_stop_event.set()
     
-    print("Exiting.", flush=True)
-    
-    # Exit with interrupted status code
-    sys.exit(130)  # 128 + SIGINT(2)
+    # Exit immediately
+    os._exit(130)  # 128 + SIGINT(2) - immediate exit, no cleanup
 
 
 def install_sigint_handler() -> None:
@@ -283,10 +282,11 @@ def pause_for_output() -> None:
     Temporarily clear spinner for other output.
     Call resume_after_output() after printing.
     """
-    global _output_in_progress
+    global _output_in_progress, _last_output_time
     with _spinner_lock:
         _clear_line()
         _output_in_progress = True  # Signal that output is happening
+        _last_output_time = time.monotonic()  # Record when output happened
 
 
 def resume_after_output() -> None:
@@ -304,10 +304,11 @@ def spinner_print(message: str, **kwargs: object) -> None:
     Print a message while preserving the spinner.
     Clears spinner, prints message. Spinner redraws on next tick.
     """
-    global _output_in_progress
+    global _output_in_progress, _last_output_time
     with _spinner_lock:
         _clear_line()
         _output_in_progress = True
+        _last_output_time = time.monotonic()
         print(message, **kwargs)
 
 
