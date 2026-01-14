@@ -1815,9 +1815,7 @@ class TestConfigFile:
     def test_config_boolean_flags(self, tmp_path) -> None:
         """Test config file boolean flags are properly converted."""
         config = tmp_path / "config.json"
-        config.write_text(
-            '{"force": true, "clean-msocache": true, "skip-registry": true}'
-        )
+        config.write_text('{"force": true, "clean-msocache": true, "skip-registry": true}')
 
         parser = main.build_arg_parser()
         args = parser.parse_args(["--auto-all", "--config", str(config)])

@@ -1666,8 +1666,7 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
             or not _get("no_restore_point", False, is_bool=True)
         ),
         "no_license": (
-            _get("no_license", False, is_bool=True)
-            or _get("keep_license", False, is_bool=True)
+            _get("no_license", False, is_bool=True) or _get("keep_license", False, is_bool=True)
         ),
         "keep_license": _get("keep_license", False, is_bool=True),
         "clean_spp": _get("clean_spp", False, is_bool=True),

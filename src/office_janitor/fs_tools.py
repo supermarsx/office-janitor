@@ -475,11 +475,11 @@ def remove_paths(paths: Iterable[Path | str], *, dry_run: bool = False) -> None:
 
     for idx, raw in enumerate(path_list, 1):
         target = Path(raw)
-        
+
         # Update spinner with current path being cleaned
         short_path = target.name if len(str(target)) > 50 else str(target)
         spinner.set_task(f"Cleaning {short_path} ({idx}/{total_paths})")
-        
+
         machine_logger.info(
             "filesystem_remove_plan",
             extra={

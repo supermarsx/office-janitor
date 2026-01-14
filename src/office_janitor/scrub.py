@@ -530,13 +530,13 @@ class StepExecutor:
                     product_name = str(product)
                     product_code = ""
                     product_version = ""
-                
+
                 _scrub_progress(f"Uninstalling MSI product: {product_name}", indent=3)
                 if product_code:
                     _scrub_progress(f"  Product code: {product_code}", indent=3)
                 if product_version:
                     _scrub_progress(f"  Version: {product_version}", indent=3)
-                
+
                 force = bool(metadata.get("force", False))
                 if force:
                     # Force mode: terminate Office processes before MSI uninstall
@@ -555,7 +555,9 @@ class StepExecutor:
                 # Extract detailed C2R info for logging
                 if isinstance(installation, dict):
                     release_id = installation.get("release_id") or "Unknown"
-                    display_name = installation.get("display_name") or installation.get("name") or ""
+                    display_name = (
+                        installation.get("display_name") or installation.get("name") or ""
+                    )
                     version = installation.get("version") or ""
                     channel = installation.get("channel") or ""
                     install_path = installation.get("install_path") or ""
@@ -565,7 +567,7 @@ class StepExecutor:
                     version = ""
                     channel = ""
                     install_path = ""
-                
+
                 _scrub_progress(f"Uninstalling Click-to-Run: {release_id}", indent=3)
                 if display_name and display_name != release_id:
                     _scrub_progress(f"  Display name: {display_name}", indent=3)
@@ -575,7 +577,7 @@ class StepExecutor:
                     _scrub_progress(f"  Channel: {channel}", indent=3)
                 if install_path:
                     _scrub_progress(f"  Install path: {install_path}", indent=3)
-                
+
                 force = bool(metadata.get("force", False))
                 if force:
                     _scrub_progress("Force mode enabled for C2R uninstall", indent=3)
@@ -929,7 +931,9 @@ def execute_plan(
 
             _scrub_progress("Re-probing inventory for next pass...", indent=1)
             inventory = detect.reprobe(base_options)
-            next_plan_raw = plan_module.build_plan(inventory, base_options, pass_index=current_pass + 1)
+            next_plan_raw = plan_module.build_plan(
+                inventory, base_options, pass_index=current_pass + 1
+            )
             next_plan = [dict(step) for step in next_plan_raw]
 
             if not _has_uninstall_steps(next_plan):
@@ -1403,7 +1407,9 @@ def _perform_filesystem_cleanup(
         _scrub_progress("Removing Office shortcuts from Start Menu and Desktop...", indent=3)
         try:
             shortcut_count = fs_tools.cleanup_office_shortcuts(dry_run=dry_run)
-            _scrub_progress(f"Shortcut cleanup complete: {shortcut_count} shortcuts removed", indent=3)
+            _scrub_progress(
+                f"Shortcut cleanup complete: {shortcut_count} shortcuts removed", indent=3
+            )
         except Exception as exc:  # pragma: no cover - defensive
             human_logger.warning("Shortcut cleanup encountered an error: %s", exc)
 
