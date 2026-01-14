@@ -256,24 +256,41 @@ def build_plan(
     skip_filesystem = bool(normalized_options.get("skip_filesystem", False))
     skip_registry = bool(normalized_options.get("skip_registry", False))
 
-    # Extract license cleanup granularity flags
-    clean_spp = bool(normalized_options.get("clean_spp", False))
-    clean_ospp = bool(normalized_options.get("clean_ospp", False))
-    clean_vnext = bool(normalized_options.get("clean_vnext", False))
-    clean_all_licenses = bool(normalized_options.get("clean_all_licenses", False))
+    # Scrub level determines default cleanup intensity
+    # - minimal: uninstall only, no cleanup
+    # - standard: uninstall + detected residue (default)
+    # - aggressive: + deep registry, shortcuts, com cleanup
+    # - nuclear: EVERYTHING (AppX, MSOCache, WI metadata, all licenses, VBA, etc.)
+    scrub_level = str(normalized_options.get("scrub_level", "standard")).lower()
+    is_aggressive = scrub_level in ("aggressive", "nuclear")
+    is_nuclear = scrub_level == "nuclear"
 
-    # Extract extended cleanup flags
-    clean_msocache = bool(normalized_options.get("clean_msocache", False))
-    clean_appx = bool(normalized_options.get("clean_appx", False))
-    clean_wi_metadata = bool(normalized_options.get("clean_wi_metadata", False))
+    # For minimal scrub, skip all cleanup
+    if scrub_level == "minimal":
+        skip_tasks = True
+        skip_services = True
+        skip_filesystem = True
+        skip_registry = True
 
-    # Extract registry cleanup granularity flags
-    clean_addin_registry = bool(normalized_options.get("clean_addin_registry", False))
-    clean_com_registry = bool(normalized_options.get("clean_com_registry", False))
-    clean_shell_extensions = bool(normalized_options.get("clean_shell_extensions", False))
-    clean_typelibs = bool(normalized_options.get("clean_typelibs", False))
-    clean_protocol_handlers = bool(normalized_options.get("clean_protocol_handlers", False))
-    remove_vba = bool(normalized_options.get("remove_vba", False))
+    # Extract license cleanup granularity flags - nuclear enables all
+    clean_spp = is_nuclear or bool(normalized_options.get("clean_spp", False))
+    clean_ospp = is_nuclear or bool(normalized_options.get("clean_ospp", False))
+    clean_vnext = is_nuclear or bool(normalized_options.get("clean_vnext", False))
+    clean_all_licenses = is_nuclear or bool(normalized_options.get("clean_all_licenses", False))
+
+    # Extract extended cleanup flags - nuclear enables all, aggressive enables some
+    clean_msocache = is_nuclear or bool(normalized_options.get("clean_msocache", False))
+    clean_appx = is_nuclear or bool(normalized_options.get("clean_appx", False))
+    clean_wi_metadata = is_nuclear or bool(normalized_options.get("clean_wi_metadata", False))
+    clean_shortcuts = is_aggressive or bool(normalized_options.get("clean_shortcuts", False))
+
+    # Extract registry cleanup granularity flags - aggressive/nuclear enable more
+    clean_addin_registry = is_aggressive or bool(normalized_options.get("clean_addin_registry", False))
+    clean_com_registry = is_aggressive or bool(normalized_options.get("clean_com_registry", False))
+    clean_shell_extensions = is_aggressive or bool(normalized_options.get("clean_shell_extensions", False))
+    clean_typelibs = is_nuclear or bool(normalized_options.get("clean_typelibs", False))
+    clean_protocol_handlers = is_nuclear or bool(normalized_options.get("clean_protocol_handlers", False))
+    remove_vba = is_nuclear or bool(normalized_options.get("remove_vba", False))
 
     if (not diagnose_mode) and not (
         normalized_options.get("no_license", False) or normalized_options.get("keep_license", False)
@@ -354,7 +371,7 @@ def build_plan(
         if (diagnose_mode or skip_filesystem)
         else _collect_paths(planning_inventory.get("filesystem", []))
     )
-    if filesystem_entries or clean_msocache or clean_appx:
+    if filesystem_entries or clean_msocache or clean_appx or clean_shortcuts:
         plan.append(
             {
                 "id": f"filesystem-{pass_index}-0",
@@ -369,6 +386,7 @@ def build_plan(
                     "dry_run": dry_run,
                     "clean_msocache": clean_msocache,
                     "clean_appx": clean_appx,
+                    "clean_shortcuts": clean_shortcuts,
                     "retries": retries,
                     "retry_delay": retry_delay,
                 },
@@ -411,6 +429,58 @@ def build_plan(
                     "clean_protocol_handlers": clean_protocol_handlers,
                     "remove_vba": remove_vba,
                     "clean_wi_metadata": clean_wi_metadata,
+                    "retries": retries,
+                    "retry_delay": retry_delay,
+                },
+            }
+        )
+        cleanup_dependencies = [f"registry-{pass_index}-0"]
+
+    # vNext identity cleanup (aggressive/nuclear or explicit)
+    if not diagnose_mode and (is_aggressive or clean_vnext):
+        plan.append(
+            {
+                "id": f"vnext-identity-{pass_index}-0",
+                "category": "vnext-identity-cleanup",
+                "description": "Clean vNext identity and device licensing registry.",
+                "depends_on": cleanup_dependencies,
+                "metadata": {
+                    "dry_run": dry_run,
+                    "retries": retries,
+                    "retry_delay": retry_delay,
+                },
+            }
+        )
+        cleanup_dependencies = [f"vnext-identity-{pass_index}-0"]
+
+    # Taskband cleanup (nuclear or explicit)
+    if not diagnose_mode and is_nuclear:
+        plan.append(
+            {
+                "id": f"taskband-{pass_index}-0",
+                "category": "taskband-cleanup",
+                "description": "Clean Office pinned items from taskbar.",
+                "depends_on": cleanup_dependencies,
+                "metadata": {
+                    "include_all_users": True,
+                    "dry_run": dry_run,
+                    "retries": retries,
+                    "retry_delay": retry_delay,
+                },
+            }
+        )
+        cleanup_dependencies = [f"taskband-{pass_index}-0"]
+
+    # Published components cleanup (nuclear only - potentially dangerous)
+    if not diagnose_mode and is_nuclear:
+        plan.append(
+            {
+                "id": f"published-components-{pass_index}-0",
+                "category": "published-components-cleanup",
+                "description": "Clean Office entries from Windows Installer published components.",
+                "depends_on": cleanup_dependencies,
+                "metadata": {
+                    "dry_run": dry_run,
                     "retries": retries,
                     "retry_delay": retry_delay,
                 },

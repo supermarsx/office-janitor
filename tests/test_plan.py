@@ -651,3 +651,353 @@ class TestPlanBuilder:
         plan_steps = plan.build_plan(inventory, options)
         categories = {step["category"] for step in plan_steps}
         assert "licensing-cleanup" not in categories
+
+
+class TestSkipFlagsIntegration:
+    """!
+    @brief Validate skip flags properly exclude cleanup steps from the plan.
+    """
+
+    def test_skip_tasks_excludes_task_cleanup_step(self) -> None:
+        """!
+        @brief skip_tasks=True should omit task-cleanup from plan even with tasks in inventory.
+        """
+        inventory: dict[str, list[dict]] = {
+            "tasks": [{"task": r"\\Microsoft\\Office\\TelemetryTask"}],
+            "filesystem": [],
+        }
+        options = {"auto_all": True, "skip_tasks": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = {step["category"] for step in plan_steps}
+        assert "task-cleanup" not in categories
+
+    def test_skip_services_excludes_service_cleanup_step(self) -> None:
+        """!
+        @brief skip_services=True should omit service-cleanup from plan.
+        """
+        inventory: dict[str, list[dict]] = {
+            "services": [{"name": "ClickToRunSvc"}],
+            "filesystem": [],
+        }
+        options = {"auto_all": True, "skip_services": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = {step["category"] for step in plan_steps}
+        assert "service-cleanup" not in categories
+
+    def test_skip_filesystem_excludes_filesystem_cleanup_step(self) -> None:
+        """!
+        @brief skip_filesystem=True should omit filesystem-cleanup from plan.
+        """
+        inventory: dict[str, list[dict]] = {
+            "filesystem": [{"path": r"C:\\Program Files\\Microsoft Office"}],
+        }
+        options = {"auto_all": True, "skip_filesystem": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = {step["category"] for step in plan_steps}
+        assert "filesystem-cleanup" not in categories
+
+    def test_skip_registry_excludes_registry_cleanup_step(self) -> None:
+        """!
+        @brief skip_registry=True should omit registry-cleanup from plan.
+        """
+        inventory: dict[str, list[dict]] = {
+            "registry": [{"path": r"HKLM\\SOFTWARE\\Microsoft\\Office"}],
+        }
+        options = {"auto_all": True, "skip_registry": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = {step["category"] for step in plan_steps}
+        assert "registry-cleanup" not in categories
+
+    def test_multiple_skip_flags_combine(self) -> None:
+        """!
+        @brief Multiple skip flags should all be honored simultaneously.
+        """
+        inventory: dict[str, list[dict]] = {
+            "tasks": [{"task": r"\\Office\\Task"}],
+            "services": [{"name": "OfficeSvc"}],
+            "filesystem": [{"path": r"C:\\Office"}],
+            "registry": [{"path": r"HKLM\\Office"}],
+        }
+        options = {
+            "auto_all": True,
+            "skip_tasks": True,
+            "skip_services": True,
+            "skip_filesystem": True,
+            "skip_registry": True,
+        }
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = {step["category"] for step in plan_steps}
+        assert "task-cleanup" not in categories
+        assert "service-cleanup" not in categories
+        assert "filesystem-cleanup" not in categories
+        assert "registry-cleanup" not in categories
+
+
+class TestUninstallMethodFiltering:
+    """!
+    @brief Validate uninstall_method option filters MSI vs C2R steps.
+    """
+
+    def test_uninstall_method_msi_only(self) -> None:
+        """!
+        @brief uninstall_method='msi' should exclude C2R steps.
+        """
+        inventory: dict[str, list[dict]] = {
+            "msi": [
+                {"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}
+            ],
+            "c2r": [{"release_ids": ["O365ProPlusRetail"], "version": "365"}],
+        }
+        options = {"auto_all": True, "uninstall_method": "msi"}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = [step["category"] for step in plan_steps]
+        assert "msi-uninstall" in categories
+        assert "c2r-uninstall" not in categories
+
+    def test_uninstall_method_c2r_only(self) -> None:
+        """!
+        @brief uninstall_method='c2r' should exclude MSI steps.
+        """
+        inventory: dict[str, list[dict]] = {
+            "msi": [
+                {"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}
+            ],
+            "c2r": [{"release_ids": ["O365ProPlusRetail"], "version": "365"}],
+        }
+        options = {"auto_all": True, "uninstall_method": "c2r"}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = [step["category"] for step in plan_steps]
+        assert "msi-uninstall" not in categories
+        assert "c2r-uninstall" in categories
+
+    def test_uninstall_method_auto_includes_both(self) -> None:
+        """!
+        @brief uninstall_method='auto' (default) should include both MSI and C2R.
+        """
+        inventory: dict[str, list[dict]] = {
+            "msi": [
+                {"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}
+            ],
+            "c2r": [{"release_ids": ["O365ProPlusRetail"], "version": "365"}],
+        }
+        options = {"auto_all": True, "uninstall_method": "auto"}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = [step["category"] for step in plan_steps]
+        assert "msi-uninstall" in categories
+        assert "c2r-uninstall" in categories
+
+
+class TestExtendedCleanupOptions:
+    """!
+    @brief Validate extended cleanup flags are passed through to step metadata.
+    """
+
+    def test_clean_msocache_in_filesystem_metadata(self) -> None:
+        """!
+        @brief clean_msocache flag should be set in filesystem-cleanup metadata.
+        """
+        inventory: dict[str, list[dict]] = {}
+        options = {"auto_all": True, "clean_msocache": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+        fs_step = next(
+            (s for s in plan_steps if s["category"] == "filesystem-cleanup"), None
+        )
+        assert fs_step is not None
+        assert fs_step["metadata"]["clean_msocache"] is True
+
+    def test_clean_appx_in_filesystem_metadata(self) -> None:
+        """!
+        @brief clean_appx flag should be set in filesystem-cleanup metadata.
+        """
+        inventory: dict[str, list[dict]] = {}
+        options = {"auto_all": True, "clean_appx": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+        fs_step = next(
+            (s for s in plan_steps if s["category"] == "filesystem-cleanup"), None
+        )
+        assert fs_step is not None
+        assert fs_step["metadata"]["clean_appx"] is True
+
+    def test_license_granularity_flags_in_metadata(self) -> None:
+        """!
+        @brief License cleanup flags should appear in licensing-cleanup metadata.
+        """
+        inventory: dict[str, list[dict]] = {}
+        options = {
+            "auto_all": True,
+            "clean_spp": True,
+            "clean_ospp": True,
+            "clean_vnext": True,
+        }
+
+        plan_steps = plan.build_plan(inventory, options)
+        lic_step = next(
+            (s for s in plan_steps if s["category"] == "licensing-cleanup"), None
+        )
+        assert lic_step is not None
+        assert lic_step["metadata"]["clean_spp"] is True
+        assert lic_step["metadata"]["clean_ospp"] is True
+        assert lic_step["metadata"]["clean_vnext"] is True
+
+    def test_registry_cleanup_flags_in_metadata(self) -> None:
+        """!
+        @brief Extended registry cleanup flags should appear in registry-cleanup metadata.
+        """
+        inventory: dict[str, list[dict]] = {}
+        options = {
+            "auto_all": True,
+            "clean_wi_metadata": True,
+            "remove_vba": True,
+            "clean_com_registry": True,
+        }
+
+        plan_steps = plan.build_plan(inventory, options)
+        reg_step = next(
+            (s for s in plan_steps if s["category"] == "registry-cleanup"), None
+        )
+        assert reg_step is not None
+        assert reg_step["metadata"]["clean_wi_metadata"] is True
+        assert reg_step["metadata"]["remove_vba"] is True
+        assert reg_step["metadata"]["clean_com_registry"] is True
+
+    def test_retry_options_in_uninstall_metadata(self) -> None:
+        """!
+        @brief Retry options should be propagated to uninstall step metadata.
+        """
+        inventory: dict[str, list[dict]] = {
+            "msi": [
+                {"product_code": "{12345}", "display_name": "Office 2019", "version": "2019"}
+            ],
+        }
+        options = {"auto_all": True, "retries": 5, "retry_delay": 10}
+
+        plan_steps = plan.build_plan(inventory, options)
+        msi_step = next(
+            (s for s in plan_steps if s["category"] == "msi-uninstall"), None
+        )
+        assert msi_step is not None
+        assert msi_step["metadata"]["retries"] == 5
+        assert msi_step["metadata"]["retry_delay"] == 10
+
+
+class TestScrubLevelBehavior:
+    """!
+    @brief Validate scrub_level controls cleanup intensity.
+    """
+
+    def test_scrub_level_minimal_skips_all_cleanup(self) -> None:
+        """!
+        @brief scrub_level='minimal' should skip all cleanup steps.
+        """
+        inventory: dict[str, list[dict]] = {
+            "tasks": [{"task": r"\\Office\\Task"}],
+            "services": [{"name": "OfficeSvc"}],
+            "filesystem": [{"path": r"C:\\Office"}],
+            "registry": [{"path": r"HKLM\\Office"}],
+        }
+        options = {"auto_all": True, "scrub_level": "minimal"}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = {step["category"] for step in plan_steps}
+        # Minimal should skip all cleanup
+        assert "task-cleanup" not in categories
+        assert "service-cleanup" not in categories
+        assert "filesystem-cleanup" not in categories
+        assert "registry-cleanup" not in categories
+
+    def test_scrub_level_standard_includes_detected_residue(self) -> None:
+        """!
+        @brief scrub_level='standard' (default) includes detected cleanup items.
+        """
+        inventory: dict[str, list[dict]] = {
+            "tasks": [{"task": r"\\Office\\Task"}],
+            "filesystem": [{"path": r"C:\\Office"}],
+        }
+        options = {"auto_all": True, "scrub_level": "standard"}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = {step["category"] for step in plan_steps}
+        assert "task-cleanup" in categories
+        assert "filesystem-cleanup" in categories
+
+    def test_scrub_level_aggressive_enables_deep_cleanup(self) -> None:
+        """!
+        @brief scrub_level='aggressive' enables shortcuts, COM, shell extensions.
+        """
+        inventory: dict[str, list[dict]] = {}
+        options = {"auto_all": True, "scrub_level": "aggressive"}
+
+        plan_steps = plan.build_plan(inventory, options)
+
+        # Aggressive should auto-enable shortcuts
+        fs_step = next(
+            (s for s in plan_steps if s["category"] == "filesystem-cleanup"), None
+        )
+        assert fs_step is not None
+        assert fs_step["metadata"]["clean_shortcuts"] is True
+
+        # Aggressive should auto-enable registry cleanup options
+        reg_step = next(
+            (s for s in plan_steps if s["category"] == "registry-cleanup"), None
+        )
+        assert reg_step is not None
+        assert reg_step["metadata"]["clean_addin_registry"] is True
+        assert reg_step["metadata"]["clean_com_registry"] is True
+        assert reg_step["metadata"]["clean_shell_extensions"] is True
+
+        # Aggressive should add vnext-identity-cleanup
+        assert any(s["category"] == "vnext-identity-cleanup" for s in plan_steps)
+
+    def test_scrub_level_nuclear_enables_everything(self) -> None:
+        """!
+        @brief scrub_level='nuclear' enables ALL cleanup operations.
+        """
+        inventory: dict[str, list[dict]] = {}
+        options = {"auto_all": True, "scrub_level": "nuclear"}
+
+        plan_steps = plan.build_plan(inventory, options)
+        categories = {step["category"] for step in plan_steps}
+
+        # Nuclear should include advanced cleanup steps
+        assert "vnext-identity-cleanup" in categories
+        assert "taskband-cleanup" in categories
+        assert "published-components-cleanup" in categories
+
+        # Nuclear should enable all filesystem cleanup options
+        fs_step = next(
+            (s for s in plan_steps if s["category"] == "filesystem-cleanup"), None
+        )
+        assert fs_step is not None
+        assert fs_step["metadata"]["clean_msocache"] is True
+        assert fs_step["metadata"]["clean_appx"] is True
+        assert fs_step["metadata"]["clean_shortcuts"] is True
+
+        # Nuclear should enable all registry cleanup options
+        reg_step = next(
+            (s for s in plan_steps if s["category"] == "registry-cleanup"), None
+        )
+        assert reg_step is not None
+        assert reg_step["metadata"]["clean_wi_metadata"] is True
+        assert reg_step["metadata"]["remove_vba"] is True
+        assert reg_step["metadata"]["clean_typelibs"] is True
+        assert reg_step["metadata"]["clean_protocol_handlers"] is True
+
+        # Nuclear should enable all license cleanup
+        lic_step = next(
+            (s for s in plan_steps if s["category"] == "licensing-cleanup"), None
+        )
+        assert lic_step is not None
+        assert lic_step["metadata"]["clean_spp"] is True
+        assert lic_step["metadata"]["clean_ospp"] is True
+        assert lic_step["metadata"]["clean_vnext"] is True
+        assert lic_step["metadata"]["clean_all_licenses"] is True

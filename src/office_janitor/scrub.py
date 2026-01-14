@@ -1197,8 +1197,8 @@ def _perform_filesystem_cleanup(
     flag propagated through the context metadata, and emits preservation messages for
     any protected template directories. Only the remaining paths are forwarded to
     :func:`fs_tools.remove_paths` so template data survives unless an explicit purge
-    override is supplied. Additionally handles MSOCache and AppX package cleanup when
-    the corresponding flags are set.
+    override is supplied. Additionally handles MSOCache, AppX package, and shortcut
+    cleanup when the corresponding flags are set.
     """
 
     human_logger = logging_ext.get_human_logger()
@@ -1209,6 +1209,7 @@ def _perform_filesystem_cleanup(
     # Handle extended filesystem cleanup options
     clean_msocache = bool(metadata.get("clean_msocache", False))
     clean_appx = bool(metadata.get("clean_appx", False))
+    clean_shortcuts = bool(metadata.get("clean_shortcuts", False))
 
     # Add MSOCache paths if requested
     if clean_msocache:
@@ -1221,7 +1222,16 @@ def _perform_filesystem_cleanup(
                 paths.append(mso_path)
         human_logger.info("Including MSOCache paths in cleanup")
 
-    if not paths and not clean_appx:
+    # Add shortcut paths if requested
+    if clean_shortcuts:
+        shortcut_paths = [
+            str(Path.home() / "Desktop"),  # Will filter for Office .lnk files
+            str(Path(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs")),
+            str(Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs"),
+        ]
+        human_logger.info("Including Office shortcut cleanup")
+
+    if not paths and not clean_appx and not clean_shortcuts:
         human_logger.info("No filesystem paths supplied; skipping step.")
         return
 
@@ -1260,6 +1270,15 @@ def _perform_filesystem_cleanup(
         except Exception as exc:  # pragma: no cover - defensive
             human_logger.warning("AppX cleanup encountered an error: %s", exc)
 
+    # Handle shortcut cleanup if requested
+    if clean_shortcuts:
+        human_logger.info("Removing Office shortcuts from Start Menu and Desktop")
+        try:
+            shortcut_count = fs_tools.cleanup_office_shortcuts(dry_run=dry_run)
+            human_logger.info("Shortcut cleanup complete: %d shortcuts removed", shortcut_count)
+        except Exception as exc:  # pragma: no cover - defensive
+            human_logger.warning("Shortcut cleanup encountered an error: %s", exc)
+
 
 def _perform_registry_cleanup(
     metadata: Mapping[str, object],
@@ -1275,16 +1294,54 @@ def _perform_registry_cleanup(
     reuses plan metadata when provided and generates a timestamped backup path when
     only a log directory is available, mirroring the OffScrub behaviour. Returns a
     mapping describing whether a backup destination was requested or written so
-    the caller can surface the information in the final summary.
+    the caller can surface the information in the final summary. Additionally handles
+    extended registry cleanup options like COM cleanup, typelib cleanup, etc.
     """
 
     human_logger = logging_ext.get_human_logger()
 
     keys = _normalize_string_sequence(metadata.get("keys", []))
     keys = _sort_registry_paths_deepest_first(keys)
+
+    # Extract extended registry cleanup flags
+    clean_wi_metadata = bool(metadata.get("clean_wi_metadata", False))
+    remove_vba = bool(metadata.get("remove_vba", False))
+
+    # Track additional cleanup operations performed
+    extended_cleanups: dict[str, object] = {}
+
+    # Handle Windows Installer metadata cleanup (Published Components)
+    if clean_wi_metadata:
+        human_logger.info("Cleaning Windows Installer published components")
+        try:
+            wi_result = registry_tools.cleanup_published_components(dry_run=dry_run)
+            extended_cleanups["wi_metadata"] = wi_result
+        except Exception as exc:  # pragma: no cover - defensive
+            human_logger.warning("WI metadata cleanup error: %s", exc)
+            extended_cleanups["wi_metadata_error"] = str(exc)
+
+    # Handle VBA path cleanup
+    if remove_vba:
+        human_logger.info("Cleaning VBA registry paths")
+        try:
+            vba_keys = [
+                r"HKLM\Software\Microsoft\VBA",
+                r"HKLM\Software\Wow6432Node\Microsoft\VBA",
+            ]
+            registry_tools.delete_keys(vba_keys, dry_run=dry_run)
+            extended_cleanups["vba_removed"] = True
+        except Exception as exc:  # pragma: no cover - defensive
+            human_logger.warning("VBA cleanup error: %s", exc)
+            extended_cleanups["vba_error"] = str(exc)
+
     if not keys:
-        human_logger.info("No registry keys supplied; skipping step.")
-        return {"backup_requested": False, "backup_performed": False, "keys_processed": 0}
+        human_logger.info("No registry keys supplied; skipping main key deletion.")
+        return {
+            "backup_requested": False,
+            "backup_performed": False,
+            "keys_processed": 0,
+            **extended_cleanups,
+        }
 
     step_backup = _normalize_option_path(metadata.get("backup_destination")) or default_backup
     step_logdir = _normalize_option_path(metadata.get("log_directory")) or default_logdir
@@ -1323,6 +1380,7 @@ def _perform_registry_cleanup(
         "backup_requested": backup_requested,
         "backup_performed": backup_performed,
         "keys_processed": len(keys),
+        **extended_cleanups,
     }
 
 
