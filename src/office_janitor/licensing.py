@@ -951,7 +951,10 @@ def uninstall_ospp_key(
 
     # Check for success messages in output
     stdout = result.stdout or ""
-    if "Product key uninstall successful" in stdout or "<Product key uninstall successful>" in stdout:
+    if (
+        "Product key uninstall successful" in stdout
+        or "<Product key uninstall successful>" in stdout
+    ):
         human_logger.info("Successfully uninstalled product key ending in %s", partial_key)
         return True
 
