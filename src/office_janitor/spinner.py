@@ -181,15 +181,8 @@ def _sigint_handler(signum: int, frame: object) -> None:
     sys.stdout.write("\n\033[33m[INTERRUPTED]\033[0m Ctrl+C received, terminating...\n")
     sys.stdout.flush()
 
-    # Kill all tracked subprocesses immediately (no waiting)
-    with _process_lock:
-        for proc in list(_active_processes):
-            try:
-                if proc.poll() is None:  # Still running
-                    proc.kill()  # Immediate kill, no graceful terminate
-            except Exception:
-                pass  # Best effort cleanup
-        _active_processes.clear()
+    # Kill all tracked subprocesses and their children immediately
+    _kill_process_trees()
 
     # Signal spinner thread to stop
     if _spinner_stop_event is not None:
@@ -197,6 +190,52 @@ def _sigint_handler(signum: int, frame: object) -> None:
 
     # Exit immediately - use os._exit to bypass any blocking cleanup
     os._exit(130)  # 128 + SIGINT(2)
+
+
+def _kill_process_trees() -> None:
+    """Kill all tracked subprocesses and their entire process trees."""
+    with _process_lock:
+        for proc in list(_active_processes):
+            try:
+                if proc.poll() is None:  # Still running
+                    _kill_process_tree(proc.pid)
+            except Exception:
+                pass  # Best effort cleanup
+        _active_processes.clear()
+
+
+def _kill_process_tree(pid: int) -> None:
+    """
+    Kill a process and all its children/descendants.
+    
+    On Windows, uses taskkill /T for tree kill.
+    On Unix, walks the process tree manually.
+    """
+    import platform
+    
+    if platform.system() == "Windows":
+        # Use taskkill with /T to kill entire process tree, /F for force
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                timeout=5,
+            )
+        except Exception:
+            # Fallback: try to kill just the process
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except Exception:
+                pass
+    else:
+        # Unix: kill process group if possible, otherwise just the process
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
 
 
 def install_sigint_handler() -> None:
@@ -250,7 +289,7 @@ def unregister_process(proc: subprocess.Popen[Any]) -> None:
 
 def kill_all_processes() -> int:
     """
-    Kill all tracked subprocesses.
+    Kill all tracked subprocesses and their process trees.
 
     @return Number of processes that were killed.
     """
@@ -259,11 +298,7 @@ def kill_all_processes() -> int:
         for proc in list(_active_processes):
             try:
                 if proc.poll() is None:  # Still running
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=2.0)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
+                    _kill_process_tree(proc.pid)
                     killed += 1
             except Exception:
                 pass
