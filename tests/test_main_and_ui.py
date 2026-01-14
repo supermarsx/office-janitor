@@ -1438,6 +1438,22 @@ class TestCLIArgumentsIntoPlanOptions:
         options = main._collect_plan_options(args, mode)
         assert options["max_passes"] == 1
 
+    def test_skip_uninstall_sets_passes_zero(self) -> None:
+        """Test --skip-uninstall sets max_passes to 0."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--skip-uninstall"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["max_passes"] == 0
+
+    def test_skip_uninstall_overrides_passes(self) -> None:
+        """Test --skip-uninstall takes precedence over --passes."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--passes", "5", "--skip-uninstall"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["max_passes"] == 0
+
     def test_skip_flags_in_plan_options(self) -> None:
         """Test skip flags propagate to plan options."""
         parser = main.build_arg_parser()

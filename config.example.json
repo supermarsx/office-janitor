@@ -22,6 +22,7 @@
 
   "// Uninstall Passes": "",
   "passes": 1,
+  "skip-uninstall": false,
 
   "// Scrubbing Options": "",
   "scrub-level": "standard",

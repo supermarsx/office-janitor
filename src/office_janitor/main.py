@@ -394,6 +394,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Maximum uninstall/re-detect passes (default: 1). Alias for --passes.",
     )
     scrub_opts.add_argument(
+        "--skip-uninstall",
+        action="store_true",
+        help="Skip uninstall passes entirely; only run cleanup/registry scrubbing.",
+    )
+    scrub_opts.add_argument(
         "--skip-processes",
         action="store_true",
         help="Skip terminating Office processes before uninstall.",
@@ -1617,11 +1622,12 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
             return config[cfg_key]
         return default
 
-    # Resolve max_passes: --passes > --max-passes > config > default (1)
+    # Resolve max_passes: --skip-uninstall (=0) > --passes > --max-passes > config > default (1)
+    skip_uninstall = _get("skip_uninstall", False, "skip-uninstall", is_bool=True)
     cli_passes = getattr(args, "passes", None)
     cli_max_passes = getattr(args, "max_passes", None)
     config_passes = config.get("passes") or config.get("max-passes")
-    resolved_passes = cli_passes or cli_max_passes or config_passes or 1
+    resolved_passes = 0 if skip_uninstall else (cli_passes or cli_max_passes or config_passes or 1)
 
     options: dict[str, object] = {
         # Mode & core

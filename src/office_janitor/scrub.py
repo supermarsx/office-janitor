@@ -780,106 +780,112 @@ def execute_plan(
     final_plan = current_plan
     uninstalls_seen = _has_uninstall_steps(current_plan)
 
-    _scrub_progress("-" * 50)
-    _scrub_progress("Beginning uninstall passes")
-    _scrub_progress("-" * 50)
+    # Skip uninstall passes entirely if max_passes is 0
+    if max_pass_limit <= 0:
+        _scrub_progress("-" * 50)
+        _scrub_progress("Skipping uninstall passes (--skip-uninstall or passes=0)")
+        _scrub_progress("-" * 50)
+    else:
+        _scrub_progress("-" * 50)
+        _scrub_progress("Beginning uninstall passes")
+        _scrub_progress("-" * 50)
 
-    while True:
-        passes_run += 1
-        _scrub_progress(f"=== PASS {current_pass} of {max_pass_limit} ===")
-        _scrub_progress(f"Steps in this pass: {len(current_plan)}", indent=1)
+        while True:
+            passes_run += 1
+            _scrub_progress(f"=== PASS {current_pass} of {max_pass_limit} ===")
+            _scrub_progress(f"Steps in this pass: {len(current_plan)}", indent=1)
 
-        machine_logger.info(
-            "scrub_pass_start",
-            extra={
-                "event": "scrub_pass_start",
-                "pass_index": current_pass,
-                "dry_run": global_dry_run,
-                "step_count": len(current_plan),
-            },
-        )
-
-        _update_context_metadata(current_plan, current_pass, base_options, global_dry_run)
-        if _has_uninstall_steps(current_plan):
-            uninstalls_seen = True
-            _scrub_progress("Uninstall steps detected in plan", indent=1)
-
-        _scrub_progress("Executing uninstall steps...", indent=1)
-        try:
-            pass_results = _execute_steps(current_plan, UNINSTALL_CATEGORIES, global_dry_run)
-        except StepExecutionError as exc:
-            _scrub_progress(f"Pass {current_pass} FAILED", indent=1)
-            all_results.extend(exc.partial_results)
-            _log_summary(all_results, passes_run, global_dry_run)
-            raise
-        else:
-            all_results.extend(pass_results)
-
-        pass_successes = sum(1 for item in pass_results if item.status == "success")
-        pass_failures = sum(1 for item in pass_results if item.status == "failed")
-        pass_skipped = len(pass_results) - pass_successes - pass_failures
-        pass_duration = sum(
-            (item.completed_at - item.started_at)
-            for item in pass_results
-            if item.started_at is not None
-            and item.completed_at is not None
-            and item.completed_at >= item.started_at
-        )
-
-        _scrub_progress(
-            f"Pass {current_pass} complete: {pass_successes} success, {pass_failures} failed, {pass_skipped} skipped ({pass_duration:.2f}s)",
-            indent=1,
-        )
-
-        machine_logger.info(
-            "scrub_pass_complete",
-            extra={
-                "event": "scrub_pass_complete",
-                "pass_index": current_pass,
-                "dry_run": global_dry_run,
-                "successes": pass_successes,
-                "failures": pass_failures,
-                "skipped": pass_skipped,
-                "duration": round(pass_duration, 6),
-            },
-        )
-
-        if global_dry_run:
-            _scrub_progress("Dry run - skipping additional passes", indent=1)
-            final_plan = current_plan
-            uninstalls_seen = uninstalls_seen or _has_uninstall_steps(current_plan)
-            break
-
-        if current_pass >= max_pass_limit:
-            _scrub_progress(f"Reached maximum passes ({max_pass_limit})", indent=1)
-            human_logger.warning(
-                "Reached maximum scrub passes (%d); continuing to cleanup phase.",
-                max_pass_limit,
+            machine_logger.info(
+                "scrub_pass_start",
+                extra={
+                    "event": "scrub_pass_start",
+                    "pass_index": current_pass,
+                    "dry_run": global_dry_run,
+                    "step_count": len(current_plan),
+                },
             )
-            final_plan = current_plan
-            break
 
-        _scrub_progress("Re-probing inventory for next pass...", indent=1)
-        inventory = detect.reprobe(base_options)
-        next_plan_raw = plan_module.build_plan(inventory, base_options, pass_index=current_pass + 1)
-        next_plan = [dict(step) for step in next_plan_raw]
+            _update_context_metadata(current_plan, current_pass, base_options, global_dry_run)
+            if _has_uninstall_steps(current_plan):
+                uninstalls_seen = True
+                _scrub_progress("Uninstall steps detected in plan", indent=1)
 
-        if not _has_uninstall_steps(next_plan):
+            _scrub_progress("Executing uninstall steps...", indent=1)
+            try:
+                pass_results = _execute_steps(current_plan, UNINSTALL_CATEGORIES, global_dry_run)
+            except StepExecutionError as exc:
+                _scrub_progress(f"Pass {current_pass} FAILED", indent=1)
+                all_results.extend(exc.partial_results)
+                _log_summary(all_results, passes_run, global_dry_run)
+                raise
+            else:
+                all_results.extend(pass_results)
+
+            pass_successes = sum(1 for item in pass_results if item.status == "success")
+            pass_failures = sum(1 for item in pass_results if item.status == "failed")
+            pass_skipped = len(pass_results) - pass_successes - pass_failures
+            pass_duration = sum(
+                (item.completed_at - item.started_at)
+                for item in pass_results
+                if item.started_at is not None
+                and item.completed_at is not None
+                and item.completed_at >= item.started_at
+            )
+
             _scrub_progress(
-                "No remaining installations detected - uninstall phase complete", indent=1
+                f"Pass {current_pass} complete: {pass_successes} success, {pass_failures} failed, {pass_skipped} skipped ({pass_duration:.2f}s)",
+                indent=1,
             )
-            human_logger.info(
-                "No remaining MSI or Click-to-Run installations detected after pass %d.",
-                current_pass,
+
+            machine_logger.info(
+                "scrub_pass_complete",
+                extra={
+                    "event": "scrub_pass_complete",
+                    "pass_index": current_pass,
+                    "dry_run": global_dry_run,
+                    "successes": pass_successes,
+                    "failures": pass_failures,
+                    "skipped": pass_skipped,
+                    "duration": round(pass_duration, 6),
+                },
             )
+
+            if global_dry_run:
+                _scrub_progress("Dry run - skipping additional passes", indent=1)
+                final_plan = current_plan
+                uninstalls_seen = uninstalls_seen or _has_uninstall_steps(current_plan)
+                break
+
+            if current_pass >= max_pass_limit:
+                _scrub_progress(f"Reached maximum passes ({max_pass_limit})", indent=1)
+                human_logger.warning(
+                    "Reached maximum scrub passes (%d); continuing to cleanup phase.",
+                    max_pass_limit,
+                )
+                final_plan = current_plan
+                break
+
+            _scrub_progress("Re-probing inventory for next pass...", indent=1)
+            inventory = detect.reprobe(base_options)
+            next_plan_raw = plan_module.build_plan(inventory, base_options, pass_index=current_pass + 1)
+            next_plan = [dict(step) for step in next_plan_raw]
+
+            if not _has_uninstall_steps(next_plan):
+                _scrub_progress(
+                    "No remaining installations detected - uninstall phase complete", indent=1
+                )
+                human_logger.info(
+                    "No remaining MSI or Click-to-Run installations detected after pass %d.",
+                    current_pass,
+                )
+                final_plan = next_plan
+                current_pass += 1
+                break
+
+            current_plan = next_plan
             final_plan = next_plan
             current_pass += 1
-            break
-
-        current_plan = next_plan
-        final_plan = next_plan
-        current_pass += 1
-        _scrub_progress(f"Moving to pass {current_pass}...", indent=1)
+            _scrub_progress(f"Moving to pass {current_pass}...", indent=1)
 
     _scrub_progress("-" * 50)
     _scrub_progress("Beginning cleanup phase")
@@ -902,15 +908,11 @@ def execute_plan(
         _annotate_cleanup_metadata(final_plan, base_options, uninstalls_seen)
 
         _scrub_progress("Executing cleanup steps...")
-        try:
-            cleanup_results = _execute_steps(final_plan, CLEANUP_CATEGORIES, global_dry_run)
-        except StepExecutionError as exc:
-            _scrub_progress("Cleanup phase FAILED")
-            all_results.extend(exc.partial_results)
-            _log_summary(all_results, passes_run, global_dry_run)
-            raise
-        else:
-            all_results.extend(cleanup_results)
+        # Cleanup steps should continue on failure - don't stop the whole process
+        cleanup_results = _execute_steps(
+            final_plan, CLEANUP_CATEGORIES, global_dry_run, continue_on_failure=True
+        )
+        all_results.extend(cleanup_results)
 
         cleanup_successes = sum(1 for r in cleanup_results if r.status == "success")
         cleanup_failures = sum(1 for r in cleanup_results if r.status == "failed")
@@ -1065,9 +1067,12 @@ def _execute_steps(
     plan_steps: Iterable[Mapping[str, object]],
     categories: Iterable[str],
     dry_run: bool,
+    *,
+    continue_on_failure: bool = False,
 ) -> list[StepResult]:
     """!
     @brief Execute the subset of plan steps matching ``categories``.
+    @param continue_on_failure If True, continue to next step after failure instead of raising.
     @return Ordered list of :class:`StepResult` entries describing each step.
     """
 
@@ -1120,12 +1125,13 @@ def _execute_steps(
         result = executor.run_step(step, index=index)
         results.append(result)
         if result.status == "failed":
-            # Non-recoverable errors: log and continue to next step
-            # Recoverable errors: stop and allow pass retry
-            if result.non_recoverable:
+            # Non-recoverable errors or continue_on_failure mode: log and continue
+            # Recoverable errors (and not continue_on_failure): stop and allow pass retry
+            if result.non_recoverable or continue_on_failure:
                 logging_ext.get_human_logger().warning(
-                    "Step %s failed with non-recoverable error, continuing to next step...",
+                    "Step %s failed%s, continuing to next step...",
                     result.step_id or result.category,
+                    " (non-recoverable)" if result.non_recoverable else "",
                 )
                 continue
             raise StepExecutionError(result, results) from result.exception
