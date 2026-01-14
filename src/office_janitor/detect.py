@@ -136,7 +136,6 @@ def _wait_with_progress(
     return future.result()
 
 
-
 _OFFICE_PROCESS_TARGETS = tuple(
     sorted(
         {name.lower() for name in constants.DEFAULT_OFFICE_PROCESSES} | {"mspub.exe", "teams.exe"}
@@ -1266,7 +1265,7 @@ def gather_office_inventory(
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=14, thread_name_prefix="detect"
             ) as executor:
-                # Start all tasks immediately (including WMI/PS as separate tasks)
+                # Start all fast tasks immediately (WMI/PS probes already running in background)
                 c2r_future = executor.submit(_detect_c2r)
                 processes_future = executor.submit(_detect_processes)
                 services_future = executor.submit(_detect_services)
@@ -1277,44 +1276,7 @@ def gather_office_inventory(
                 registry_future = executor.submit(_detect_registry)
                 filesystem_future = executor.submit(_detect_filesystem)
 
-                # Start MSI detection immediately (registry-only, fast)
-                # WMI/PS probes run in parallel and will supplement the results
-                def _msi_with_probes() -> list[dict[str, object]]:
-                    # Collect WMI/PS probe results while registry scan happens
-                    probe_fallbacks: dict[str, dict[str, Any]] = {}
-                    if wmi_future is not None and ps_future is not None:
-                        try:
-                            _report("Waiting for WMI/PowerShell probes")
-                            human_logger.info(
-                                "WMI/PowerShell probes may take 1-3 minutes depending on system..."
-                            )
-                            # Use progress-aware waiting with spinner and time estimate
-                            # WMI typically takes 60-120s, PS takes 30-60s
-                            wmi_result = _wait_with_progress(
-                                wmi_future,
-                                "WMI probes",
-                                lambda msg: _LOGGER.info(msg),
-                                expected_time=90.0,  # ~1.5 min typical
-                                use_spinner=True,
-                            )
-                            _merge_fallback_metadata(probe_fallbacks, wmi_result)
-                            ps_result = _wait_with_progress(
-                                ps_future,
-                                "PowerShell probes",
-                                lambda msg: _LOGGER.info(msg),
-                                expected_time=45.0,  # ~45s typical
-                                use_spinner=True,
-                            )
-                            _merge_fallback_metadata(probe_fallbacks, ps_result)
-                            _report("Waiting for WMI/PowerShell probes", "ok")
-                        except (KeyboardInterrupt, concurrent.futures.CancelledError):
-                            _report("Waiting for WMI/PowerShell probes", "skip")
-                            raise
-                    return _detect_msi(probe_fallbacks if probe_fallbacks else None)
-
-                msi_future = executor.submit(_msi_with_probes)
-
-                # Wait for all to complete and collect results (fast ones finish first)
+                # Wait for all fast tasks to complete first (they print status as they finish)
                 c2r_list = c2r_future.result()
                 processes_list = processes_future.result()
                 services_list = services_future.result()
@@ -1324,8 +1286,42 @@ def gather_office_inventory(
                 activation_info = activation_future.result()
                 registry_residue = registry_future.result()
                 filesystem_list = filesystem_future.result()
-                # MSI waits for probes, but everything else is already done
-                msi_list = msi_future.result()
+
+                # Now that all fast tasks are done and console is quiet,
+                # wait for WMI/PS probes with spinner (safe to use spinner now)
+                probe_fallbacks: dict[str, dict[str, Any]] = {}
+                if wmi_future is not None and ps_future is not None:
+                    try:
+                        _report("Waiting for WMI/PowerShell probes")
+                        human_logger.info(
+                            "WMI/PowerShell probes may take 1-3 minutes depending on system..."
+                        )
+                        # Use progress-aware waiting with spinner and time estimate
+                        # WMI typically takes 60-120s, PS takes 30-60s
+                        wmi_result = _wait_with_progress(
+                            wmi_future,
+                            "WMI probes",
+                            lambda msg: human_logger.info(msg),
+                            expected_time=90.0,  # ~1.5 min typical
+                            use_spinner=True,
+                        )
+                        _merge_fallback_metadata(probe_fallbacks, wmi_result)
+                        ps_result = _wait_with_progress(
+                            ps_future,
+                            "PowerShell probes",
+                            lambda msg: human_logger.info(msg),
+                            expected_time=45.0,  # ~45s typical
+                            use_spinner=True,
+                        )
+                        _merge_fallback_metadata(probe_fallbacks, ps_result)
+                        _report("Waiting for WMI/PowerShell probes", "ok")
+                    except (KeyboardInterrupt, concurrent.futures.CancelledError):
+                        _report("Waiting for WMI/PowerShell probes", "skip")
+                        raise
+
+                # Now run MSI detection with probe results
+                msi_list = _detect_msi(probe_fallbacks if probe_fallbacks else None)
+
         except KeyboardInterrupt:
             _LOGGER.info("Detection interrupted by user")
             # Cancel any pending futures
