@@ -100,7 +100,7 @@ def _get_terminal_height() -> int:
 
 
 def _draw_status_line() -> None:
-    """Draw the status line at the very bottom of the terminal."""
+    """Draw the status line - always visible at the current position."""
     global _status_line_active
 
     if not _spinner_enabled or _current_task is None:
@@ -111,32 +111,38 @@ def _draw_status_line() -> None:
     elapsed = time.monotonic() - _task_start_time
     elapsed_str = _format_elapsed(elapsed)
 
-    status = f"{frame} Working on: {_current_task}... ({elapsed_str})"
+    status = f"{frame} {_current_task}... ({elapsed_str})"
 
     # Truncate if too long for terminal
     width = _get_terminal_width()
     if len(status) > width - 1:
         status = status[: width - 4] + "..."
 
-    # Use simpler approach: just overwrite current line with \r
-    # The key is we print on a SEPARATE line that we control
-    if _status_line_active:
-        # Already on status line, just update it
-        sys.stdout.write(f"\r\x1b[2K\x1b[36m{status}\x1b[0m")
-    else:
-        # First time - move to new line for status
-        sys.stdout.write(f"\n\x1b[36m{status}\x1b[0m")
-        _status_line_active = True
+    # Always write on current line with carriage return
+    # Use cyan color for visibility
+    sys.stdout.write(f"\r\x1b[2K\x1b[36m{status}\x1b[0m")
     sys.stdout.flush()
+    _status_line_active = True
 
 
 def _clear_status_line() -> None:
-    """Clear the status line and move cursor back up."""
+    """Clear the status line content and move to next line."""
     global _status_line_active
 
     if _status_line_active:
-        # Clear the status line and move cursor up
-        sys.stdout.write("\r\x1b[2K\x1b[1A")
+        # Clear the spinner line and move to next line for clean output
+        sys.stdout.write("\r\x1b[2K")
+        sys.stdout.flush()
+        _status_line_active = False
+
+
+def _finalize_status_line() -> None:
+    """Finalize the status line - print newline so it stays visible."""
+    global _status_line_active
+
+    if _status_line_active:
+        # Just print newline to preserve the last status
+        sys.stdout.write("\n")
         sys.stdout.flush()
         _status_line_active = False
 
@@ -297,6 +303,10 @@ def stop_spinner_thread() -> None:
         _spinner_thread = None
         _spinner_stop_event = None
 
+    # Finalize the status line (preserve it, don't clear)
+    with _spinner_lock:
+        _finalize_status_line()
+
 
 def set_task(task_name: str | None) -> None:
     """
@@ -324,13 +334,16 @@ def clear_task() -> None:
 
 def pause_for_output() -> None:
     """
-    Temporarily clear the status line so log output can print cleanly.
+    Prepare for log output by clearing current line and moving to new line.
     Call resume_after_output() when done printing.
     """
     global _output_paused
     with _spinner_lock:
         if not _output_paused:
-            _clear_status_line()
+            if _status_line_active:
+                # Clear spinner line, print newline so logs go above
+                sys.stdout.write("\r\x1b[2K")
+                sys.stdout.flush()
             _output_paused = True
 
 
@@ -342,7 +355,7 @@ def resume_after_output() -> None:
     with _spinner_lock:
         if _output_paused:
             _output_paused = False
-            if _current_task is not None:
+            if _current_task is not None and _spinner_enabled:
                 _draw_status_line()
 
 
