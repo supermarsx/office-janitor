@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import exec_utils, safety
+from . import exec_utils, safety, spinner
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import winreg as _winreg
@@ -186,6 +186,8 @@ def _ensure_winreg() -> None:
 def _normalize_registry_key(key: str) -> str:
     """!
     @brief Canonicalise registry key strings to ``HKXX`` prefixes.
+    @details Preserves the original case of the path portion while
+    canonicalizing the hive prefix (HKLM, HKCU, etc.).
     """
 
     cleaned = key.strip().replace("/", "\\")
@@ -195,9 +197,10 @@ def _normalize_registry_key(key: str) -> str:
     upper = cleaned.upper()
     for prefix, canonical in _CANONICAL_PREFIXES.items():
         if upper.startswith(prefix):
-            suffix = upper[len(prefix) :].lstrip("\\")
+            # Preserve original case for the path portion after the hive prefix
+            suffix = cleaned[len(prefix) :].lstrip("\\")
             return f"{canonical}\\{suffix}" if suffix else canonical
-    return upper
+    return cleaned  # Return original case if no prefix match
 
 
 def _normalize_for_comparison(key: str) -> str:
@@ -888,11 +891,13 @@ def export_keys(
                 exported.append(export_path)
             except Exception as exc:
                 # Export failure is non-fatal - key may not exist or access denied
+                # Use spinner-aware output to avoid mangled console lines
+                spinner.pause_for_output()
                 logger.warning(
-                    "Registry export failed for %s: %s (continuing without backup)",
+                    "Registry export skipped for %s (key may not exist)",
                     key,
-                    exc,
                 )
+                spinner.resume_after_output()
             continue
 
         export_path.write_text(
@@ -936,11 +941,12 @@ def delete_keys(
             )
         except Exception as exc:
             # Deletion failure is non-fatal - key may not exist or access denied
+            spinner.pause_for_output()
             logger.warning(
-                "Registry deletion failed for %s: %s (continuing with remaining keys)",
+                "Registry deletion skipped for %s (key may not exist or access denied)",
                 key,
-                exc,
             )
+            spinner.resume_after_output()
 
 
 # ---------------------------------------------------------------------------

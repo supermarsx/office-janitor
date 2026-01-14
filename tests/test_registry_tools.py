@@ -80,7 +80,8 @@ def test_delete_keys_invokes_reg_when_available(monkeypatch) -> None:
         logger=_Recorder(),
     )
 
-    assert commands == [["reg.exe", "delete", "HKLM\\SOFTWARE\\MICROSOFT\\OFFICE\\CONTOSO", "/f"]]
+    # Path case is preserved for reg.exe compatibility
+    assert commands == [["reg.exe", "delete", "HKLM\\Software\\Microsoft\\Office\\Contoso", "/f"]]
 
 
 def test_delete_keys_dry_run_skips_execution(monkeypatch) -> None:
@@ -198,10 +199,11 @@ def test_export_keys_invokes_reg_command(tmp_path, monkeypatch) -> None:
         logger=_Recorder(),
     )
 
+    # Path case is preserved for reg.exe compatibility
     expected_command = [
         "C:/Windows/system32/reg.exe",
         "export",
-        "HKLM\\SOFTWARE\\MICROSOFT\\OFFICE\\DIAGNOSTICS",
+        "HKLM\\Software\\Microsoft\\Office\\Diagnostics",
         str(exported[0]),
         "/y",
     ]
@@ -268,17 +270,21 @@ def test_iter_office_uninstall_entries_filters_non_office(monkeypatch) -> None:
 def test_normalize_registry_key() -> None:
     """!
     @brief Test registry key normalization.
+
+    Hive prefixes are canonicalized (HKEY_LOCAL_MACHINE -> HKLM), but the
+    path portion preserves its original case for compatibility with reg.exe.
     """
 
     from office_janitor.registry_tools import _normalize_registry_key
 
-    assert _normalize_registry_key("HKLM\\Software\\Microsoft") == "HKLM\\SOFTWARE\\MICROSOFT"
+    # Hive canonicalization, path case preserved
+    assert _normalize_registry_key("HKLM\\Software\\Microsoft") == "HKLM\\Software\\Microsoft"
     assert (
         _normalize_registry_key("HKEY_LOCAL_MACHINE\\Software\\Microsoft")
-        == "HKLM\\SOFTWARE\\MICROSOFT"
+        == "HKLM\\Software\\Microsoft"
     )
-    assert _normalize_registry_key("hkcu\\software") == "HKCU\\SOFTWARE"
-    assert _normalize_registry_key("INVALID\\path") == "INVALID\\PATH"
+    assert _normalize_registry_key("hkcu\\software") == "HKCU\\software"
+    assert _normalize_registry_key("INVALID\\path") == "INVALID\\path"
 
 
 def test_is_registry_path_allowed() -> None:
