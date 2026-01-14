@@ -1609,6 +1609,50 @@ class TestCLIArgumentsIntoPlanOptions:
         options = main._collect_plan_options(args, mode)
         assert options["yes"] is True
 
+    def test_auto_all_enables_comprehensive_scrubbing(self) -> None:
+        """Test --auto-all enables all aggressive scrub options by default."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        # Auto-all should set nuclear scrub level
+        assert options["scrub_level"] == "nuclear"
+        # Force options
+        assert options["force_app_shutdown"] is True
+        assert options["force"] is True
+        # Clean everything
+        assert options["clean_msocache"] is True
+        assert options["clean_appx"] is True
+        assert options["clean_wi_metadata"] is True
+        # Clean all licenses
+        assert options["clean_spp"] is True
+        assert options["clean_ospp"] is True
+        assert options["clean_vnext"] is True
+        assert options["clean_all_licenses"] is True
+        # Clean registry
+        assert options["clean_addin_registry"] is True
+        assert options["clean_com_registry"] is True
+        assert options["clean_shell_extensions"] is True
+        assert options["clean_typelibs"] is True
+        assert options["clean_protocol_handlers"] is True
+        # Clean user data
+        assert options["clean_shortcuts"] is True
+        assert options["delete_user_settings"] is True
+        # VBA
+        assert options["remove_vba"] is True
+        # OffScrub-style options
+        assert options["offscrub_all"] is True
+        assert options["offscrub_ose"] is True
+
+    def test_auto_all_respects_explicit_scrub_level(self) -> None:
+        """Test --auto-all respects user-specified --scrub-level."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--scrub-level", "aggressive"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        # User explicitly set aggressive, should not be overridden to nuclear
+        assert options["scrub_level"] == "aggressive"
+
 
 class TestCLIFlagBehavior:
     """!

@@ -1624,6 +1624,56 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
         # Miscellaneous
         "limited_user": bool(getattr(args, "limited_user", False)),
     }
+
+    # Auto-all mode enables FULL scrubbing like the VBS scripts:
+    # - All Office versions targeted
+    # - All cleanup options enabled
+    # - Force app shutdown enabled
+    # - All license cleaning enabled
+    # Only apply auto-all defaults for options the user didn't explicitly specify
+    if mode == "auto-all":
+        # Auto-all defaults (only applied if user didn't explicitly specify different)
+        auto_all_defaults: dict[str, object] = {
+            # Aggressive scrub level (if user didn't specify a different level)
+            "scrub_level": "nuclear",
+            # Force close apps
+            "force_app_shutdown": True,
+            "force": True,
+            # Clean everything
+            "clean_msocache": True,
+            "clean_appx": True,
+            "clean_wi_metadata": True,
+            # Clean all licenses
+            "clean_spp": True,
+            "clean_ospp": True,
+            "clean_vnext": True,
+            "clean_all_licenses": True,
+            # Clean registry
+            "clean_addin_registry": True,
+            "clean_com_registry": True,
+            "clean_shell_extensions": True,
+            "clean_typelibs": True,
+            "clean_protocol_handlers": True,
+            # Clean user data
+            "clean_shortcuts": True,
+            "delete_user_settings": True,
+            # VBA
+            "remove_vba": True,
+            # OffScrub-style options
+            "offscrub_all": True,
+            "offscrub_ose": True,
+        }
+        # For scrub_level, only override if user used default "standard"
+        if options.get("scrub_level") == "standard":
+            options["scrub_level"] = auto_all_defaults["scrub_level"]
+        # For boolean flags, enable if not already True (boolean options default False)
+        for key, value in auto_all_defaults.items():
+            if key == "scrub_level":
+                continue  # Already handled above
+            # Only set True if user didn't explicitly enable (these default to False)
+            if not options.get(key):
+                options[key] = value
+
     return options
 
 
