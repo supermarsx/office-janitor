@@ -207,12 +207,12 @@ def _kill_process_trees() -> None:
 def _kill_process_tree(pid: int) -> None:
     """
     Kill a process and all its children/descendants.
-    
+
     On Windows, uses taskkill /T for tree kill.
     On Unix, walks the process tree manually.
     """
     import platform
-    
+
     if platform.system() == "Windows":
         # Use taskkill with /T to kill entire process tree, /F for force
         try:
