@@ -981,7 +981,7 @@ class OfficeJanitorTUI:
 
     def _handle_auto_all(self) -> None:
         self._plan_and_optionally_execute(
-            {"mode": "auto-all", "auto_all": True},
+            {"mode": "auto-all", "auto_all": True, "force": True},
             label="auto scrub",
             execute=True,
         )

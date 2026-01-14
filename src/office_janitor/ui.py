@@ -171,7 +171,9 @@ def _menu_detect(context: MutableMapping[str, object]) -> None:
 
 
 def _menu_auto_all(context: MutableMapping[str, object]) -> None:
-    _plan_and_execute(context, {"mode": "auto-all", "auto_all": True}, label="auto scrub")
+    _plan_and_execute(
+        context, {"mode": "auto-all", "auto_all": True, "force": True}, label="auto scrub"
+    )
 
 
 def _menu_targeted(context: MutableMapping[str, object]) -> None:

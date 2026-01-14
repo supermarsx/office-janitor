@@ -83,6 +83,7 @@ def _get_terminal_width() -> int:
     """Get terminal width, defaulting to 80 if unknown."""
     try:
         import shutil
+
         return shutil.get_terminal_size().columns
     except Exception:
         return 80
@@ -92,6 +93,7 @@ def _get_terminal_height() -> int:
     """Get terminal height, defaulting to 24 if unknown."""
     try:
         import shutil
+
         return shutil.get_terminal_size().lines
     except Exception:
         return 24
@@ -110,11 +112,11 @@ def _draw_status_line() -> None:
     elapsed_str = _format_elapsed(elapsed)
 
     status = f"{frame} Working on: {_current_task}... ({elapsed_str})"
-    
+
     # Truncate if too long for terminal
     width = _get_terminal_width()
     if len(status) > width - 1:
-        status = status[:width - 4] + "..."
+        status = status[: width - 4] + "..."
 
     # Use simpler approach: just overwrite current line with \r
     # The key is we print on a SEPARATE line that we control
@@ -131,7 +133,7 @@ def _draw_status_line() -> None:
 def _clear_status_line() -> None:
     """Clear the status line and move cursor back up."""
     global _status_line_active
-    
+
     if _status_line_active:
         # Clear the status line and move cursor up
         sys.stdout.write("\r\x1b[2K\x1b[1A")
@@ -142,7 +144,7 @@ def _clear_status_line() -> None:
 def _spinner_loop() -> None:
     """Background thread loop that updates the spinner."""
     global _spinner_idx
-    
+
     while _spinner_stop_event is not None and not _spinner_stop_event.is_set():
         with _spinner_lock:
             if _current_task is not None and _spinner_enabled and not _output_paused:
@@ -346,9 +348,14 @@ def resume_after_output() -> None:
 
 def spinner_print(message: str, **kwargs: object) -> None:
     """
-    Print a message. Status line stays at bottom automatically.
+    Print a message, automatically handling the status line.
+    Use this instead of print() when the spinner may be active.
     """
-    print(message, **kwargs)
+    pause_for_output()
+    try:
+        print(message, **kwargs)
+    finally:
+        resume_after_output()
 
 
 def enable_spinner(enabled: bool = True) -> None:
