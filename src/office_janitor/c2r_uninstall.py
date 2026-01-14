@@ -80,6 +80,7 @@ def _get_oem_dir() -> Path | None:
         pass
     return None
 
+
 C2R_TIMEOUT = 3600
 """!
 @brief Default timeout for Click-to-Run uninstall commands.

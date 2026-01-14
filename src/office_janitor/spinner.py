@@ -222,7 +222,12 @@ def _spinner_loop() -> None:
             # Draw if we have any task (single or parallel)
             # Don't draw if there's a pending incomplete line (would overwrite it)
             has_task = _current_task is not None or len(_active_tasks) > 0
-            if has_task and _spinner_enabled and not _output_paused and not _pending_incomplete_line:
+            if (
+                has_task
+                and _spinner_enabled
+                and not _output_paused
+                and not _pending_incomplete_line
+            ):
                 _spinner_idx += 1
                 _draw_status_line()
         _spinner_stop_event.wait(0.1)  # Update every 100ms

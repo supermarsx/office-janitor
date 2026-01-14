@@ -856,6 +856,39 @@ class TestExtendedCleanupOptions:
         assert reg_step["metadata"]["remove_vba"] is True
         assert reg_step["metadata"]["clean_com_registry"] is True
 
+    def test_uninstall_entries_included_in_registry_cleanup(self) -> None:
+        """!
+        @brief Detected uninstall entries should be included in registry cleanup keys.
+        @details The VBS scrubber explicitly removes Control Panel uninstall entries
+        like ``HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{guid}``.
+        Our planner should include these in the registry-cleanup step.
+        """
+        inventory: dict[str, list[dict]] = {
+            "uninstall_entries": [
+                {
+                    "display_name": "Microsoft Office Professional Plus 2016",
+                    "registry_handle": r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{90160000-0011-0000-0000-0000000FF1CE}",
+                },
+                {
+                    "display_name": "Microsoft Office 365 ProPlus",
+                    "registry_handle": r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\O365ProPlusRetail - en-us",
+                },
+            ],
+            "registry": [
+                {"path": r"HKLM\SOFTWARE\Microsoft\Office\16.0"},
+            ],
+        }
+        options = {"auto_all": True}
+
+        plan_steps = plan.build_plan(inventory, options)
+        reg_step = next((s for s in plan_steps if s["category"] == "registry-cleanup"), None)
+        assert reg_step is not None
+        keys = reg_step["metadata"]["keys"]
+        # Should include both detected registry residue and uninstall entries
+        assert r"HKLM\SOFTWARE\Microsoft\Office\16.0" in keys
+        assert r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{90160000-0011-0000-0000-0000000FF1CE}" in keys
+        assert r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\O365ProPlusRetail - en-us" in keys
+
     def test_retry_options_in_uninstall_metadata(self) -> None:
         """!
         @brief Retry options should be propagated to uninstall step metadata.

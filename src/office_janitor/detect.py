@@ -1307,7 +1307,11 @@ def gather_office_inventory(
                 if wmi_future is not None and ps_future is not None:
                     try:
                         _report("Waiting for WMI/PowerShell probes")
-                        # Log warning about WMI probe duration
+                        # Print warning about WMI probe duration to console and log
+                        spinner.spinner_print(
+                            "\033[33m[WARNING]\033[0m WMI probes may take 3+ minutes "
+                            "(typically 1-3 min on fast systems). This is normal."
+                        )
                         human_logger.warning(
                             "WMI probes may take 3+ minutes (typically 1-3 min on fast "
                             "systems, longer on slower systems). This is normal."

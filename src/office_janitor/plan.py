@@ -404,6 +404,17 @@ def build_plan(
         if (diagnose_mode or skip_registry)
         else _collect_registry_paths(planning_inventory.get("registry", []))
     )
+
+    # Include uninstall registry entries (Control Panel Add/Remove Programs) in cleanup
+    # These are the per-product entries that VBS scrubber explicitly removes
+    if not diagnose_mode and not skip_registry:
+        uninstall_handles = _collect_uninstall_handles(
+            planning_inventory.get("uninstall_entries", [])
+        )
+        for handle in uninstall_handles:
+            if handle not in registry_entries:
+                registry_entries.append(handle)
+
     has_extended_registry = any(
         [
             clean_addin_registry,
@@ -844,6 +855,23 @@ def _collect_registry_paths(entries: Sequence[Mapping[str, object]]) -> list[str
                 keys.append(candidate)
                 break
     return keys
+
+
+def _collect_uninstall_handles(entries: Sequence[Mapping[str, object]]) -> list[str]:
+    """!
+    @brief Extract registry handles from detected uninstall entries.
+    @details Each uninstall entry from detect_uninstall_entries() has a
+    ``registry_handle`` field like ``HKLM\\SOFTWARE\\Microsoft\\Windows\\
+    CurrentVersion\\Uninstall\\{product-guid}``. These are the Control Panel
+    entries that the VBS scrubber explicitly removes.
+    """
+
+    handles: list[str] = []
+    for entry in entries:
+        candidate = entry.get("registry_handle")
+        if isinstance(candidate, str) and candidate:
+            handles.append(candidate)
+    return handles
 
 
 def _collect_task_names(entries: Sequence[Mapping[str, object]]) -> list[str]:
