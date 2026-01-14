@@ -210,14 +210,31 @@ def _parse_license_results(output: str) -> dict[str, int]:
 def cleanup_licenses(options: Mapping[str, object]) -> None:
     """!
     @brief Remove activation artifacts based on the requested cleanup options.
+    @details Accepts both the legacy option names (remove_spp, remove_ospp) and
+    the new CLI flag names (clean_spp, clean_ospp, clean_vnext, clean_all_licenses)
+    for backwards compatibility.
     """
 
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
 
     dry_run = bool(options.get("dry_run", False))
-    include_spp = options.get("remove_spp", True) not in {False, "false", "0"}
-    include_ospp = options.get("remove_ospp", True) not in {False, "false", "0"}
+
+    # Handle both legacy option names and new CLI flag names
+    # Legacy: remove_spp=True by default; New CLI: clean_spp enables, clean_all_licenses enables all
+    clean_all = bool(options.get("clean_all_licenses", False))
+    include_spp = (
+        clean_all
+        or bool(options.get("clean_spp", False))
+        or options.get("remove_spp", True) not in {False, "false", "0"}
+    )
+    include_ospp = (
+        clean_all
+        or bool(options.get("clean_ospp", False))
+        or options.get("remove_ospp", True) not in {False, "false", "0"}
+    )
+    include_vnext = clean_all or bool(options.get("clean_vnext", False))
+
     extra_paths = _expand_paths(options.get("paths"))
     registry_keys = _expand_registry_keys(options.get("registry_keys"))
     backup_destination = _resolve_backup_destination(options)
@@ -396,12 +413,36 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
                     },
                 )
                 raise RuntimeError("OSPP license removal failed")
-            machine_logger.info(
+                machine_logger.info(
                 "licensing_ospp_success",
                 extra={
                     "event": "licensing_ospp_success",
                     "stdout": result.stdout,
                     "stderr": result.stderr,
+                },
+            )
+
+    # vNext identity/token cleanup
+    if include_vnext:
+        human_logger.info("Cleaning vNext identity cache and licensing tokens.")
+        try:
+            vnext_count = clean_vnext_cache(dry_run=dry_run)
+            vnext_registry = registry_tools.cleanup_vnext_identity_registry(dry_run=dry_run)
+            machine_logger.info(
+                "licensing_vnext_success",
+                extra={
+                    "event": "licensing_vnext_success",
+                    "cache_count": vnext_count,
+                    "registry_result": vnext_registry,
+                },
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            human_logger.warning("vNext cleanup encountered an error: %s", exc)
+            machine_logger.warning(
+                "licensing_vnext_warning",
+                extra={
+                    "event": "licensing_vnext_warning",
+                    "error": repr(exc),
                 },
             )
 

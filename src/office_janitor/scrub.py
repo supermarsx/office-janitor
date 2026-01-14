@@ -697,23 +697,37 @@ def execute_plan(
     else:
         _scrub_progress("Restore point creation: skipped")
 
+    # Extract skip flags for pre-scrub operations
+    skip_processes = bool(options.get("skip_processes", False))
+    skip_services = bool(options.get("skip_services", False))
+    skip_tasks = bool(options.get("skip_tasks", False))
+
     # Pre-scrub process/service cleanup
     if global_dry_run:
         _scrub_progress("DRY RUN MODE - No destructive actions will occur")
         human_logger.info("Executing plan in dry-run mode; no destructive actions will occur.")
     else:
-        _scrub_progress("Terminating Office processes...", newline=False)
-        processes.terminate_office_processes(constants.DEFAULT_OFFICE_PROCESSES)
-        processes.terminate_process_patterns(constants.OFFICE_PROCESS_PATTERNS)
-        _scrub_ok()
+        if skip_processes:
+            _scrub_progress("Process termination: skipped (--skip-processes)")
+        else:
+            _scrub_progress("Terminating Office processes...", newline=False)
+            processes.terminate_office_processes(constants.DEFAULT_OFFICE_PROCESSES)
+            processes.terminate_process_patterns(constants.OFFICE_PROCESS_PATTERNS)
+            _scrub_ok()
 
-        _scrub_progress("Stopping Office services...", newline=False)
-        tasks_services.stop_services(constants.KNOWN_SERVICES)
-        _scrub_ok()
+        if skip_services:
+            _scrub_progress("Service stopping: skipped (--skip-services)")
+        else:
+            _scrub_progress("Stopping Office services...", newline=False)
+            tasks_services.stop_services(constants.KNOWN_SERVICES)
+            _scrub_ok()
 
-        _scrub_progress("Disabling scheduled tasks...", newline=False)
-        tasks_services.disable_tasks(constants.KNOWN_SCHEDULED_TASKS, dry_run=False)
-        _scrub_ok()
+        if skip_tasks:
+            _scrub_progress("Task disabling: skipped (--skip-tasks)")
+        else:
+            _scrub_progress("Disabling scheduled tasks...", newline=False)
+            tasks_services.disable_tasks(constants.KNOWN_SCHEDULED_TASKS, dry_run=False)
+            _scrub_ok()
 
     passes_run = 0
     base_options = dict(options)
@@ -1183,17 +1197,34 @@ def _perform_filesystem_cleanup(
     flag propagated through the context metadata, and emits preservation messages for
     any protected template directories. Only the remaining paths are forwarded to
     :func:`fs_tools.remove_paths` so template data survives unless an explicit purge
-    override is supplied.
+    override is supplied. Additionally handles MSOCache and AppX package cleanup when
+    the corresponding flags are set.
     """
 
     human_logger = logging_ext.get_human_logger()
 
     paths = _normalize_string_sequence(metadata.get("paths", []))
-    if not paths:
+    options = dict(context_metadata.get("options", {})) if context_metadata else {}
+
+    # Handle extended filesystem cleanup options
+    clean_msocache = bool(metadata.get("clean_msocache", False))
+    clean_appx = bool(metadata.get("clean_appx", False))
+
+    # Add MSOCache paths if requested
+    if clean_msocache:
+        msocache_paths = [
+            r"C:\MSOCache",
+            str(Path.home() / "AppData" / "Local" / "Microsoft" / "Office" / "16.0" / "OfficeFileCache"),
+        ]
+        for mso_path in msocache_paths:
+            if mso_path not in paths:
+                paths.append(mso_path)
+        human_logger.info("Including MSOCache paths in cleanup")
+
+    if not paths and not clean_appx:
         human_logger.info("No filesystem paths supplied; skipping step.")
         return
 
-    options = dict(context_metadata.get("options", {})) if context_metadata else {}
     preserve_templates = bool(
         metadata.get("preserve_templates", options.get("keep_templates", False))
     )
@@ -1215,11 +1246,19 @@ def _perform_filesystem_cleanup(
     for template_path in preserved:
         human_logger.info("Preserving user template path %s", template_path)
 
-    if not cleanup_targets:
+    if cleanup_targets:
+        fs_tools.remove_paths(cleanup_targets, dry_run=dry_run)
+    elif paths:
         human_logger.info("All filesystem cleanup targets were preserved; nothing to remove.")
-        return
 
-    fs_tools.remove_paths(cleanup_targets, dry_run=dry_run)
+    # Handle AppX package removal if requested
+    if clean_appx:
+        human_logger.info("Removing Office AppX/Store packages")
+        try:
+            removed = fs_tools.remove_office_appx_packages(dry_run=dry_run)
+            human_logger.info("AppX cleanup complete: %d packages processed", len(removed))
+        except Exception as exc:  # pragma: no cover - defensive
+            human_logger.warning("AppX cleanup encountered an error: %s", exc)
 
 
 def _perform_registry_cleanup(

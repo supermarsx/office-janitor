@@ -431,6 +431,42 @@ def _normalize_options(options: Mapping[str, object]) -> dict[str, object]:
     return dict(options)
 
 
+def _record_matches_release_filter(record: Mapping[str, object], filter_set: set[str]) -> bool:
+    """!
+    @brief Check if a C2R record matches any release_id in the filter set.
+    """
+    release_ids = record.get("release_ids")
+    if isinstance(release_ids, Iterable) and not isinstance(release_ids, (str, bytes)):
+        for rid in release_ids:
+            if str(rid).strip().lower() in filter_set:
+                return True
+    single_id = record.get("release_id")
+    if single_id and str(single_id).strip().lower() in filter_set:
+        return True
+    return False
+
+
+def _record_matches_product_code_filter(
+    record: Mapping[str, object], filter_set: set[str]
+) -> bool:
+    """!
+    @brief Check if an MSI record matches any product_code in the filter set.
+    """
+    product_code = record.get("product_code")
+    if product_code:
+        normalized = str(product_code).strip().upper()
+        # Handle both with and without braces
+        if normalized in filter_set:
+            return True
+        if normalized.startswith("{") and normalized.endswith("}"):
+            if normalized[1:-1] in filter_set:
+                return True
+        else:
+            if f"{{{normalized}}}" in filter_set:
+                return True
+    return False
+
+
 def _resolve_mode(options: Mapping[str, object]) -> str:
     explicit_raw = options.get("mode")
     explicit = str(explicit_raw).strip() if isinstance(explicit_raw, str) else ""
