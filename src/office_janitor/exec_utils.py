@@ -284,7 +284,7 @@ def run_command(
             env=sanitized_env,
             cwd=cwd,
         )
-        
+
         # Poll loop - allows SIGINT to be processed between iterations
         stdout_data = ""
         stderr_data = ""
@@ -301,19 +301,18 @@ def run_command(
                         proc.kill()
                         proc.wait()
                         raise subprocess.TimeoutExpired(
-                            command_list, effective_timeout,
-                            output=stdout_data, stderr=stderr_data
+                            command_list, effective_timeout, output=stdout_data, stderr=stderr_data
                         )
                 # Otherwise continue polling
                 continue
-        
+
         # Build a result object similar to subprocess.run
         class _CompletedProcess:
             def __init__(self) -> None:
                 self.returncode = proc.returncode
                 self.stdout = stdout_data
                 self.stderr = stderr_data
-        
+
         completed = _CompletedProcess()
     except FileNotFoundError as exc:
         duration = time.monotonic() - start

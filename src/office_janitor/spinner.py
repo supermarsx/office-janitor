@@ -19,6 +19,29 @@ import threading
 import time
 from typing import Any, Callable
 
+# ---------------------------------------------------------------------------
+# Global cancellation flag - checked by all blocking operations
+# ---------------------------------------------------------------------------
+
+_cancelled = threading.Event()
+
+
+def is_cancelled() -> bool:
+    """Check if cancellation has been requested (Ctrl+C pressed)."""
+    return _cancelled.is_set()
+
+
+def request_cancellation() -> None:
+    """Request cancellation of all operations."""
+    _cancelled.set()
+
+
+def check_cancelled() -> None:
+    """Raise KeyboardInterrupt if cancellation was requested."""
+    if _cancelled.is_set():
+        raise KeyboardInterrupt("Operation cancelled")
+
+
 # Spinner animation frames - use ASCII-safe characters for Windows compatibility
 # Traditional spinner: | / - \
 _SPINNER_FRAMES = ("|", "/", "-", "\\")
@@ -32,7 +55,6 @@ _last_line_len: int = 0
 _spinner_enabled: bool = True
 _spinner_thread: threading.Thread | None = None
 _spinner_stop_event: threading.Event | None = None
-_output_in_progress: bool = False  # Flag to suppress spinner during rapid output
 _last_output_time: float = 0.0  # Timestamp of last output - suppress spinner briefly after
 
 # Track active subprocesses for cleanup on SIGINT
@@ -72,18 +94,18 @@ def _clear_line() -> None:
 def _draw_spinner() -> None:
     """Draw the spinner line showing current task."""
     global _spinner_idx, _last_line_len
-    
+
     if not _spinner_enabled or _current_task is None:
         return
-    
+
     frame = _SPINNER_FRAMES[_spinner_idx % len(_SPINNER_FRAMES)]
     _spinner_idx += 1
-    
+
     elapsed = time.monotonic() - _task_start_time
     elapsed_str = _format_elapsed(elapsed)
-    
+
     line = f"{frame} Working on: {_current_task}... ({elapsed_str})"
-    
+
     sys.stdout.write(f"\r{line}")
     sys.stdout.flush()
     _last_line_len = len(line)
@@ -91,20 +113,14 @@ def _draw_spinner() -> None:
 
 def _spinner_loop() -> None:
     """Background thread loop that updates the spinner."""
-    global _output_in_progress
     while _spinner_stop_event is not None and not _spinner_stop_event.is_set():
         with _spinner_lock:
             # Only draw if:
             # 1. There's a task set
-            # 2. No output is currently happening
-            # 3. At least 150ms since last output (prevents drawing between log lines)
+            # 2. At least 250ms since last output (prevents drawing between log lines)
             time_since_output = time.monotonic() - _last_output_time
-            if (_current_task is not None 
-                and not _output_in_progress 
-                and time_since_output > 0.15):
+            if _current_task is not None and time_since_output > 0.25:
                 _draw_spinner()
-            # Reset the output flag - if no new output in this tick, we can draw next time
-            _output_in_progress = False
         _spinner_stop_event.wait(0.1)  # Update every 100ms
 
 
@@ -116,47 +132,50 @@ def _spinner_loop() -> None:
 def _sigint_handler(signum: int, frame: object) -> None:
     """
     Handle SIGINT (Ctrl+C) for instant termination.
-    
-    Clears the spinner, kills all tracked subprocesses, and exits immediately.
+
+    Sets cancellation flag, clears spinner, kills subprocesses, and exits.
     """
-    # Clear spinner line first
+    # Set the cancellation flag FIRST - this unblocks waiting operations
+    request_cancellation()
+
+    # Clear spinner line
     with _spinner_lock:
         _clear_line()
-    
+
     # Print cancellation message
-    print("\n\033[33m[INTERRUPTED]\033[0m Ctrl+C received, terminating...", flush=True)
-    
+    sys.stdout.write("\n\033[33m[INTERRUPTED]\033[0m Ctrl+C received, terminating...\n")
+    sys.stdout.flush()
+
     # Kill all tracked subprocesses immediately (no waiting)
     with _process_lock:
-        if _active_processes:
-            for proc in list(_active_processes):
-                try:
-                    if proc.poll() is None:  # Still running
-                        proc.kill()  # Immediate kill, no graceful terminate
-                except Exception:
-                    pass  # Best effort cleanup
-            _active_processes.clear()
-    
-    # Don't wait for spinner thread - just exit
+        for proc in list(_active_processes):
+            try:
+                if proc.poll() is None:  # Still running
+                    proc.kill()  # Immediate kill, no graceful terminate
+            except Exception:
+                pass  # Best effort cleanup
+        _active_processes.clear()
+
+    # Signal spinner thread to stop
     if _spinner_stop_event is not None:
         _spinner_stop_event.set()
-    
-    # Exit immediately
-    os._exit(130)  # 128 + SIGINT(2) - immediate exit, no cleanup
+
+    # Exit immediately - use os._exit to bypass any blocking cleanup
+    os._exit(130)  # 128 + SIGINT(2)
 
 
 def install_sigint_handler() -> None:
     """
     Install the SIGINT handler for instant Ctrl+C termination.
-    
+
     Call this once at application startup to enable instant termination.
     Safe to call multiple times (only installs once).
     """
     global _original_sigint_handler, _sigint_installed
-    
+
     if _sigint_installed:
         return
-    
+
     _original_sigint_handler = signal.signal(signal.SIGINT, _sigint_handler)
     _sigint_installed = True
 
@@ -164,10 +183,10 @@ def install_sigint_handler() -> None:
 def uninstall_sigint_handler() -> None:
     """Restore the original SIGINT handler."""
     global _original_sigint_handler, _sigint_installed
-    
+
     if not _sigint_installed:
         return
-    
+
     if _original_sigint_handler is not None:
         signal.signal(signal.SIGINT, _original_sigint_handler)
     _original_sigint_handler = None
@@ -177,7 +196,7 @@ def uninstall_sigint_handler() -> None:
 def register_process(proc: subprocess.Popen[Any]) -> None:
     """
     Register a subprocess for cleanup on SIGINT.
-    
+
     @param proc The Popen object to track.
     """
     with _process_lock:
@@ -187,7 +206,7 @@ def register_process(proc: subprocess.Popen[Any]) -> None:
 def unregister_process(proc: subprocess.Popen[Any]) -> None:
     """
     Unregister a subprocess (call when it completes normally).
-    
+
     @param proc The Popen object to stop tracking.
     """
     with _process_lock:
@@ -197,7 +216,7 @@ def unregister_process(proc: subprocess.Popen[Any]) -> None:
 def kill_all_processes() -> int:
     """
     Kill all tracked subprocesses.
-    
+
     @return Number of processes that were killed.
     """
     killed = 0
@@ -225,29 +244,25 @@ def kill_all_processes() -> int:
 def start_spinner_thread() -> None:
     """Start the background spinner animation thread."""
     global _spinner_thread, _spinner_stop_event
-    
+
     if _spinner_thread is not None and _spinner_thread.is_alive():
         return  # Already running
-    
+
     # Also install SIGINT handler when spinner starts
     install_sigint_handler()
-    
+
     _spinner_stop_event = threading.Event()
-    _spinner_thread = threading.Thread(
-        target=_spinner_loop,
-        daemon=True,
-        name="spinner"
-    )
+    _spinner_thread = threading.Thread(target=_spinner_loop, daemon=True, name="spinner")
     _spinner_thread.start()
 
 
 def stop_spinner_thread() -> None:
     """Stop the background spinner animation thread."""
     global _spinner_thread, _spinner_stop_event
-    
+
     if _spinner_stop_event is not None:
         _spinner_stop_event.set()
-    
+
     if _spinner_thread is not None:
         _spinner_thread.join(timeout=0.5)
         _spinner_thread = None
@@ -257,11 +272,11 @@ def stop_spinner_thread() -> None:
 def set_task(task_name: str | None) -> None:
     """
     Set the current task being worked on.
-    
+
     @param task_name The task name to display, or None to clear.
     """
     global _current_task, _task_start_time, _spinner_idx
-    
+
     with _spinner_lock:
         _clear_line()
         _current_task = task_name
@@ -282,10 +297,9 @@ def pause_for_output() -> None:
     Temporarily clear spinner for other output.
     Call resume_after_output() after printing.
     """
-    global _output_in_progress, _last_output_time
+    global _last_output_time
     with _spinner_lock:
         _clear_line()
-        _output_in_progress = True  # Signal that output is happening
         _last_output_time = time.monotonic()  # Record when output happened
 
 
@@ -304,10 +318,9 @@ def spinner_print(message: str, **kwargs: object) -> None:
     Print a message while preserving the spinner.
     Clears spinner, prints message. Spinner redraws on next tick.
     """
-    global _output_in_progress, _last_output_time
+    global _last_output_time
     with _spinner_lock:
         _clear_line()
-        _output_in_progress = True
         _last_output_time = time.monotonic()
         print(message, **kwargs)
 
@@ -334,20 +347,20 @@ def get_current_task() -> str | None:
 class TrackedProcess:
     """
     Context manager for tracking a subprocess for SIGINT cleanup.
-    
+
     Usage:
         with TrackedProcess(proc):
             stdout, stderr = proc.communicate()
         # Process is automatically unregistered when done
     """
-    
+
     def __init__(self, proc: subprocess.Popen[Any]) -> None:
         self._proc = proc
-    
+
     def __enter__(self) -> subprocess.Popen[Any]:
         register_process(self._proc)
         return self._proc
-    
+
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
@@ -361,22 +374,22 @@ class TrackedProcess:
 class SpinnerTask:
     """
     Context manager for setting a spinner task.
-    
+
     Usage:
         with SpinnerTask("Detecting installations"):
             # do work
         # spinner automatically clears when exiting
     """
-    
+
     def __init__(self, task_name: str) -> None:
         self._task_name = task_name
         self._previous_task: str | None = None
-    
+
     def __enter__(self) -> "SpinnerTask":
         self._previous_task = get_current_task()
         set_task(self._task_name)
         return self
-    
+
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
@@ -397,3 +410,115 @@ def _cleanup_spinner() -> None:
 
 
 atexit.register(_cleanup_spinner)
+
+
+# ---------------------------------------------------------------------------
+# Interruptible waiting utilities
+# ---------------------------------------------------------------------------
+
+
+def wait_interruptible(timeout: float = 0.1) -> bool:
+    """
+    Sleep for up to `timeout` seconds, but return early if cancelled.
+
+    @param timeout Maximum time to wait in seconds.
+    @return True if cancelled, False if timeout expired normally.
+    """
+    return _cancelled.wait(timeout)
+
+
+def wait_for_future(
+    future: Any,  # concurrent.futures.Future
+    timeout: float | None = None,
+    poll_interval: float = 0.1,
+) -> Any:
+    """
+    Wait for a future to complete, checking for cancellation between polls.
+
+    @param future The Future object to wait for.
+    @param timeout Maximum total time to wait (None = forever).
+    @param poll_interval How often to check for cancellation.
+    @return The future's result.
+    @raises KeyboardInterrupt if cancellation is requested.
+    @raises TimeoutError if timeout expires before completion.
+    """
+    import concurrent.futures
+
+    start = time.monotonic()
+    while True:
+        # Check for cancellation
+        if is_cancelled():
+            future.cancel()
+            raise KeyboardInterrupt("Operation cancelled")
+
+        try:
+            return future.result(timeout=poll_interval)
+        except concurrent.futures.TimeoutError:
+            # Check overall timeout
+            if timeout is not None:
+                elapsed = time.monotonic() - start
+                if elapsed >= timeout:
+                    future.cancel()
+                    raise TimeoutError(f"Timed out after {elapsed:.1f}s")
+            # Continue polling
+            continue
+
+
+def wait_for_futures(
+    futures: dict[str, Any],  # dict of name -> Future
+    timeout: float | None = None,
+    poll_interval: float = 0.1,
+) -> dict[str, Any]:
+    """
+    Wait for multiple futures, checking for cancellation between polls.
+
+    @param futures Dict mapping names to Future objects.
+    @param timeout Maximum total time to wait (None = forever).
+    @param poll_interval How often to check for cancellation.
+    @return Dict mapping names to results.
+    @raises KeyboardInterrupt if cancellation is requested.
+    @raises Exception if any future raised an exception.
+    """
+    import concurrent.futures
+
+    results: dict[str, Any] = {}
+    errors: dict[str, Exception] = {}
+    pending = set(futures.keys())
+    start = time.monotonic()
+
+    while pending:
+        # Check for cancellation
+        if is_cancelled():
+            for name in pending:
+                futures[name].cancel()
+            raise KeyboardInterrupt("Operation cancelled")
+
+        # Check each pending future
+        for name in list(pending):
+            future = futures[name]
+            if future.done():
+                try:
+                    results[name] = future.result()
+                except Exception as e:
+                    errors[name] = e
+                pending.remove(name)
+
+        if pending:
+            # Check overall timeout
+            if timeout is not None:
+                elapsed = time.monotonic() - start
+                if elapsed >= timeout:
+                    for name in pending:
+                        futures[name].cancel()
+                    raise TimeoutError(f"Timed out after {elapsed:.1f}s")
+
+            # Sleep briefly before next poll
+            time.sleep(poll_interval)
+
+    # Re-raise any errors that occurred
+    if errors:
+        # Raise the first error encountered
+        first_name, first_error = next(iter(errors.items()))
+        raise first_error
+
+    return results

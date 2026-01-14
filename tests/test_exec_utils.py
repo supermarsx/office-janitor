@@ -35,19 +35,13 @@ class _StubLogger:
         text = message % args if args else message
         self.records.append((level, text, dict(kwargs)))
 
-    def info(
-        self, message: str, *args: object, **kwargs: object
-    ) -> None:  # noqa: D401 - logging compatibility
+    def info(self, message: str, *args: object, **kwargs: object) -> None:  # noqa: D401 - logging compatibility
         self._record("info", message, args, kwargs)
 
-    def warning(
-        self, message: str, *args: object, **kwargs: object
-    ) -> None:  # noqa: D401 - logging compatibility
+    def warning(self, message: str, *args: object, **kwargs: object) -> None:  # noqa: D401 - logging compatibility
         self._record("warning", message, args, kwargs)
 
-    def error(
-        self, message: str, *args: object, **kwargs: object
-    ) -> None:  # noqa: D401 - logging compatibility
+    def error(self, message: str, *args: object, **kwargs: object) -> None:  # noqa: D401 - logging compatibility
         self._record("error", message, args, kwargs)
 
 
@@ -146,7 +140,7 @@ def test_run_command_executes_with_sanitized_environment(monkeypatch: pytest.Mon
         def __init__(self, command, *, stdout, stderr, text, env, cwd):
             captured_env.update(env)
             self.returncode = 0
-        
+
         def communicate(self, timeout=None):
             return ("ok", "")
 
@@ -183,7 +177,7 @@ def test_run_command_check_raises_on_failure(monkeypatch: pytest.MonkeyPatch) ->
     class FakePopen:
         def __init__(self, command, *, stdout, stderr, text, env, cwd):
             self.returncode = 5
-        
+
         def communicate(self, timeout=None):
             return ("", "boom")
 
@@ -211,7 +205,7 @@ def test_global_timeout_caps_per_command(monkeypatch: pytest.MonkeyPatch) -> Non
     class FakePopen:
         def __init__(self, command, *, stdout, stderr, text, env, cwd):
             self.returncode = 0
-        
+
         def communicate(self, timeout=None):
             captured["timeout"] = timeout
             return ("ok", "")

@@ -331,7 +331,7 @@ class StepExecutor:
         # Update spinner with current step
         step_label = f"{step_id}" if step_id else f"{category}"
         spinner.set_task(f"{step_label} [{index}/{self._total_steps}]")
-        
+
         # Print visible substep progress
         attempt_info = f" (attempt {attempt})" if attempt > 1 else ""
         dry_run_marker = " [DRY-RUN]" if dry_run else ""

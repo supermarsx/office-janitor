@@ -53,6 +53,7 @@ def _wait_with_progress(
     @param use_spinner Whether to update the global spinner with this task.
     @return The result of the future once complete.
     @raises Any exception raised by the future's underlying task.
+    @raises KeyboardInterrupt if cancellation is requested.
     """
     start_time = time.monotonic()
     next_intervals = list(_PROGRESS_INTERVALS)  # Mutable copy to track which have fired
@@ -70,6 +71,9 @@ def _wait_with_progress(
 
     try:
         while not future.done():
+            # Check for cancellation (allows Ctrl+C to work)
+            spinner.check_cancelled()
+
             try:
                 future.result(timeout=poll_interval)
                 break  # Completed successfully
@@ -1027,17 +1031,16 @@ def gather_office_inventory(
            60-120+ seconds to under 1 second, but may miss some edge-case installations).
     """
 
-    # Start the spinner thread for persistent status display
+    # Start the spinner thread (for use during slow operations only)
     spinner.start_spinner_thread()
-    spinner.set_task("Gathering Office inventory")
+    # Don't set a task yet - we'll only use spinner for slow WMI/PS probes
 
-    # Thread-safe progress reporting with spinner integration
+    # Thread-safe progress reporting (no spinner updates during fast parallel phase)
     _report_lock = threading.Lock()
 
     def _report(phase: str, status: str = "start") -> None:
-        # Update spinner with current phase
-        if status == "start":
-            spinner.set_task(phase)
+        # Don't update spinner here - it races with parallel log output
+        # Spinner will only be used for slow WMI/PS probes
         if progress_callback:
             with _report_lock:
                 progress_callback(phase, status)
@@ -1237,16 +1240,30 @@ def gather_office_inventory(
                 registry_future = executor.submit(_detect_registry)
                 filesystem_future = executor.submit(_detect_filesystem)
 
-                # Wait for all fast tasks to complete first (they print status as they finish)
-                c2r_list = c2r_future.result()
-                processes_list = processes_future.result()
-                services_list = services_future.result()
-                tasks_list = tasks_future.result()
-                appx_list = appx_future.result()
-                uninstall_list = uninstall_future.result()
-                activation_info = activation_future.result()
-                registry_residue = registry_future.result()
-                filesystem_list = filesystem_future.result()
+                # Use interruptible waiting for all futures
+                futures = {
+                    "c2r": c2r_future,
+                    "processes": processes_future,
+                    "services": services_future,
+                    "tasks": tasks_future,
+                    "appx": appx_future,
+                    "uninstall": uninstall_future,
+                    "activation": activation_future,
+                    "registry": registry_future,
+                    "filesystem": filesystem_future,
+                }
+
+                results = spinner.wait_for_futures(futures, poll_interval=0.1)
+
+                c2r_list = results["c2r"]
+                processes_list = results["processes"]
+                services_list = results["services"]
+                tasks_list = results["tasks"]
+                appx_list = results["appx"]
+                uninstall_list = results["uninstall"]
+                activation_info = results["activation"]
+                registry_residue = results["registry"]
+                filesystem_list = results["filesystem"]
 
                 # Now that all fast tasks are done and console is quiet,
                 # wait for WMI/PS probes with spinner (safe to use spinner now)
