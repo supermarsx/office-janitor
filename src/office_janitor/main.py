@@ -1633,28 +1633,32 @@ def _run_detection(
     def progress_callback(phase: str, status: str = "start") -> None:
         prefix = "      "  # indent=3 equivalent
         timestamp = f"[{_get_elapsed_secs():12.6f}]"
-        if status == "start":
-            # Print complete line with "..." to indicate in-progress
-            with _PROGRESS_LOCK:
-                print(f"{timestamp} {prefix}{phase}...", flush=True)
-        elif status == "ok":
-            with _PROGRESS_LOCK:
-                print(
-                    f"{timestamp} {prefix}{phase} [  \033[32mOK\033[0m  ]",
-                    flush=True,
-                )
-        elif status == "skip":
-            with _PROGRESS_LOCK:
-                print(
-                    f"{timestamp} {prefix}{phase} [ \033[33mSKIP\033[0m ]",
-                    flush=True,
-                )
-        elif status == "fail":
-            with _PROGRESS_LOCK:
-                print(
-                    f"{timestamp} {prefix}{phase} [\033[31mFAILED\033[0m]",
-                    flush=True,
-                )
+        spinner.pause_for_output()
+        try:
+            if status == "start":
+                # Print complete line with "..." to indicate in-progress
+                with _PROGRESS_LOCK:
+                    print(f"{timestamp} {prefix}{phase}...", flush=True)
+            elif status == "ok":
+                with _PROGRESS_LOCK:
+                    print(
+                        f"{timestamp} {prefix}{phase} [  \033[32mOK\033[0m  ]",
+                        flush=True,
+                    )
+            elif status == "skip":
+                with _PROGRESS_LOCK:
+                    print(
+                        f"{timestamp} {prefix}{phase} [ \033[33mSKIP\033[0m ]",
+                        flush=True,
+                    )
+            elif status == "fail":
+                with _PROGRESS_LOCK:
+                    print(
+                        f"{timestamp} {prefix}{phase} [\033[31mFAILED\033[0m]",
+                        flush=True,
+                    )
+        finally:
+            spinner.resume_after_output()
 
     _progress("Gathering Office inventory...", indent=2)
     try:

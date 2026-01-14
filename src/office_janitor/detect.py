@@ -1034,14 +1034,16 @@ def gather_office_inventory(
     # Start the spinner thread (for use during slow operations only)
     spinner.start_spinner_thread()
 
-    # Thread-safe progress reporting with spinner updates
+    # Thread-safe progress reporting
+    # NOTE: Only update spinner during sequential execution - parallel tasks race
+    # and produce confusing output (showing whichever task started last)
     _report_lock = threading.Lock()
 
     def _report(phase: str, status: str = "start") -> None:
-        """Update spinner task and optionally call progress callback."""
+        """Update progress callback, and spinner only if running sequentially."""
         with _report_lock:
-            # Update spinner with current phase (only on start, not completion)
-            if status == "start":
+            # Only update spinner in sequential mode; parallel tasks race
+            if not parallel and status == "start":
                 spinner.set_task(phase)
             if progress_callback:
                 progress_callback(phase, status)
