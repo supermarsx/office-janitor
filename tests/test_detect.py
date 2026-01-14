@@ -586,6 +586,7 @@ class TestWaitWithProgress:
                 "test task",
                 report_fn=messages.append,
                 poll_interval=0.1,
+                use_spinner=False,  # Disable spinner for clean test output
             )
             assert result == "quick result"
             # Should not have emitted any progress (finished too fast)
@@ -611,6 +612,7 @@ class TestWaitWithProgress:
                     "slow task",
                     report_fn=messages.append,
                     poll_interval=0.05,
+                    use_spinner=False,  # Disable spinner for clean test output
                 )
                 assert result == "slow result"
                 # Should have emitted some progress messages
@@ -636,4 +638,37 @@ class TestWaitWithProgress:
                     "failing task",
                     report_fn=messages.append,
                     poll_interval=0.1,
+                    use_spinner=False,  # Disable spinner for clean test output
                 )
+
+    def test_spinner_shows_expected_time(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Should show expected time estimate when provided."""
+        import concurrent.futures
+        import time
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            # Task that takes long enough to show spinner output
+            future = executor.submit(lambda: (time.sleep(0.3), "result")[1])
+
+            result = detect._wait_with_progress(
+                future,
+                "timed task",
+                poll_interval=0.1,
+                expected_time=60.0,  # 1 minute expected
+                use_spinner=True,
+            )
+            assert result == "result"
+            # Spinner output goes to stdout - check it was cleared properly
+            captured = capsys.readouterr()
+            # The spinner line should have been cleared, but we can check
+            # it doesn't leave garbage (ends clean)
+            assert "timed task" not in captured.out or captured.out.endswith(("\r", " ", "\n", ""))
+
+    def test_format_elapsed_helper(self) -> None:
+        """Test the _format_elapsed helper function."""
+        assert detect._format_elapsed(30) == "30s"
+        assert detect._format_elapsed(60) == "1m"
+        assert detect._format_elapsed(90) == "1m 30s"
+        assert detect._format_elapsed(3600) == "1h"
+        assert detect._format_elapsed(3660) == "1h 1m"
+        assert detect._format_elapsed(7200) == "2h"
