@@ -81,9 +81,8 @@ def _progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
                 print(f"{timestamp} {prefix}{message}", end="", flush=True)
                 _PENDING_LINE_OWNER = threading.get_ident()
         finally:
-            # Only resume spinner if we completed a line
-            if newline:
-                spinner.resume_after_output()
+            # Always resume spinner to keep it omnipresent
+            spinner.resume_after_output()
 
 
 def _progress_ok(extra: str = "") -> None:
