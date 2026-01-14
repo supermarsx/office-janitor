@@ -886,8 +886,14 @@ class TestExtendedCleanupOptions:
         keys = reg_step["metadata"]["keys"]
         # Should include both detected registry residue and uninstall entries
         assert r"HKLM\SOFTWARE\Microsoft\Office\16.0" in keys
-        assert r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{90160000-0011-0000-0000-0000000FF1CE}" in keys
-        assert r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\O365ProPlusRetail - en-us" in keys
+        assert (
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{90160000-0011-0000-0000-0000000FF1CE}"
+            in keys
+        )
+        assert (
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\O365ProPlusRetail - en-us"
+            in keys
+        )
 
     def test_retry_options_in_uninstall_metadata(self) -> None:
         """!
