@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Office Janitor configuration file. Copy to config.json and customize. Use with: office-janitor --config config.json",
+
+  "// Mode Options (mutually exclusive - typically set via CLI instead)": "",
+  "auto-all": false,
+  "target": null,
+  "diagnose": false,
+  "cleanup-only": false,
+
+  "// Core Options": "",
+  "dry-run": false,
+  "force": false,
+  "yes": false,
+  "include": null,
+
+  "// Uninstall Method": "",
+  "uninstall-method": "auto",
+  "force-app-shutdown": false,
+  "product-codes": null,
+  "release-ids": null,
+
+  "// Uninstall Passes": "",
+  "passes": 1,
+
+  "// Scrubbing Options": "",
+  "scrub-level": "standard",
+  "skip-processes": false,
+  "skip-services": false,
+  "skip-tasks": false,
+  "skip-registry": false,
+  "skip-filesystem": false,
+  "clean-msocache": false,
+  "clean-appx": false,
+  "clean-wi-metadata": false,
+
+  "// License & Activation Options": "",
+  "create-restore-point": true,
+  "no-license": false,
+  "keep-license": false,
+  "clean-spp": false,
+  "clean-ospp": false,
+  "clean-vnext": false,
+  "clean-all-licenses": false,
+
+  "// User Data Options": "",
+  "keep-templates": false,
+  "keep-user-settings": false,
+  "delete-user-settings": false,
+  "keep-outlook-data": false,
+  "clean-shortcuts": false,
+
+  "// Registry Cleanup Options": "",
+  "clean-addin-registry": false,
+  "clean-com-registry": false,
+  "clean-shell-extensions": false,
+  "clean-typelibs": false,
+  "clean-protocol-handlers": false,
+  "remove-vba": false,
+
+  "// Output & Logging": "",
+  "backup": null,
+  "timeout": null,
+  "verbose": 0,
+
+  "// Retry & Resilience": "",
+  "retries": 9,
+  "retry-delay": 3,
+  "retry-delay-max": 30,
+  "no-reboot": false,
+  "offline": false,
+
+  "// OffScrub Legacy Compatibility": "",
+  "offscrub-all": false,
+  "offscrub-ose": false,
+  "offscrub-offline": false,
+  "offscrub-quiet": false
+}

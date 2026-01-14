@@ -428,8 +428,9 @@ def test_execute_plan_repeats_until_clean(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(scrub.plan_module, "build_plan", fake_replan)
 
+    # Note: max_passes must be explicitly set to enable multi-pass behavior (default is 1)
     plan = [
-        _context(False, {}, 1),
+        _context(False, {"max_passes": 3}, 1),
         {
             "id": "msi-1-0",
             "category": "msi-uninstall",

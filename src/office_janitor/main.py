@@ -304,6 +304,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip confirmation prompts (assume yes).",
     )
+    core_opts.add_argument(
+        "--config",
+        "-c",
+        metavar="JSON",
+        help="Load options from a JSON configuration file.",
+    )
+    core_opts.add_argument(
+        "--passes",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Number of uninstall passes (default: 1, use higher for stubborn installs).",
+    )
 
     # -------------------------------------------------------------------------
     # Uninstall Method Options
@@ -312,9 +325,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     uninstall_opts.add_argument(
         "--uninstall-method",
         choices=["auto", "msi", "c2r", "odt", "offscrub"],
-        default="auto",
+        default=None,
         metavar="METHOD",
-        help="Preferred uninstall method: auto (detect best), msi (msiexec), c2r (OfficeC2RClient), odt (Office Deployment Tool), offscrub (legacy VBS).",
+        help="Preferred uninstall method: auto (detect best), msi (msiexec), c2r (OfficeC2RClient), odt (Office Deployment Tool), offscrub (legacy VBS). Default: auto.",
     )
     uninstall_opts.add_argument(
         "--msi-only",
@@ -369,16 +382,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     scrub_opts.add_argument(
         "--scrub-level",
         choices=["minimal", "standard", "aggressive", "nuclear"],
-        default="standard",
+        default=None,
         metavar="LEVEL",
-        help="Scrub intensity: minimal (uninstall only), standard (+ residue), aggressive (+ deep registry), nuclear (everything).",
+        help="Scrub intensity: minimal (uninstall only), standard (+ residue), aggressive (+ deep registry), nuclear (everything). Default: standard.",
     )
     scrub_opts.add_argument(
         "--max-passes",
         type=int,
-        default=3,
+        default=None,
         metavar="N",
-        help="Maximum uninstall/re-detect passes (default: 3).",
+        help="Maximum uninstall/re-detect passes (default: 1). Alias for --passes.",
     )
     scrub_opts.add_argument(
         "--skip-processes",
@@ -881,6 +894,36 @@ def _print_shutdown_message() -> None:
     )
     print(f"[{elapsed:12.6f}] Cleanup in progress, please wait...", flush=True)
     print(f"[{elapsed:12.6f}] " + "=" * 50, flush=True)
+
+
+def _load_config_file(config_path: str | None) -> dict[str, object]:
+    """!
+    @brief Load and parse a JSON configuration file.
+    @param config_path Path to the JSON config file, or None to skip.
+    @returns Dictionary of configuration options, empty if no file specified.
+    @raises SystemExit if the file cannot be read or parsed.
+    """
+    if not config_path:
+        return {}
+
+    path = pathlib.Path(config_path).expanduser().resolve()
+    if not path.exists():
+        print(f"Error: Configuration file not found: {path}", file=sys.stderr)
+        raise SystemExit(1)
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            config = json.load(f)
+        if not isinstance(config, dict):
+            print(f"Error: Configuration file must contain a JSON object: {path}", file=sys.stderr)
+            raise SystemExit(1)
+        return config
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in configuration file: {path}\n{e}", file=sys.stderr)
+        raise SystemExit(1)
+    except OSError as e:
+        print(f"Error: Cannot read configuration file: {path}\n{e}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 def main(argv: Iterable[str] | None = None, *, start_time: float | None = None) -> int:
@@ -1539,99 +1582,139 @@ def _build_app_state(
 def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, object]:
     """!
     @brief Translate parsed CLI arguments into planning options.
+    @details Options are resolved with the following precedence (highest first):
+    1. CLI arguments explicitly specified
+    2. JSON config file values (if --config provided)
+    3. Built-in defaults
     """
+
+    # Load config file if specified
+    config = _load_config_file(getattr(args, "config", None))
+
+    # Helper to get value with precedence: CLI > config > default
+    def _get(
+        attr: str,
+        default: object = None,
+        config_key: str | None = None,
+        is_bool: bool = False,
+    ) -> object:
+        """Get option value with CLI > config > default precedence."""
+        cli_val = getattr(args, attr, None)
+        cfg_key = config_key or attr.replace("_", "-")  # CLI uses underscores, JSON uses hyphens
+
+        # For boolean flags, CLI sets True explicitly; check if user specified it
+        if is_bool:
+            if cli_val:
+                return True
+            if cfg_key in config:
+                return bool(config[cfg_key])
+            return bool(default) if default else False
+
+        # For non-boolean, None means "not specified"
+        if cli_val is not None:
+            return cli_val
+        if cfg_key in config:
+            return config[cfg_key]
+        return default
+
+    # Resolve max_passes: --passes > --max-passes > config > default (1)
+    cli_passes = getattr(args, "passes", None)
+    cli_max_passes = getattr(args, "max_passes", None)
+    config_passes = config.get("passes") or config.get("max-passes")
+    resolved_passes = cli_passes or cli_max_passes or config_passes or 1
 
     options: dict[str, object] = {
         # Mode & core
         "mode": mode,
-        "dry_run": bool(getattr(args, "dry_run", False)),
-        "force": bool(getattr(args, "force", False)),
-        "yes": bool(getattr(args, "yes", False)),
-        "include": getattr(args, "include", None),
-        "target": getattr(args, "target", None),
-        "diagnose": bool(getattr(args, "diagnose", False)),
-        "cleanup_only": bool(getattr(args, "cleanup_only", False)),
-        "auto_all": bool(getattr(args, "auto_all", False)),
-        "allow_unsupported_windows": bool(getattr(args, "allow_unsupported_windows", False)),
+        "dry_run": _get("dry_run", False, is_bool=True),
+        "force": _get("force", False, is_bool=True),
+        "yes": _get("yes", False, is_bool=True),
+        "include": _get("include", None),
+        "target": _get("target", None),
+        "diagnose": _get("diagnose", False, is_bool=True),
+        "cleanup_only": _get("cleanup_only", False, "cleanup-only", is_bool=True),
+        "auto_all": _get("auto_all", False, "auto-all", is_bool=True),
+        "allow_unsupported_windows": _get("allow_unsupported_windows", False, is_bool=True),
         # Uninstall method
-        "uninstall_method": getattr(args, "uninstall_method", "auto"),
-        "force_app_shutdown": bool(getattr(args, "force_app_shutdown", False)),
-        "no_force_app_shutdown": bool(getattr(args, "no_force_app_shutdown", False)),
-        "product_codes": getattr(args, "product_codes", None),
-        "release_ids": getattr(args, "release_ids", None),
+        "uninstall_method": _get("uninstall_method", "auto"),
+        "force_app_shutdown": _get("force_app_shutdown", False, is_bool=True),
+        "no_force_app_shutdown": _get("no_force_app_shutdown", False, is_bool=True),
+        "product_codes": _get("product_codes", None),
+        "release_ids": _get("release_ids", None),
         # Scrubbing
-        "scrub_level": getattr(args, "scrub_level", "standard"),
-        "max_passes": getattr(args, "max_passes", 3),
-        "skip_processes": bool(getattr(args, "skip_processes", False)),
-        "skip_services": bool(getattr(args, "skip_services", False)),
-        "skip_tasks": bool(getattr(args, "skip_tasks", False)),
-        "skip_registry": bool(getattr(args, "skip_registry", False)),
-        "skip_filesystem": bool(getattr(args, "skip_filesystem", False)),
-        "clean_msocache": bool(getattr(args, "clean_msocache", False)),
-        "clean_appx": bool(getattr(args, "clean_appx", False)),
-        "clean_wi_metadata": bool(getattr(args, "clean_wi_metadata", False)),
+        "scrub_level": _get("scrub_level", "standard"),
+        "max_passes": int(resolved_passes),
+        "skip_processes": _get("skip_processes", False, is_bool=True),
+        "skip_services": _get("skip_services", False, is_bool=True),
+        "skip_tasks": _get("skip_tasks", False, is_bool=True),
+        "skip_registry": _get("skip_registry", False, is_bool=True),
+        "skip_filesystem": _get("skip_filesystem", False, is_bool=True),
+        "clean_msocache": _get("clean_msocache", False, is_bool=True),
+        "clean_appx": _get("clean_appx", False, is_bool=True),
+        "clean_wi_metadata": _get("clean_wi_metadata", False, is_bool=True),
         # License & activation
         # Restore point: enabled by default unless --no-restore-point is specified
         # or explicitly enabled with --restore-point/--create-restore-point
         "create_restore_point": (
-            bool(getattr(args, "create_restore_point", False))
-            or not bool(getattr(args, "no_restore_point", False))
+            _get("create_restore_point", False, is_bool=True)
+            or not _get("no_restore_point", False, is_bool=True)
         ),
-        "no_license": bool(
-            getattr(args, "no_license", False) or getattr(args, "keep_license", False)
+        "no_license": (
+            _get("no_license", False, is_bool=True)
+            or _get("keep_license", False, is_bool=True)
         ),
-        "keep_license": bool(getattr(args, "keep_license", False)),
-        "clean_spp": bool(getattr(args, "clean_spp", False)),
-        "clean_ospp": bool(getattr(args, "clean_ospp", False)),
-        "clean_vnext": bool(getattr(args, "clean_vnext", False)),
-        "clean_all_licenses": bool(getattr(args, "clean_all_licenses", False)),
+        "keep_license": _get("keep_license", False, is_bool=True),
+        "clean_spp": _get("clean_spp", False, is_bool=True),
+        "clean_ospp": _get("clean_ospp", False, is_bool=True),
+        "clean_vnext": _get("clean_vnext", False, is_bool=True),
+        "clean_all_licenses": _get("clean_all_licenses", False, is_bool=True),
         # User data
-        "keep_templates": bool(getattr(args, "keep_templates", False)),
-        "keep_user_settings": bool(getattr(args, "keep_user_settings", False)),
-        "delete_user_settings": bool(getattr(args, "delete_user_settings", False)),
-        "keep_outlook_data": bool(getattr(args, "keep_outlook_data", False)),
-        "clean_shortcuts": bool(getattr(args, "clean_shortcuts", False)),
-        "skip_shortcut_detection": bool(getattr(args, "skip_shortcut_detection", False)),
+        "keep_templates": _get("keep_templates", False, is_bool=True),
+        "keep_user_settings": _get("keep_user_settings", False, is_bool=True),
+        "delete_user_settings": _get("delete_user_settings", False, is_bool=True),
+        "keep_outlook_data": _get("keep_outlook_data", False, is_bool=True),
+        "clean_shortcuts": _get("clean_shortcuts", False, is_bool=True),
+        "skip_shortcut_detection": _get("skip_shortcut_detection", False, is_bool=True),
         # Registry cleanup
-        "clean_addin_registry": bool(getattr(args, "clean_addin_registry", False)),
-        "clean_com_registry": bool(getattr(args, "clean_com_registry", False)),
-        "clean_shell_extensions": bool(getattr(args, "clean_shell_extensions", False)),
-        "clean_typelibs": bool(getattr(args, "clean_typelibs", False)),
-        "clean_protocol_handlers": bool(getattr(args, "clean_protocol_handlers", False)),
-        "remove_vba": bool(getattr(args, "remove_vba", False)),
+        "clean_addin_registry": _get("clean_addin_registry", False, is_bool=True),
+        "clean_com_registry": _get("clean_com_registry", False, is_bool=True),
+        "clean_shell_extensions": _get("clean_shell_extensions", False, is_bool=True),
+        "clean_typelibs": _get("clean_typelibs", False, is_bool=True),
+        "clean_protocol_handlers": _get("clean_protocol_handlers", False, is_bool=True),
+        "remove_vba": _get("remove_vba", False, is_bool=True),
         # Output & paths
-        "timeout": getattr(args, "timeout", None),
-        "backup": getattr(args, "backup", None),
-        "verbose": getattr(args, "verbose", 0),
+        "timeout": _get("timeout", None),
+        "backup": _get("backup", None),
+        "verbose": _get("verbose", 0),
         # Retry & resilience
-        "retries": getattr(args, "retries", 9),
-        "retry_delay": getattr(args, "retry_delay", 3),
-        "retry_delay_max": getattr(args, "retry_delay_max", 30),
-        "no_reboot": bool(getattr(args, "no_reboot", False)),
-        "offline": bool(getattr(args, "offline", False)),
+        "retries": _get("retries", 9),
+        "retry_delay": _get("retry_delay", 3),
+        "retry_delay_max": _get("retry_delay_max", 30),
+        "no_reboot": _get("no_reboot", False, is_bool=True),
+        "offline": _get("offline", False, is_bool=True),
         # Advanced
-        "skip_preflight": bool(getattr(args, "skip_preflight", False)),
-        "skip_backup": bool(getattr(args, "skip_backup", False)),
-        "skip_verification": bool(getattr(args, "skip_verification", False)),
-        "schedule_reboot": bool(getattr(args, "schedule_reboot", False)),
-        "no_schedule_delete": bool(getattr(args, "no_schedule_delete", False)),
-        "msiexec_args": getattr(args, "msiexec_args", None),
-        "c2r_args": getattr(args, "c2r_args", None),
-        "odt_args": getattr(args, "odt_args", None),
+        "skip_preflight": _get("skip_preflight", False, is_bool=True),
+        "skip_backup": _get("skip_backup", False, is_bool=True),
+        "skip_verification": _get("skip_verification", False, is_bool=True),
+        "schedule_reboot": _get("schedule_reboot", False, is_bool=True),
+        "no_schedule_delete": _get("no_schedule_delete", False, is_bool=True),
+        "msiexec_args": _get("msiexec_args", None),
+        "c2r_args": _get("c2r_args", None),
+        "odt_args": _get("odt_args", None),
         # OffScrub legacy
-        "offscrub_all": bool(getattr(args, "offscrub_all", False)),
-        "offscrub_ose": bool(getattr(args, "offscrub_ose", False)),
-        "offscrub_offline": bool(getattr(args, "offscrub_offline", False)),
-        "offscrub_quiet": bool(getattr(args, "offscrub_quiet", False)),
-        "offscrub_test_rerun": bool(getattr(args, "offscrub_test_rerun", False)),
-        "offscrub_bypass": bool(getattr(args, "offscrub_bypass", False)),
-        "offscrub_fast_remove": bool(getattr(args, "offscrub_fast_remove", False)),
-        "offscrub_scan_components": bool(getattr(args, "offscrub_scan_components", False)),
-        "offscrub_return_error": bool(getattr(args, "offscrub_return_error", False)),
+        "offscrub_all": _get("offscrub_all", False, is_bool=True),
+        "offscrub_ose": _get("offscrub_ose", False, is_bool=True),
+        "offscrub_offline": _get("offscrub_offline", False, is_bool=True),
+        "offscrub_quiet": _get("offscrub_quiet", False, is_bool=True),
+        "offscrub_test_rerun": _get("offscrub_test_rerun", False, is_bool=True),
+        "offscrub_bypass": _get("offscrub_bypass", False, is_bool=True),
+        "offscrub_fast_remove": _get("offscrub_fast_remove", False, is_bool=True),
+        "offscrub_scan_components": _get("offscrub_scan_components", False, is_bool=True),
+        "offscrub_return_error": _get("offscrub_return_error", False, is_bool=True),
         # Repair options
-        "repair_timeout": getattr(args, "repair_timeout", 3600),
+        "repair_timeout": _get("repair_timeout", 3600),
         # Miscellaneous
-        "limited_user": bool(getattr(args, "limited_user", False)),
+        "limited_user": _get("limited_user", False, is_bool=True),
     }
 
     # Auto-all mode enables FULL scrubbing like the VBS scripts:

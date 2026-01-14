@@ -1414,6 +1414,30 @@ class TestCLIArgumentsIntoPlanOptions:
         options = main._collect_plan_options(args, mode)
         assert options["max_passes"] == 5
 
+    def test_passes_in_plan_options(self) -> None:
+        """Test --passes propagates to plan options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--passes", "3"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["max_passes"] == 3
+
+    def test_passes_takes_precedence_over_max_passes(self) -> None:
+        """Test --passes takes precedence over --max-passes."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--max-passes", "5", "--passes", "2"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["max_passes"] == 2
+
+    def test_default_passes_is_one(self) -> None:
+        """Test default passes is 1 (not 3 like before)."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["max_passes"] == 1
+
     def test_skip_flags_in_plan_options(self) -> None:
         """Test skip flags propagate to plan options."""
         parser = main.build_arg_parser()
@@ -1710,3 +1734,80 @@ class TestCLIFlagBehavior:
         assert args.tui is True
         assert args.tui_compact is True
         assert args.tui_refresh == 100
+
+
+class TestConfigFile:
+    """Tests for JSON configuration file loading."""
+
+    def test_config_file_loads_options(self, tmp_path) -> None:
+        """Test config file options are loaded."""
+        config = tmp_path / "config.json"
+        config.write_text('{"passes": 5, "dry-run": true, "scrub-level": "aggressive"}')
+
+        parser = main.build_arg_parser()
+        # Use --diagnose instead of --auto-all to avoid auto-all's scrub_level override
+        args = parser.parse_args(["--diagnose", "--config", str(config)])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+
+        assert options["max_passes"] == 5
+        assert options["dry_run"] is True
+        assert options["scrub_level"] == "aggressive"
+
+    def test_cli_overrides_config_file(self, tmp_path) -> None:
+        """Test CLI arguments take precedence over config file."""
+        config = tmp_path / "config.json"
+        config.write_text('{"passes": 5, "dry-run": true}')
+
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--config", str(config), "--passes", "2"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+
+        # CLI --passes=2 should override config passes=5
+        assert options["max_passes"] == 2
+
+    def test_config_file_not_found_exits(self, tmp_path) -> None:
+        """Test missing config file causes exit."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--config", str(tmp_path / "missing.json")])
+
+        with pytest.raises(SystemExit):
+            main._load_config_file(str(tmp_path / "missing.json"))
+
+    def test_invalid_json_exits(self, tmp_path) -> None:
+        """Test invalid JSON causes exit."""
+        config = tmp_path / "config.json"
+        config.write_text("{invalid json")
+
+        with pytest.raises(SystemExit):
+            main._load_config_file(str(config))
+
+    def test_non_object_json_exits(self, tmp_path) -> None:
+        """Test non-object JSON root causes exit."""
+        config = tmp_path / "config.json"
+        config.write_text('["array", "not", "object"]')
+
+        with pytest.raises(SystemExit):
+            main._load_config_file(str(config))
+
+    def test_no_config_returns_empty_dict(self) -> None:
+        """Test None config path returns empty dict."""
+        result = main._load_config_file(None)
+        assert result == {}
+
+    def test_config_boolean_flags(self, tmp_path) -> None:
+        """Test config file boolean flags are properly converted."""
+        config = tmp_path / "config.json"
+        config.write_text(
+            '{"force": true, "clean-msocache": true, "skip-registry": true}'
+        )
+
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--config", str(config)])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+
+        assert options["force"] is True
+        assert options["clean_msocache"] is True
+        assert options["skip_registry"] is True

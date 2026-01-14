@@ -33,7 +33,7 @@ from . import (
     plan as plan_module,
 )
 
-DEFAULT_MAX_PASSES = 3
+DEFAULT_MAX_PASSES = 1
 """!
 @brief Safety limit mirroring OffScrub's repeated scrub attempts.
 """
