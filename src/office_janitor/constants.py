@@ -452,6 +452,13 @@ _SHELL_INTEGRATION_PATHS: list[tuple[int, str]] = [
     # Default mail client registration (Control Panel "Mail (Microsoft Outlook)")
     (HKLM, r"SOFTWARE\Clients\Mail\Microsoft Outlook"),
     (HKLM, r"SOFTWARE\WOW6432Node\Clients\Mail\Microsoft Outlook"),
+    # Mail Control Panel applet registration (CLSID {A0D4CD32-5D5D-4f72-BAAA-767A7AD6BAC5})
+    (HKLM, r"SOFTWARE\Classes\CLSID\{A0D4CD32-5D5D-4f72-BAAA-767A7AD6BAC5}"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Classes\CLSID\{A0D4CD32-5D5D-4f72-BAAA-767A7AD6BAC5}"),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ControlPanel\NameSpace\{A0D4CD32-5D5D-4f72-BAAA-767A7AD6BAC5}",
+    ),
 ]
 _REGISTRY_RESIDUE_BASE.extend(_SHELL_INTEGRATION_PATHS)
 
