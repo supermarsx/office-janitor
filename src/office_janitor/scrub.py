@@ -84,30 +84,31 @@ def _scrub_progress(message: str, *, newline: bool = True, indent: int = 0) -> N
     spinner.pause_for_output()
     if newline:
         print(f"{timestamp} {prefix}{message}", flush=True)
+        spinner.resume_after_output()
     else:
-        # For incomplete lines, print directly without newline
+        # For incomplete lines, mark that we're waiting for continuation
         print(f"{timestamp} {prefix}{message}", end="", flush=True)
-    # Always resume spinner to keep it omnipresent
-    spinner.resume_after_output()
+        spinner.mark_incomplete_line()
+        spinner.resume_after_output()
 
 
 def _scrub_ok(extra: str = "") -> None:
     """Print OK status in Linux init style [  OK  ]."""
     suffix = f" {extra}" if extra else ""
-    # Pause spinner before continuing the line
+    # Clear incomplete line flag before printing continuation
+    spinner.clear_incomplete_line()
     spinner.pause_for_output()
     print(f" [  \033[32mOK\033[0m  ]{suffix}", flush=True)
-    # Resume spinner since line is complete
     spinner.resume_after_output()
 
 
 def _scrub_fail(reason: str = "") -> None:
     """Print FAIL status in Linux init style [FAILED]."""
     suffix = f" ({reason})" if reason else ""
-    # Pause spinner before continuing the line
+    # Clear incomplete line flag before printing continuation
+    spinner.clear_incomplete_line()
     spinner.pause_for_output()
     print(f" [\033[31mFAILED\033[0m]{suffix}", flush=True)
-    # Resume spinner since line is complete
     spinner.resume_after_output()
 
 

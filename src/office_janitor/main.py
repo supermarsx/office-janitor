@@ -71,24 +71,30 @@ def _progress(message: str, *, newline: bool = True, indent: int = 0) -> None:
             if _PENDING_LINE_OWNER is not None and _PENDING_LINE_OWNER != threading.get_ident():
                 print(flush=True)  # Force newline
                 _PENDING_LINE_OWNER = None
+                spinner.clear_incomplete_line()
 
             timestamp = f"[{_get_elapsed_secs():12.6f}]"
             prefix = "  " * indent
             if newline:
                 print(f"{timestamp} {prefix}{message}", flush=True)
                 _PENDING_LINE_OWNER = None
+                spinner.resume_after_output()
             else:
                 print(f"{timestamp} {prefix}{message}", end="", flush=True)
                 _PENDING_LINE_OWNER = threading.get_ident()
-        finally:
-            # Always resume spinner to keep it omnipresent
+                spinner.mark_incomplete_line()
+                spinner.resume_after_output()
+        except Exception:
             spinner.resume_after_output()
+            raise
 
 
 def _progress_ok(extra: str = "") -> None:
     """Print OK status in Linux init style [  OK  ]."""
     global _PENDING_LINE_OWNER
     with _PROGRESS_LOCK:
+        # Clear incomplete line flag before printing
+        spinner.clear_incomplete_line()
         spinner.pause_for_output()
         try:
             current_thread = threading.get_ident()
@@ -115,6 +121,8 @@ def _progress_fail(reason: str = "") -> None:
     """Print FAIL status in Linux init style [FAILED]."""
     global _PENDING_LINE_OWNER
     with _PROGRESS_LOCK:
+        # Clear incomplete line flag before printing
+        spinner.clear_incomplete_line()
         spinner.pause_for_output()
         try:
             current_thread = threading.get_ident()
@@ -139,6 +147,8 @@ def _progress_skip(reason: str = "") -> None:
     """Print SKIP status in Linux init style [ SKIP ]."""
     global _PENDING_LINE_OWNER
     with _PROGRESS_LOCK:
+        # Clear incomplete line flag before printing
+        spinner.clear_incomplete_line()
         spinner.pause_for_output()
         try:
             current_thread = threading.get_ident()

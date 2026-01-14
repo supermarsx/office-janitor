@@ -73,6 +73,7 @@ _spinner_thread: threading.Thread | None = None
 _spinner_stop_event: threading.Event | None = None
 _status_line_active: bool = False  # Whether we've reserved a line for status
 _output_paused: bool = False  # Whether output is paused (status line cleared for logging)
+_pending_incomplete_line: bool = False  # Whether there's an incomplete line awaiting continuation
 
 # Multi-task tracking for parallel operations
 # Maps task_name -> start_time (allows multiple concurrent tasks)
@@ -219,8 +220,9 @@ def _spinner_loop() -> None:
     while _spinner_stop_event is not None and not _spinner_stop_event.is_set():
         with _spinner_lock:
             # Draw if we have any task (single or parallel)
+            # Don't draw if there's a pending incomplete line (would overwrite it)
             has_task = _current_task is not None or len(_active_tasks) > 0
-            if has_task and _spinner_enabled and not _output_paused:
+            if has_task and _spinner_enabled and not _output_paused and not _pending_incomplete_line:
                 _spinner_idx += 1
                 _draw_status_line()
         _spinner_stop_event.wait(0.1)  # Update every 100ms
@@ -507,15 +509,40 @@ def resume_after_output() -> None:
     """
     Redraw the status line after log output is complete.
     The log output ends with newline, so spinner goes on the next line.
+    Does NOT redraw if there's a pending incomplete line.
     """
     global _output_paused
     with _spinner_lock:
         if _output_paused:
             _output_paused = False
+            # Don't draw if there's a pending incomplete line (would overwrite it)
+            if _pending_incomplete_line:
+                return
             # Draw if we have any task (single or parallel)
             has_task = _current_task is not None or len(_active_tasks) > 0
             if has_task and _spinner_enabled:
                 _draw_status_line()
+
+
+def mark_incomplete_line() -> None:
+    """
+    Mark that there's an incomplete line awaiting continuation.
+    This prevents the spinner from overwriting the pending output.
+    Call clear_incomplete_line() after completing the line.
+    """
+    global _pending_incomplete_line
+    with _spinner_lock:
+        _pending_incomplete_line = True
+
+
+def clear_incomplete_line() -> None:
+    """
+    Clear the incomplete line flag after completing the line.
+    This allows the spinner to resume drawing.
+    """
+    global _pending_incomplete_line
+    with _spinner_lock:
+        _pending_incomplete_line = False
 
 
 def spinner_print(message: str, **kwargs: object) -> None:
