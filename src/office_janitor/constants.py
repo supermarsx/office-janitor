@@ -449,6 +449,9 @@ _SHELL_INTEGRATION_PATHS: list[tuple[int, str]] = [
     (HKLM, r"SOFTWARE\Classes\*\shellex\ContextMenuHandlers\GrooveShellExtensions"),
     (HKLM, r"SOFTWARE\Classes\Directory\shellex\ContextMenuHandlers\GrooveShellExtensions"),
     (HKLM, r"SOFTWARE\Classes\Folder\shellex\ContextMenuHandlers\GrooveShellExtensions"),
+    # Default mail client registration (Control Panel "Mail (Microsoft Outlook)")
+    (HKLM, r"SOFTWARE\Clients\Mail\Microsoft Outlook"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Clients\Mail\Microsoft Outlook"),
 ]
 _REGISTRY_RESIDUE_BASE.extend(_SHELL_INTEGRATION_PATHS)
 
