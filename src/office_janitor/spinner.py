@@ -27,6 +27,7 @@ from typing import Any, Callable, TextIO
 # Direct console output - NEVER use logging for spinner
 # ---------------------------------------------------------------------------
 
+
 # Use the original stdout that bypasses any redirections
 # This ensures spinner output NEVER goes to log files
 def _get_console() -> TextIO:
@@ -73,6 +74,10 @@ _spinner_stop_event: threading.Event | None = None
 _status_line_active: bool = False  # Whether we've reserved a line for status
 _output_paused: bool = False  # Whether output is paused (status line cleared for logging)
 
+# Multi-task tracking for parallel operations
+# Maps task_name -> start_time (allows multiple concurrent tasks)
+_active_tasks: dict[str, float] = {}
+
 # Track active subprocesses for cleanup on SIGINT
 _active_processes: set[subprocess.Popen[Any]] = set()
 _process_lock = threading.Lock()
@@ -118,20 +123,44 @@ def _get_terminal_height() -> int:
 
 def _draw_status_line() -> None:
     """Draw the status line - always visible at the current position.
-    
+
     IMPORTANT: Output goes directly to console via _get_console(), never through logging.
+    Shows multiple tasks if parallel operations are active, otherwise shows single task.
     """
     global _status_line_active
 
-    if not _spinner_enabled or _current_task is None:
+    if not _spinner_enabled:
         return
 
-    frame = _SPINNER_FRAMES[_spinner_idx % len(_SPINNER_FRAMES)]
+    # Determine what to display: parallel tasks take precedence over single task
+    if _active_tasks:
+        # Multiple parallel tasks - show them combined
+        now = time.monotonic()
+        # Find longest running task for elapsed time
+        oldest_start = min(_active_tasks.values())
+        elapsed = now - oldest_start
+        elapsed_str = _format_elapsed(elapsed)
 
-    elapsed = time.monotonic() - _task_start_time
-    elapsed_str = _format_elapsed(elapsed)
+        # Build combined task list (truncate if too many)
+        task_names = list(_active_tasks.keys())
+        if len(task_names) == 1:
+            display_tasks = task_names[0]
+        elif len(task_names) <= 3:
+            display_tasks = ", ".join(task_names)
+        else:
+            # Show first 2 + count of remaining
+            display_tasks = f"{task_names[0]}, {task_names[1]} +{len(task_names) - 2} more"
 
-    status = f"{frame} {_current_task}... ({elapsed_str})"
+        frame = _SPINNER_FRAMES[_spinner_idx % len(_SPINNER_FRAMES)]
+        status = f"{frame} {display_tasks}... ({elapsed_str})"
+    elif _current_task is not None:
+        # Single task mode
+        frame = _SPINNER_FRAMES[_spinner_idx % len(_SPINNER_FRAMES)]
+        elapsed = time.monotonic() - _task_start_time
+        elapsed_str = _format_elapsed(elapsed)
+        status = f"{frame} {_current_task}... ({elapsed_str})"
+    else:
+        return
 
     # Truncate if too long for terminal
     width = _get_terminal_width()
@@ -151,7 +180,7 @@ def _draw_status_line() -> None:
 
 def _clear_status_line() -> None:
     """Clear the status line content.
-    
+
     IMPORTANT: Output goes directly to console via _get_console(), never through logging.
     """
     global _status_line_active
@@ -168,7 +197,7 @@ def _clear_status_line() -> None:
 
 def _finalize_status_line() -> None:
     """Finalize the status line - print newline so it stays visible.
-    
+
     IMPORTANT: Output goes directly to console via _get_console(), never through logging.
     """
     global _status_line_active
@@ -189,7 +218,9 @@ def _spinner_loop() -> None:
 
     while _spinner_stop_event is not None and not _spinner_stop_event.is_set():
         with _spinner_lock:
-            if _current_task is not None and _spinner_enabled and not _output_paused:
+            # Draw if we have any task (single or parallel)
+            has_task = _current_task is not None or len(_active_tasks) > 0
+            if has_task and _spinner_enabled and not _output_paused:
                 _spinner_idx += 1
                 _draw_status_line()
         _spinner_stop_event.wait(0.1)  # Update every 100ms
@@ -407,6 +438,51 @@ def clear_task() -> None:
     set_task(None)
 
 
+# ---------------------------------------------------------------------------
+# Parallel task tracking - for showing multiple concurrent tasks
+# ---------------------------------------------------------------------------
+
+
+def add_parallel_task(task_name: str) -> None:
+    """
+    Add a parallel task to track. Multiple tasks can run concurrently.
+    Use this for parallel operations instead of set_task().
+
+    @param task_name The task name to track.
+    """
+    with _spinner_lock:
+        if task_name not in _active_tasks:
+            _active_tasks[task_name] = time.monotonic()
+            # Draw immediately
+            _draw_status_line()
+
+
+def remove_parallel_task(task_name: str) -> None:
+    """
+    Remove a parallel task when it completes.
+
+    @param task_name The task name to remove.
+    """
+    with _spinner_lock:
+        _active_tasks.pop(task_name, None)
+        # If no more tasks, clear the line
+        if not _active_tasks and _current_task is None:
+            _clear_status_line()
+
+
+def clear_parallel_tasks() -> None:
+    """Clear all parallel tasks."""
+    with _spinner_lock:
+        _active_tasks.clear()
+        if _current_task is None:
+            _clear_status_line()
+
+
+def get_parallel_task_count() -> int:
+    """Get the number of currently active parallel tasks."""
+    return len(_active_tasks)
+
+
 def pause_for_output() -> None:
     """
     Prepare for log output by clearing spinner line.
@@ -436,7 +512,9 @@ def resume_after_output() -> None:
     with _spinner_lock:
         if _output_paused:
             _output_paused = False
-            if _current_task is not None and _spinner_enabled:
+            # Draw if we have any task (single or parallel)
+            has_task = _current_task is not None or len(_active_tasks) > 0
+            if has_task and _spinner_enabled:
                 _draw_status_line()
 
 

@@ -495,10 +495,12 @@ def _probe_msi_wmi() -> dict[str, dict[str, Any]]:
     """!
     @brief Collect MSI product metadata via ``wmic`` when available.
     @details WARNING: This is slow (30-120+ seconds) because wmic enumerates all products.
+    Timeout is set to 60 seconds to avoid indefinite hangs.
     """
 
     code, output = _run_command(
-        ["wmic", "product", "get", "IdentifyingNumber,Name,Version,InstallLocation", "/format:csv"]
+        ["wmic", "product", "get", "IdentifyingNumber,Name,Version,InstallLocation", "/format:csv"],
+        timeout=60,  # 60 second timeout for WMI probe
     )
     if code != 0 or not output.strip():
         return {}
@@ -539,6 +541,7 @@ def _probe_msi_wmi() -> dict[str, dict[str, Any]]:
 def _probe_msi_powershell() -> dict[str, dict[str, Any]]:
     """!
     @brief Collect MSI product metadata via ``powershell`` CIM queries when available.
+    @details Timeout is set to 60 seconds to avoid indefinite hangs.
     """
 
     script = (
@@ -549,7 +552,10 @@ def _probe_msi_powershell() -> dict[str, dict[str, Any]]:
         "Select-Object IdentifyingNumber,Name,Version,InstallLocation;"
         "if($items){$items|ConvertTo-Json -Compress}else{''}"
     )
-    code, output = _run_command(["powershell", "-NoProfile", "-Command", script])
+    code, output = _run_command(
+        ["powershell", "-NoProfile", "-Command", script],
+        timeout=60,  # 60 second timeout for PowerShell probe
+    )
     if code != 0 or not output.strip():
         return {}
 
@@ -1035,16 +1041,29 @@ def gather_office_inventory(
     spinner.start_spinner_thread()
 
     # Thread-safe progress reporting
-    # NOTE: Only update spinner during sequential execution - parallel tasks race
-    # and produce confusing output (showing whichever task started last)
     _report_lock = threading.Lock()
 
     def _report(phase: str, status: str = "start") -> None:
-        """Update progress callback, and spinner only if running sequentially."""
+        """Update progress callback and spinner.
+
+        In parallel mode: uses add_parallel_task/remove_parallel_task to show
+        multiple concurrent tasks in the spinner.
+        In sequential mode: uses set_task to show single current task.
+        """
         with _report_lock:
-            # Only update spinner in sequential mode; parallel tasks race
-            if not parallel and status == "start":
-                spinner.set_task(phase)
+            if parallel:
+                # Parallel mode - track multiple tasks
+                if status == "start":
+                    spinner.add_parallel_task(phase)
+                else:
+                    # Any completion status removes the task
+                    spinner.remove_parallel_task(phase)
+            else:
+                # Sequential mode - single task
+                if status == "start":
+                    spinner.set_task(phase)
+                else:
+                    spinner.clear_task()
             if progress_callback:
                 progress_callback(phase, status)
 
@@ -1344,6 +1363,9 @@ def gather_office_inventory(
         "registry": registry_residue,
     }
 
+    # Clear any remaining parallel tasks from spinner
+    spinner.clear_parallel_tasks()
+
     return inventory
 
 
@@ -1363,12 +1385,15 @@ def reprobe(options: Mapping[str, object] | None = None) -> dict[str, object]:
     return gather_office_inventory(limited_user=limited_user)
 
 
-def _run_command(arguments: Iterable[str]) -> tuple[int, str]:
+def _run_command(
+    arguments: Iterable[str], *, timeout: int | float | None = None
+) -> tuple[int, str]:
     """!
     @brief Execute a subprocess returning ``(returncode, text_output)``.
     @details Failures caused by missing binaries or platform limitations are
     normalised to a non-zero return code with empty output so detection can
     degrade gracefully in non-Windows environments.
+    @param timeout Optional timeout in seconds.
     """
 
     command_list = [str(part) for part in arguments]
@@ -1378,7 +1403,7 @@ def _run_command(arguments: Iterable[str]) -> tuple[int, str]:
     event = "detect_" + command_list[0].lower().replace("/", "_").replace("\\", "_").replace(
         ".", "_"
     )
-    result = exec_utils.run_command(command_list, event=event)
+    result = exec_utils.run_command(command_list, event=event, timeout=timeout)
 
     output = result.stdout or result.stderr or ""
     return result.returncode, output
