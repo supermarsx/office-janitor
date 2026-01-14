@@ -77,6 +77,9 @@ def _scrub_progress(message: str, *, newline: bool = True, indent: int = 0) -> N
     """Print a scrub progress message with dmesg-style timestamp."""
     timestamp = f"[{_get_scrub_elapsed_secs():12.6f}]"
     prefix = "  " * indent
+    # Update spinner task with current progress (strip trailing "..." for cleaner display)
+    task_msg = message.rstrip(".")
+    spinner.set_task(task_msg)
     # Use spinner-aware printing
     spinner.pause_for_output()
     if newline:

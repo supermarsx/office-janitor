@@ -1033,16 +1033,17 @@ def gather_office_inventory(
 
     # Start the spinner thread (for use during slow operations only)
     spinner.start_spinner_thread()
-    # Don't set a task yet - we'll only use spinner for slow WMI/PS probes
 
-    # Thread-safe progress reporting (no spinner updates during fast parallel phase)
+    # Thread-safe progress reporting with spinner updates
     _report_lock = threading.Lock()
 
     def _report(phase: str, status: str = "start") -> None:
-        # Don't update spinner here - it races with parallel log output
-        # Spinner will only be used for slow WMI/PS probes
-        if progress_callback:
-            with _report_lock:
+        """Update spinner task and optionally call progress callback."""
+        with _report_lock:
+            # Update spinner with current phase (only on start, not completion)
+            if status == "start":
+                spinner.set_task(phase)
+            if progress_callback:
                 progress_callback(phase, status)
 
     run_under_limited = bool(limited_user)

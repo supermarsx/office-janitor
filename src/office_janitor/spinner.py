@@ -4,6 +4,10 @@
 never interferes with log output. Uses ANSI escape sequences to maintain
 a separate scrolling region for logs above the status line.
 
+IMPORTANT: Spinner output is written DIRECTLY to the console (sys.__stdout__)
+and NEVER goes through the logging system. This ensures spinner animations
+never appear in log files.
+
 Also provides SIGINT (Ctrl+C) handling for instant termination, including
 killing any tracked subprocesses.
 """
@@ -17,7 +21,20 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any, Callable
+from typing import Any, Callable, TextIO
+
+# ---------------------------------------------------------------------------
+# Direct console output - NEVER use logging for spinner
+# ---------------------------------------------------------------------------
+
+# Use the original stdout that bypasses any redirections
+# This ensures spinner output NEVER goes to log files
+def _get_console() -> TextIO:
+    """Get the real console output stream, bypassing any redirections."""
+    # sys.__stdout__ is the original stdout before any redirections
+    # This ensures spinner output goes ONLY to the actual console
+    return sys.__stdout__ if sys.__stdout__ is not None else sys.stdout
+
 
 # ---------------------------------------------------------------------------
 # Global cancellation flag - checked by all blocking operations
@@ -100,7 +117,10 @@ def _get_terminal_height() -> int:
 
 
 def _draw_status_line() -> None:
-    """Draw the status line - always visible at the current position."""
+    """Draw the status line - always visible at the current position.
+    
+    IMPORTANT: Output goes directly to console via _get_console(), never through logging.
+    """
     global _status_line_active
 
     if not _spinner_enabled or _current_task is None:
@@ -118,31 +138,48 @@ def _draw_status_line() -> None:
     if len(status) > width - 1:
         status = status[: width - 4] + "..."
 
-    # Write on current line with carriage return
-    # Use cyan color and bold for visibility
-    sys.stdout.write(f"\r\x1b[2K\x1b[1;36m{status}\x1b[0m")
-    sys.stdout.flush()
-    _status_line_active = True
+    # Write DIRECTLY to console, bypassing any logging redirections
+    console = _get_console()
+    try:
+        console.write(f"\r\x1b[2K\x1b[1;36m{status}\x1b[0m")
+        console.flush()
+        _status_line_active = True
+    except (OSError, ValueError):
+        # Console might be closed/invalid, silently ignore
+        pass
 
 
 def _clear_status_line() -> None:
-    """Clear the status line content."""
+    """Clear the status line content.
+    
+    IMPORTANT: Output goes directly to console via _get_console(), never through logging.
+    """
     global _status_line_active
 
     if _status_line_active:
-        sys.stdout.write("\r\x1b[2K")
-        sys.stdout.flush()
+        console = _get_console()
+        try:
+            console.write("\r\x1b[2K")
+            console.flush()
+        except (OSError, ValueError):
+            pass
         _status_line_active = False
 
 
 def _finalize_status_line() -> None:
-    """Finalize the status line - print newline so it stays visible."""
+    """Finalize the status line - print newline so it stays visible.
+    
+    IMPORTANT: Output goes directly to console via _get_console(), never through logging.
+    """
     global _status_line_active
 
     if _status_line_active:
-        # Print newline to preserve the last status in output
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        console = _get_console()
+        try:
+            console.write("\n")
+            console.flush()
+        except (OSError, ValueError):
+            pass
         _status_line_active = False
 
 
@@ -176,9 +213,13 @@ def _sigint_handler(signum: int, frame: object) -> None:
     with _spinner_lock:
         _clear_status_line()
 
-    # Print cancellation message
-    sys.stdout.write("\n\033[33m[INTERRUPTED]\033[0m Ctrl+C received, terminating...\n")
-    sys.stdout.flush()
+    # Print cancellation message DIRECTLY to console (not through logging)
+    console = _get_console()
+    try:
+        console.write("\n\033[33m[INTERRUPTED]\033[0m Ctrl+C received, terminating...\n")
+        console.flush()
+    except (OSError, ValueError):
+        pass
 
     # Kill all tracked subprocesses and their children immediately
     _kill_process_trees()
@@ -376,8 +417,12 @@ def pause_for_output() -> None:
         if not _output_paused:
             if _status_line_active:
                 # Clear the spinner line - log will print here
-                sys.stdout.write("\r\x1b[2K")
-                sys.stdout.flush()
+                try:
+                    console = _get_console()
+                    console.write("\r\x1b[2K")
+                    console.flush()
+                except Exception:
+                    pass
                 _status_line_active = False
             _output_paused = True
 
