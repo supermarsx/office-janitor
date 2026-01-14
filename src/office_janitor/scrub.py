@@ -521,8 +521,22 @@ class StepExecutor:
                     metadata,
                 )
             else:
-                product_name = product.get("name", product.get("product_code", "Unknown")) if isinstance(product, dict) else str(product)
+                # Extract detailed product info for logging
+                if isinstance(product, dict):
+                    product_name = product.get("name") or product.get("display_name") or "Unknown"
+                    product_code = product.get("product_code") or product.get("code") or ""
+                    product_version = product.get("version") or ""
+                else:
+                    product_name = str(product)
+                    product_code = ""
+                    product_version = ""
+                
                 _scrub_progress(f"Uninstalling MSI product: {product_name}", indent=3)
+                if product_code:
+                    _scrub_progress(f"  Product code: {product_code}", indent=3)
+                if product_version:
+                    _scrub_progress(f"  Version: {product_version}", indent=3)
+                
                 force = bool(metadata.get("force", False))
                 if force:
                     # Force mode: terminate Office processes before MSI uninstall
@@ -538,8 +552,30 @@ class StepExecutor:
                     "Skipping C2R uninstall step without installation metadata",
                 )
             else:
-                release_id = installation.get("release_id", "Unknown") if isinstance(installation, dict) else str(installation)
+                # Extract detailed C2R info for logging
+                if isinstance(installation, dict):
+                    release_id = installation.get("release_id") or "Unknown"
+                    display_name = installation.get("display_name") or installation.get("name") or ""
+                    version = installation.get("version") or ""
+                    channel = installation.get("channel") or ""
+                    install_path = installation.get("install_path") or ""
+                else:
+                    release_id = str(installation)
+                    display_name = ""
+                    version = ""
+                    channel = ""
+                    install_path = ""
+                
                 _scrub_progress(f"Uninstalling Click-to-Run: {release_id}", indent=3)
+                if display_name and display_name != release_id:
+                    _scrub_progress(f"  Display name: {display_name}", indent=3)
+                if version:
+                    _scrub_progress(f"  Version: {version}", indent=3)
+                if channel:
+                    _scrub_progress(f"  Channel: {channel}", indent=3)
+                if install_path:
+                    _scrub_progress(f"  Install path: {install_path}", indent=3)
+                
                 force = bool(metadata.get("force", False))
                 if force:
                     _scrub_progress("Force mode enabled for C2R uninstall", indent=3)
