@@ -184,6 +184,11 @@ class StepExecutor:
         self._total_steps = max(1, total_steps)
         self._human_logger = logging_ext.get_human_logger()
         self._machine_logger = logging_ext.get_machine_logger()
+        # State for current step result printing
+        self._current_step_label: str = ""
+        self._current_step_index: int = 0
+        self._current_attempt: int = 1
+        self._current_dry_run: bool = False
 
     def run_step(self, step: Mapping[str, object], *, index: int) -> StepResult:
         """!
@@ -275,12 +280,12 @@ class StepExecutor:
                 # Skip retries for non-recoverable errors
                 if is_non_recoverable:
                     result.non_recoverable = True
-                    _scrub_fail(f"{error_reason} (non-recoverable, continuing)")
+                    self._emit_result(False, f"{error_reason} (non-recoverable, continuing)")
                     break
 
                 if attempt < attempts_allowed:
                     # Print RETRY status with error reason
-                    _scrub_fail(f"retry: {error_reason}")
+                    self._emit_result(False, f"retry: {error_reason}")
                     # Calculate progressive delay with backoff
                     actual_delay = self._calculate_progressive_delay(delay, attempt)
                     # Enable force mode after FORCE_ESCALATION_ATTEMPT
@@ -297,13 +302,13 @@ class StepExecutor:
                     time.sleep(actual_delay)
                     continue
                 # Final failure - print FAILED status with error reason
-                _scrub_fail(error_reason)
+                self._emit_result(False, error_reason)
                 break
             else:
                 # Print OK status with duration
                 duration = self._format_duration(result)
                 duration_str = f"{duration:.2f}s" if duration is not None else ""
-                _scrub_ok(duration_str)
+                self._emit_result(True, duration_str)
                 result.status = "success"
                 result.error = None
                 result.exception = None
@@ -338,18 +343,17 @@ class StepExecutor:
         index: int,
         progress: float,
     ) -> None:
-        # Update spinner with current step
+        # Update spinner with current step - this keeps spinner animating
         step_label = f"{step_id}" if step_id else f"{category}"
         spinner.set_task(f"{step_label} [{index}/{self._total_steps}]")
 
-        # Print visible substep progress
-        attempt_info = f" (attempt {attempt})" if attempt > 1 else ""
-        dry_run_marker = " [DRY-RUN]" if dry_run else ""
-        _scrub_progress(
-            f"[{index}/{self._total_steps}] {step_label}{attempt_info}{dry_run_marker}...",
-            newline=False,
-            indent=2,
-        )
+        # Store step info for result printing (don't print incomplete line)
+        self._current_step_label = step_label
+        self._current_step_index = index
+        self._current_attempt = attempt
+        self._current_dry_run = dry_run
+
+        # Log the step start
         self._human_logger.info(
             "Executing step %s/%s (%s:%s) attempt %d",
             index,
@@ -370,6 +374,19 @@ class StepExecutor:
                 "total_steps": self._total_steps,
                 "progress": progress,
             },
+        )
+
+    def _emit_result(self, success: bool, extra: str = "") -> None:
+        """Print the step result with consistent formatting."""
+        attempt_info = f" (attempt {self._current_attempt})" if self._current_attempt > 1 else ""
+        dry_run_marker = " [DRY-RUN]" if self._current_dry_run else ""
+        suffix = f" {extra}" if extra else ""
+
+        status = "[  \033[32mOK\033[0m  ]" if success else "[\033[31mFAILED\033[0m]"
+        _scrub_progress(
+            f"[{self._current_step_index}/{self._total_steps}] "
+            f"{self._current_step_label}{attempt_info}{dry_run_marker}... {status}{suffix}",
+            indent=2,
         )
 
     def _format_duration(self, result: StepResult) -> float | None:
