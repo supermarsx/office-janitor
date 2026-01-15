@@ -135,7 +135,8 @@ jobs:
       - name: Build PyInstaller executable
         shell: pwsh
         run: |
-          pyinstaller --clean --onefile --uac-admin --name office-janitor oj_entry.py --paths src
+          pyinstaller --clean office-janitor.spec
+          Move-Item dist/office-janitor.exe dist/office-janitor.exe -Force -ErrorAction SilentlyContinue
 
       - name: Build Python distributions
         run: python -m build
