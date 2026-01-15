@@ -55,14 +55,14 @@ jobs:
 
       - name: Install linters
         run: |
-          pip install ruff mypy types-ctypes
+          pip install ruff mypy
           pip install -e .
 
       - name: Ruff check
         run: ruff check src tests
 
       - name: MyPy check
-        run: mypy --ignore-missing-imports src
+        run: mypy --config-file pyproject.toml src
 
   test:
     name: Test (Python ${{ matrix.python-version }})
