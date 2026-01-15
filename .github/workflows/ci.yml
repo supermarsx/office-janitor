@@ -262,6 +262,8 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/office-janitor
+    permissions:
+      id-token: write  # Required for trusted publishing
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -269,20 +271,11 @@ jobs:
           name: office-janitor-build
           path: dist/
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install twine
-        run: pip install twine
-
       - name: Publish to PyPI
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          cd dist
-          python -m twine upload *.tar.gz *.whl --skip-existing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true
 
   update-scoop:
     name: Update Scoop Manifest
