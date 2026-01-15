@@ -332,7 +332,8 @@ def _get_movefileex() -> Callable[[str, str | None, int], int] | None:
         movefileex.restype = ctypes.c_int
     except AttributeError:
         pass
-    return movefileex
+    # Return type is Callable[[str, Optional[str], int], int] but ctypes returns Any
+    return movefileex  # type: ignore[no-any-return]
 
 
 def _queue_pending_file_rename(path: str) -> bool:
