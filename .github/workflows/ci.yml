@@ -132,11 +132,28 @@ jobs:
           pip install -e .
           pip install pyinstaller build
 
+      - name: Verify OEM files present
+        shell: pwsh
+        run: |
+          Write-Host "=== OEM Files ===" -ForegroundColor Cyan
+          Get-ChildItem -Path oem -Recurse | ForEach-Object { Write-Host $_.FullName }
+          Write-Host "=== OfficeScrubber ===" -ForegroundColor Cyan
+          Get-ChildItem -Path OfficeScrubber/bin -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
+          Write-Host "=== VERSION ===" -ForegroundColor Cyan
+          if (Test-Path src/office_janitor/VERSION) { Get-Content src/office_janitor/VERSION }
+
       - name: Build PyInstaller executable
         shell: pwsh
         run: |
           pyinstaller --clean office-janitor.spec
           Move-Item dist/office-janitor.exe dist/office-janitor.exe -Force -ErrorAction SilentlyContinue
+          # Show exe size and bundled oem files
+          $exeSize = (Get-Item dist/office-janitor.exe).Length
+          Write-Host "EXE Size: $([math]::Round($exeSize / 1MB, 2)) MB"
+          Write-Host "=== Bundled OEM files in PKG ===" -ForegroundColor Cyan
+          if (Test-Path build/office-janitor/PKG-00.toc) {
+            Select-String -Path build/office-janitor/PKG-00.toc -Pattern "oem" | ForEach-Object { Write-Host $_.Line }
+          }
 
       - name: Build Python distributions
         run: python -m build
