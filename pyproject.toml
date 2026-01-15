@@ -66,8 +66,8 @@ namespace_packages = false
 strict = true
 warn_unused_ignores = true
 ignore_missing_imports = true
-# Disable error codes for dynamic dict patterns and variadic typing
-disable_error_code = ["call-overload", "arg-type", "operator", "index", "misc", "attr-defined", "union-attr", "assignment"]
+# Disable error codes for dynamic dict patterns, ctypes/msvcrt Any returns, and variadic typing
+disable_error_code = ["call-overload", "arg-type", "operator", "index", "misc", "attr-defined", "union-attr", "assignment", "no-any-return"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

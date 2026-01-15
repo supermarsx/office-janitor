@@ -1367,14 +1367,14 @@ def _default_key_reader() -> str:
         import msvcrt
 
         if msvcrt.kbhit():
-            first: str = msvcrt.getwch()
+            first = msvcrt.getwch()
             if first in {"\x00", "\xe0"}:
-                second: str = msvcrt.getwch()
+                second = msvcrt.getwch()
                 return first + second
             if first == "\x1b" and msvcrt.kbhit():
                 second = msvcrt.getwch()
                 if second == "[":
-                    third: str = msvcrt.getwch()
+                    third = msvcrt.getwch()
                     return first + second + third
             return first
         return ""
