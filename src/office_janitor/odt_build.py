@@ -995,6 +995,7 @@ def _find_latest_odt_log() -> Path | None:
 def _get_folder_size(path: Path) -> int:
     """!
     @brief Get total size of a folder in bytes.
+    @details Yields GIL every 100 files to keep spinner responsive.
     @param path Path to the folder.
     @returns Total size in bytes, or 0 if folder doesn't exist.
     """
@@ -1002,12 +1003,17 @@ def _get_folder_size(path: Path) -> int:
         return 0
     try:
         total = 0
+        count = 0
         for entry in path.rglob("*"):
             if entry.is_file():
                 try:
                     total += entry.stat().st_size
                 except (OSError, PermissionError):
                     pass
+            # Yield GIL every 100 files to keep spinner responsive
+            count += 1
+            if count % 100 == 0:
+                time.sleep(0)
         return total
     except (OSError, PermissionError):
         return 0
@@ -1027,16 +1033,23 @@ def _get_office_install_size() -> int:
 def _count_office_files() -> int:
     """!
     @brief Count files in Office installation folders.
+    @details Yields GIL every 100 files to keep spinner responsive.
     @returns Total file count.
     """
-    count = 0
+    total = 0
+    yield_counter = 0
     for path in _OFFICE_INSTALL_PATHS:
         if path.exists():
             try:
-                count += sum(1 for _ in path.rglob("*") if _.is_file())
+                for entry in path.rglob("*"):
+                    if entry.is_file():
+                        total += 1
+                    yield_counter += 1
+                    if yield_counter % 100 == 0:
+                        time.sleep(0)  # Yield GIL
             except (OSError, PermissionError):
                 pass
-    return count
+    return total
 
 
 def _check_registry_key_exists(key_path: str) -> bool:
@@ -1486,25 +1499,40 @@ def _install_poller_thread(
     interval: float = 0.9,
 ) -> None:
     """!
-    @brief Dedicated thread to poll ALL install metrics without blocking spinner.
-    @details Polls disk, files, registry, logs, CPU, RAM every 900ms.
+    @brief Dedicated thread to poll install metrics without blocking spinner.
+    @details Polls CPU/RAM every 900ms, heavy disk/file ops every 3 seconds.
     @param pid Process ID to monitor.
     @param stats Shared _MonitorStats object to update.
     @param stop_event Event to signal when polling should stop.
     @param interval Polling interval in seconds (default 900ms).
     """
+    heavy_poll_counter = 0
+    HEAVY_POLL_INTERVAL = 3  # Only poll disk/files every 3 intervals (~2.7s)
+
+    # Cache for heavy operations
+    cached_size = 0
+    cached_files = 0
+    cached_reg_keys = 0
+
     while not stop_event.is_set():
         try:
-            # Get process stats
+            # Always poll CPU/RAM (fast via Windows API)
             mem = _get_process_memory_mb(pid)
-            cpu = _get_process_cpu_percent(pid, interval=0.1)
+            cpu = _get_process_cpu_percent(pid, interval=0.05)  # Shorter interval
 
-            # Get disk/file stats
-            size = _get_office_install_size()
-            files = _count_office_files()
-            reg_keys = sum(_count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS)
+            # Only poll heavy disk/file operations occasionally
+            heavy_poll_counter += 1
+            if heavy_poll_counter >= HEAVY_POLL_INTERVAL:
+                heavy_poll_counter = 0
+                # Yield GIL before heavy I/O
+                time.sleep(0)
+                cached_size = _get_office_install_size()
+                time.sleep(0)  # Yield GIL
+                cached_files = _count_office_files()
+                time.sleep(0)  # Yield GIL
+                cached_reg_keys = sum(_count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS)
 
-            # Get log status
+            # Log status is lightweight - check every poll
             log_path = _find_latest_odt_log()
             if log_path:
                 log_status, log_pct = _parse_odt_progress(log_path)
@@ -1512,7 +1540,7 @@ def _install_poller_thread(
                 log_status, log_pct = "Starting...", None
 
             # Update shared stats
-            stats.update_install(cpu, mem, size, files, reg_keys, log_status, log_pct)
+            stats.update_install(cpu, mem, cached_size, cached_files, cached_reg_keys, log_status, log_pct)
 
         except Exception:
             pass
@@ -1529,28 +1557,40 @@ def _download_poller_thread(
     interval: float = 0.9,
 ) -> None:
     """!
-    @brief Dedicated thread to poll ALL download metrics without blocking spinner.
-    @details Polls download folder, logs, CPU, RAM every 900ms.
+    @brief Dedicated thread to poll download metrics without blocking spinner.
+    @details Polls CPU/RAM every 900ms, heavy disk ops every 3 intervals.
     @param pid Process ID to monitor.
     @param download_path Path where files are being downloaded.
     @param stats Shared _MonitorStats object to update.
     @param stop_event Event to signal when polling should stop.
     @param interval Polling interval in seconds (default 900ms).
     """
+    heavy_poll_counter = 0
+    HEAVY_POLL_INTERVAL = 3  # Only poll disk every 3 intervals (~2.7s)
+
+    # Cache for heavy operations
+    cached_dl_size = 0
+    cached_dl_files = 0
+
     while not stop_event.is_set():
         try:
-            # Get process stats
+            # Always poll CPU/RAM (fast via Windows API)
             mem = _get_process_memory_mb(pid)
-            cpu = _get_process_cpu_percent(pid, interval=0.1)
+            cpu = _get_process_cpu_percent(pid, interval=0.05)  # Shorter interval
 
-            # Get download folder stats
-            try:
-                dl_size = _get_folder_size(download_path)
-                dl_files = sum(1 for _ in download_path.rglob("*") if _.is_file())
-            except Exception:
-                dl_size, dl_files = 0, 0
+            # Only poll heavy disk operations occasionally
+            heavy_poll_counter += 1
+            if heavy_poll_counter >= HEAVY_POLL_INTERVAL:
+                heavy_poll_counter = 0
+                try:
+                    time.sleep(0)  # Yield GIL
+                    cached_dl_size = _get_folder_size(download_path)
+                    time.sleep(0)  # Yield GIL
+                    cached_dl_files = sum(1 for _ in download_path.rglob("*") if _.is_file())
+                except Exception:
+                    pass
 
-            # Get log status
+            # Log status is lightweight - check every poll
             log_path = _find_latest_odt_log()
             if log_path:
                 log_status, log_pct = _parse_odt_progress(log_path)
@@ -1558,7 +1598,7 @@ def _download_poller_thread(
                 log_status, log_pct = "Starting...", None
 
             # Update shared stats
-            stats.update_download(cpu, mem, dl_size, dl_files, log_status, log_pct)
+            stats.update_download(cpu, mem, cached_dl_size, cached_dl_files, log_status, log_pct)
 
         except Exception:
             pass
