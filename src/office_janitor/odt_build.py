@@ -2219,7 +2219,10 @@ def run_odt_install(
                     if remaining_timeout is not None and remaining_timeout <= 0:
                         error = f"Installation timed out after {timeout} seconds"
                     else:
-                        error = f"ClickToRun processes did not complete (setup exit code: {return_code})"
+                        error = (
+                            f"ClickToRun processes did not complete "
+                            f"(setup exit code: {return_code})"
+                        )
 
     except subprocess.TimeoutExpired:
         if proc is not None:

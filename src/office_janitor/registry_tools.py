@@ -1547,7 +1547,10 @@ def cleanup_vnext_identity_registry(
             logger.debug("Failed to enumerate values in %s: %s", config_path, e)
 
     # Step 4: Clean SPP policies in Network Service SID (S-1-5-20)
-    spp_key = r"HKU\S-1-5-20\Software\Microsoft\OfficeSoftwareProtectionPlatform\Policies\0ff1ce15-a989-479d-af46-f275c6370663"
+    spp_key = (
+        r"HKU\S-1-5-20\Software\Microsoft\OfficeSoftwareProtectionPlatform"
+        r"\Policies\0ff1ce15-a989-479d-af46-f275c6370663"
+    )
     if key_exists(spp_key):
         try:
             delete_keys([spp_key], dry_run=dry_run, logger=logger)

@@ -267,7 +267,8 @@ def _sigint_handler(signum: int, frame: object) -> None:
     if has_processes:
         try:
             console.write(
-                "\033[33m[WAITING]\033[0m Terminating active processes (this may take a moment)...\n"
+                "\033[33m[WAITING]\033[0m Terminating active processes "
+                "(this may take a moment)...\n"
             )
             console.flush()
         except (OSError, ValueError):

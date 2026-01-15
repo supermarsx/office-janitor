@@ -382,7 +382,8 @@ def cleanup_licenses(options: Mapping[str, object]) -> None:
             if not result.skipped:
                 if result.returncode != 0 or result.error:
                     human_logger.warning(
-                        "SPP cleanup via PowerShell failed (exit code %s); will try OSPP.VBS fallback",
+                        "SPP cleanup via PowerShell failed (exit code %s); "
+                        "will try OSPP.VBS fallback",
                         result.returncode,
                     )
                     machine_logger.warning(
@@ -584,7 +585,9 @@ def _query_wmi_licenses(
     query = f"""
 $results = @()
 try {{
-    $licenses = Get-WmiObject -Query "SELECT ID, Name, PartialProductKey, ProductKeyID FROM SoftwareLicensingProduct WHERE ApplicationId = '{application_id}' AND PartialProductKey IS NOT NULL" -ErrorAction Stop
+    $q = "SELECT ID, Name, PartialProductKey, ProductKeyID FROM SoftwareLicensingProduct"
+    $q += " WHERE ApplicationId = '{application_id}' AND PartialProductKey IS NOT NULL"
+    $licenses = Get-WmiObject -Query $q -ErrorAction Stop
     foreach ($lic in $licenses) {{
         $results += @{{
             ID = $lic.ID
@@ -596,7 +599,9 @@ try {{
 }} catch {{
     # Try OSPP (Win7)
     try {{
-        $licenses = Get-WmiObject -Query "SELECT ID, Name, PartialProductKey, ProductKeyID FROM OfficeSoftwareProtectionProduct WHERE ApplicationId = '{application_id}' AND PartialProductKey IS NOT NULL" -ErrorAction Stop
+        $q = "SELECT ID, Name, PartialProductKey, ProductKeyID FROM OfficeSoftwareProtectionProduct"
+        $q += " WHERE ApplicationId = '{application_id}' AND PartialProductKey IS NOT NULL"
+        $licenses = Get-WmiObject -Query $q -ErrorAction Stop
         foreach ($lic in $licenses) {{
             $results += @{{
                 ID = $lic.ID
@@ -671,14 +676,16 @@ def clean_ospp_licenses_wmi(
         # Invoke UninstallProductKey via PowerShell
         uninstall_cmd = f"""
 try {{
-    $lic = Get-WmiObject -Query "SELECT * FROM SoftwareLicensingProduct WHERE ProductKeyID = '{product_key_id}'"
+    $q = "SELECT * FROM SoftwareLicensingProduct WHERE ProductKeyID = '{product_key_id}'"
+    $lic = Get-WmiObject -Query $q
     if ($lic) {{
         $lic.UninstallProductKey($lic.ProductKeyID)
         Write-Output "OK"
     }}
 }} catch {{
     try {{
-        $lic = Get-WmiObject -Query "SELECT * FROM OfficeSoftwareProtectionProduct WHERE ProductKeyID = '{product_key_id}'"
+        $q = "SELECT * FROM OfficeSoftwareProtectionProduct WHERE ProductKeyID = '{product_key_id}'"
+        $lic = Get-WmiObject -Query $q
         if ($lic) {{
             $lic.UninstallProductKey($lic.ProductKeyID)
             Write-Output "OK"

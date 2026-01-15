@@ -854,7 +854,8 @@ def enumerate_msocache_products(
             continue
 
         try:
-            # MSOCache structure: MSOCache\All Users\{GUID}\... or MSOCache\All Users\ProductName\...
+            # MSOCache structure:
+            # MSOCache\All Users\{GUID}\... or MSOCache\All Users\ProductName\...
             all_users_dir = cache_root / "All Users"
             if all_users_dir.exists():
                 for child in all_users_dir.iterdir():

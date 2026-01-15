@@ -902,7 +902,8 @@ def delete_c2r_manifests(
     """!
     @brief Delete C2RManifest*.xml files from a package's Integration folder.
     @details VBS equivalent: del command for C2RManifest*.xml in OffScrubC2R.vbs.
-    @param package_folder Root folder of the C2R package (e.g., C:\\Program Files\\Microsoft Office).
+    @param package_folder Root folder of the C2R package
+        (e.g., C:\\Program Files\\Microsoft Office).
     @param dry_run If True, only log what would be deleted.
     @returns List of manifest files deleted (or that would be deleted in dry-run).
     """
@@ -1241,7 +1242,8 @@ def reinstall_c2r_license(
             human_logger.warning("Integrator.exe not found, cannot reinstall license")
             return -1
 
-    # Build command: integrator.exe /R /License PRIDName=<sku>.16 PackageGUID=<guid> PackageRoot=<path>
+    # Build command:
+    # integrator.exe /R /License PRIDName=<sku>.16 PackageGUID=<guid> PackageRoot=<path>
     prid_name = f"{sku_name}.16"
     command = [
         str(integrator),

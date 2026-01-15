@@ -426,24 +426,31 @@ _SHELL_INTEGRATION_PATHS: list[tuple[int, str]] = [
     # Browser helper objects
     (
         HKLM,
-        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}",
+        # BHO registration for Office document handling
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer"
+        r"\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}",
     ),
     (
         HKLM,
-        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}",
+        # BHO registration for Office document handling (32-bit)
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer"
+        r"\Browser Helper Objects\{31D09BA0-12F5-4CCE-BE8A-2923E76605DA}",
     ),
     # Shell approved extensions
     (
         HKLM,
-        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{42042206-2D85-11D3-8CFF-005004838597}",
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"
+        r"\{42042206-2D85-11D3-8CFF-005004838597}",
     ),
     (
         HKLM,
-        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{993BE281-6695-4BA5-8A2A-7AACBFAAB69E}",
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"
+        r"\{993BE281-6695-4BA5-8A2A-7AACBFAAB69E}",
     ),
     (
         HKLM,
-        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved\{0006F045-0000-0000-C000-000000000046}",
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"
+        r"\{0006F045-0000-0000-C000-000000000046}",
     ),
     # Context menu handlers
     (HKLM, r"SOFTWARE\Classes\*\shellex\ContextMenuHandlers\GrooveShellExtensions"),

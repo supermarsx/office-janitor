@@ -410,7 +410,11 @@ Full documentation: https://github.com/supermarsx/office-janitor
         choices=["auto", "msi", "c2r", "odt", "offscrub"],
         default=None,
         metavar="METHOD",
-        help="Preferred uninstall method: auto (detect best), msi (msiexec), c2r (OfficeC2RClient), odt (Office Deployment Tool), offscrub (legacy VBS). Default: auto.",
+        help=(
+            "Preferred uninstall method: auto (detect best), msi (msiexec), "
+            "c2r (OfficeC2RClient), odt (Office Deployment Tool), "
+            "offscrub (legacy VBS). Default: auto."
+        ),
     )
     uninstall_opts.add_argument(
         "--msi-only",
@@ -455,7 +459,10 @@ Full documentation: https://github.com/supermarsx/office-janitor
         metavar="ID",
         action="append",
         dest="release_ids",
-        help="Specific C2R release ID(s) to uninstall (e.g., O365ProPlusRetail). Can be specified multiple times.",
+        help=(
+            "Specific C2R release ID(s) to uninstall (e.g., O365ProPlusRetail). "
+            "Can be specified multiple times."
+        ),
     )
 
     # -------------------------------------------------------------------------
@@ -467,7 +474,10 @@ Full documentation: https://github.com/supermarsx/office-janitor
         choices=["minimal", "standard", "aggressive", "nuclear"],
         default=None,
         metavar="LEVEL",
-        help="Scrub intensity: minimal (uninstall only), standard (+ residue), aggressive (+ deep registry), nuclear (everything). Default: standard.",
+        help=(
+            "Scrub intensity: minimal (uninstall only), standard (+ residue), "
+            "aggressive (+ deep registry), nuclear (everything). Default: standard."
+        ),
     )
     scrub_opts.add_argument(
         "--max-passes",
@@ -759,7 +769,10 @@ Full documentation: https://github.com/supermarsx/office-janitor
         metavar="ID",
         action="append",
         dest="odt_products",
-        help="Product ID to include in ODT config (can be repeated). Use --odt-list-products to see options.",
+        help=(
+            "Product ID to include in ODT config (can be repeated). "
+            "Use --odt-list-products to see options."
+        ),
     )
     odt_build_opts.add_argument(
         "--odt-language",
@@ -2259,7 +2272,8 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
             return config[cfg_key]
         return default
 
-    # Resolve max_passes: --registry-only or --skip-uninstall (=0) > --passes > --max-passes > config > default (1)
+    # Resolve max_passes:
+    # --registry-only or --skip-uninstall (=0) > --passes > --max-passes > config > default (1)
     skip_uninstall = _get("skip_uninstall", False, "skip-uninstall", is_bool=True)
     registry_only = _get("registry_only", False, "registry-only", is_bool=True)
     cli_passes = getattr(args, "passes", None)

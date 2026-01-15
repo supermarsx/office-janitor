@@ -356,8 +356,13 @@ class StepExecutor:
         # Emit warnings for potentially slow operations (first attempt only)
         if attempt == 1:
             slow_step_warnings: dict[str, str] = {
-                "filesystem-cleanup": "Filesystem cleanup may take several minutes depending on data volume",
-                "registry-cleanup": "Registry cleanup may take a minute while exporting backups",
+                "filesystem-cleanup": (
+                    "Filesystem cleanup may take several minutes "
+                    "depending on data volume"
+                ),
+                "registry-cleanup": (
+                    "Registry cleanup may take a minute while exporting backups"
+                ),
                 "msi-uninstall": "MSI uninstall may take several minutes per product",
                 "c2r-uninstall": "Click-to-Run uninstall may take several minutes",
                 "odt-uninstall": "ODT uninstall may take several minutes",
@@ -765,7 +770,8 @@ def execute_plan(
     options = dict(context_metadata.get("options", {})) if context_metadata else {}
 
     global_dry_run = bool(dry_run or context_metadata.get("dry_run", False))
-    # Resolve max_passes carefully: 0 is a valid value (skip uninstall), so check for None explicitly
+    # Resolve max_passes carefully:
+    # 0 is a valid value (skip uninstall), so check for None explicitly
     if max_passes is not None:
         max_pass_limit = int(max_passes)
     elif options.get("max_passes") is not None:

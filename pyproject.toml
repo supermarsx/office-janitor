@@ -58,7 +58,7 @@ exclude = [
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "UP", "I"]
-ignore = ["E501"]  # Line length handled by black, many strings/paths exceed 100 chars
+ignore = []
 
 [tool.mypy]
 python_version = "3.9"

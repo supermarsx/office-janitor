@@ -201,7 +201,10 @@ def squish_guid(guid: str) -> str:
 
     # Character set for squished encoding (custom base-85 alphabet)
     # This matches the VBS implementation's character mapping
-    chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-./:;<=>?@[]^_`{|}~"
+    chars = (
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        "!#$%&()*+,-./:;<=>?@[]^_`{|}~"
+    )
 
     result: list[str] = []
 
@@ -235,7 +238,10 @@ def decode_squished_guid(squished: str) -> str:
         raise GuidError(f"Invalid squished GUID length: {len(squished)} (expected 20)")
 
     # Character set for squished encoding
-    chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-./:;<=>?@[]^_`{|}~"
+    chars = (
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        "!#$%&()*+,-./:;<=>?@[]^_`{|}~"
+    )
     char_to_val = {c: i for i, c in enumerate(chars)}
 
     hex_parts: list[str] = []
