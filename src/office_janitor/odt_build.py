@@ -1123,6 +1123,77 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
+# ClickToRun process names to monitor after setup.exe exits
+_CLICKTORUN_PROCESS_NAMES = {
+    "officeclicktorun.exe",
+    "officec2rclient.exe",
+    "officeservicemanager.exe",
+    "integratedoffice.exe",
+    "appvshnotify.exe",
+}
+
+
+def _find_running_clicktorun_processes() -> list[tuple[int, str]]:
+    """!
+    @brief Find running ClickToRun-related processes.
+    @returns List of (pid, process_name) tuples for running C2R processes.
+    """
+    if sys.platform != "win32":
+        return []
+
+    result = []
+    try:
+        # Use tasklist to get running processes
+        proc = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                # Parse CSV: "process.exe","PID","Session","Session#","Mem Usage"
+                parts = line.split('","')
+                if len(parts) >= 2:
+                    proc_name = parts[0].strip('"').lower()
+                    if proc_name in _CLICKTORUN_PROCESS_NAMES:
+                        try:
+                            pid = int(parts[1].strip('"'))
+                            result.append((pid, proc_name))
+                        except ValueError:
+                            pass
+    except Exception:
+        pass
+
+    return result
+
+
+def _wait_for_clicktorun_processes(
+    stop_event: threading.Event,
+    timeout: float | None = None,
+) -> bool:
+    """!
+    @brief Wait for all ClickToRun processes to finish.
+    @param stop_event Event to signal early termination.
+    @param timeout Maximum seconds to wait (None = no limit).
+    @returns True if all processes finished, False if timed out or interrupted.
+    """
+    start = time.monotonic()
+    while not stop_event.is_set():
+        running = _find_running_clicktorun_processes()
+        if not running:
+            return True
+
+        if timeout and (time.monotonic() - start) > timeout:
+            return False
+
+        time.sleep(1.0)  # Check every second
+
+    return False
+
+
 def _get_process_cpu_percent(pid: int, interval: float = 0.1) -> float:
     """!
     @brief Get CPU usage percentage for a process using WMI.
@@ -1853,7 +1924,9 @@ def run_odt_install(
     start_time = time.monotonic()
     stop_event = threading.Event()
     monitor_thread: threading.Thread | None = None
+    c2r_monitor_thread: threading.Thread | None = None
     proc: subprocess.Popen[str] | None = None
+    setup_exited_early = False
 
     try:
         # Start the ODT process
@@ -1892,6 +1965,70 @@ def run_odt_install(
 
         stdout, stderr = "", ""
         error = None
+
+        # Check if setup.exe exited but ClickToRun processes are still running
+        # This happens when setup.exe exits early (error or handoff) but C2R continues
+        if return_code != 0:
+            c2r_procs = _find_running_clicktorun_processes()
+            if c2r_procs:
+                setup_exited_early = True
+                # Warn about setup exit but continue monitoring
+                log.warning(
+                    f"setup.exe exited with code {return_code}, but ClickToRun "
+                    f"processes still running: {', '.join(p[1] for p in c2r_procs)}. "
+                    "Continuing to monitor installation progress..."
+                )
+
+                # Update spinner to show we're monitoring C2R
+                if _spinner is not None:
+                    _spinner.update_task(
+                        f"ODT: setup exited ({return_code}), monitoring ClickToRun..."
+                    )
+
+                # Stop the setup-based monitor and start C2R monitor
+                stop_event.set()
+                if monitor_thread and monitor_thread.is_alive():
+                    monitor_thread.join(timeout=1.0)
+
+                # Start new monitor for ClickToRun processes
+                c2r_stop_event = threading.Event()
+                if show_progress and (_spinner is not None):
+                    c2r_monitor_thread = threading.Thread(
+                        target=_monitor_clicktorun_progress,
+                        args=(c2r_stop_event, product_names),
+                        daemon=True,
+                        name="c2r-progress",
+                    )
+                    c2r_monitor_thread.start()
+
+                # Wait for ClickToRun processes to finish
+                remaining_timeout = None
+                if deadline:
+                    remaining_timeout = max(0, deadline - time.monotonic())
+
+                c2r_finished = _wait_for_clicktorun_processes(
+                    c2r_stop_event, timeout=remaining_timeout
+                )
+
+                # Stop C2R monitor
+                c2r_stop_event.set()
+                if c2r_monitor_thread and c2r_monitor_thread.is_alive():
+                    c2r_monitor_thread.join(timeout=1.0)
+
+                if c2r_finished:
+                    # C2R processes finished - check if installation succeeded
+                    # by looking for Office files/registry
+                    if _check_registry_key_exists(r"SOFTWARE\Microsoft\Office\ClickToRun\Configuration"):
+                        log.info("ClickToRun installation appears to have completed successfully")
+                        return_code = 0  # Override error code
+                        error = None
+                    else:
+                        error = f"setup.exe exited with code {return_code}"
+                else:
+                    if remaining_timeout is not None and remaining_timeout <= 0:
+                        error = f"Installation timed out after {timeout} seconds"
+                    else:
+                        error = f"ClickToRun processes did not complete (setup exit code: {return_code})"
 
     except subprocess.TimeoutExpired:
         if proc is not None:
