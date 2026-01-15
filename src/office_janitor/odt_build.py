@@ -1683,6 +1683,11 @@ def _monitor_odt_progress(
 
     last_display = ""
 
+    # Set initial task (starts the timer)
+    initial_task = f"ODT: Starting - {product_str}"
+    _spinner.set_task(initial_task)
+    last_display = initial_task
+
     try:
         while not stop_event.is_set() and proc.poll() is None:
             # Read cached stats (non-blocking, very fast)
@@ -1734,9 +1739,9 @@ def _monitor_odt_progress(
             status_part = " | ".join(parts) if parts else "Working"
             display = f"ODT: {status_part} - {product_str}"
 
-            # Only update spinner if changed
+            # Only update spinner if changed (use update_task to preserve timer)
             if display != last_display:
-                _spinner.set_task(display)
+                _spinner.update_task(display)
                 last_display = display
 
             stop_event.wait(0.15)  # Check every 150ms for smooth spinner
@@ -1931,6 +1936,11 @@ def _monitor_odt_download_progress(
     )
     stats_thread.start()
 
+    # Set initial task (starts the timer)
+    initial_task = "ODT: Starting download..."
+    _spinner.set_task(initial_task)
+    last_display = initial_task
+
     try:
         while not stop_event.is_set() and proc.poll() is None:
             # Read cached stats (non-blocking, very fast)
@@ -1977,8 +1987,9 @@ def _monitor_odt_download_progress(
             else:
                 display = "ODT: Downloading..."
 
+            # Only update spinner if changed (use update_task to preserve timer)
             if display != last_display:
-                _spinner.set_task(display)
+                _spinner.update_task(display)
                 last_display = display
 
             stop_event.wait(0.15)  # Check every 150ms for smooth spinner

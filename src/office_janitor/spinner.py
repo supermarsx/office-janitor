@@ -425,6 +425,9 @@ def set_task(task_name: str | None) -> None:
     """
     Set the current task being worked on.
 
+    This resets the elapsed timer. Use update_task() to change the display
+    text without resetting the timer.
+
     @param task_name The task name to display, or None to clear.
     """
     global _current_task, _task_start_time, _spinner_idx
@@ -438,6 +441,29 @@ def set_task(task_name: str | None) -> None:
             _spinner_idx = 0
             # Draw immediately so status appears right away
             _draw_status_line()
+
+
+def update_task(task_name: str) -> None:
+    """
+    Update the current task text WITHOUT resetting the elapsed timer.
+
+    Use this for progress updates where you want to change the display
+    but keep the same elapsed time counter. If no task is active, this
+    acts like set_task() and starts a new timer.
+
+    @param task_name The new task name to display.
+    """
+    global _current_task, _task_start_time, _spinner_idx
+
+    with _spinner_lock:
+        # If no task was active, start fresh with a timer
+        if _current_task is None:
+            _task_start_time = time.monotonic()
+            _spinner_idx = 0
+        # Just update the text, don't reset timer
+        _current_task = task_name
+        # Draw immediately
+        _draw_status_line()
 
 
 def clear_task() -> None:
