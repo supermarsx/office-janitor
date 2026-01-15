@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
-  "version": "0.0.0",
+  "version": "26.1",
   "description": "Comprehensive Office uninstaller, scrubber, repair and installation tool",
   "homepage": "https://github.com/supermarsx/office-janitor",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/supermarsx/office-janitor/releases/latest/download/office-janitor.exe",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      "url": "https://github.com/supermarsx/office-janitor/releases/download/26.1/office-janitor.exe",
+      "hash": "8250e0f2c463c501ad4eab5646023911769651a8322222dd4bea78e94e1216b3"
     }
   },
   "bin": "office-janitor.exe",
@@ -19,14 +19,5 @@
       }
     }
   },
-  "notes": [
-    "Run with administrator privileges for full functionality:",
-    "  sudo office-janitor",
-    "",
-    "Quick start examples:",
-    "  office-janitor --diagnose          # Detect installed Office",
-    "  office-janitor --repair quick      # Quick repair C2R Office",
-    "  office-janitor --auto-all --dry-run # Preview removal",
-    "  office-janitor --goobler           # Install full Office 2024 suite"
-  ]
+  "notes": "Run with administrator privileges: sudo office-janitor"
 }
