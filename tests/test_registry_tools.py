@@ -311,7 +311,7 @@ class TestWIMetadataValidation:
 
     def test_is_valid_compressed_guid_valid(self) -> None:
         """Valid 32-char hex strings should be accepted."""
-        from office_janitor.registry_tools import _is_valid_compressed_guid
+        from office_janitor.registry_wi_cleanup import _is_valid_compressed_guid
 
         assert _is_valid_compressed_guid("00000000000000000000000000000000")
         assert _is_valid_compressed_guid("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")
@@ -319,7 +319,7 @@ class TestWIMetadataValidation:
 
     def test_is_valid_compressed_guid_invalid(self) -> None:
         """Invalid strings should be rejected."""
-        from office_janitor.registry_tools import _is_valid_compressed_guid
+        from office_janitor.registry_wi_cleanup import _is_valid_compressed_guid
 
         # Wrong length
         assert not _is_valid_compressed_guid("0000000000000000")
@@ -397,6 +397,8 @@ class TestWIMetadataValidation:
 
     def test_scan_wi_metadata_aggregates_results(self, monkeypatch) -> None:
         """Should scan multiple paths and aggregate results."""
+        from office_janitor import registry_wi_cleanup
+
         call_count = {"count": 0}
 
         def fake_validate(hive, path, expected_length, logger=None):
@@ -405,9 +407,9 @@ class TestWIMetadataValidation:
                 return ["INVALID1", "INVALID2"]
             return []
 
-        monkeypatch.setattr(registry_tools, "validate_wi_metadata_key", fake_validate)
+        monkeypatch.setattr(registry_wi_cleanup, "validate_wi_metadata_key", fake_validate)
 
-        results = registry_tools.scan_wi_metadata(logger=_Recorder())
+        results = registry_wi_cleanup.scan_wi_metadata(logger=_Recorder())
 
         # Should have called validate for paths with expected_length > 0
         assert call_count["count"] >= 1

@@ -469,7 +469,7 @@ class TestGenerateRepairConfigXml:
         output = tmp_path / "repair.xml"
 
         with mock.patch(
-            "office_janitor.repair.get_installed_c2r_info",
+            "office_janitor.repair_odt._get_installed_c2r_info",
             return_value={"product_ids": "O365ProPlusRetail"},
         ):
             result = repair.generate_repair_config_xml(output)
@@ -515,7 +515,7 @@ class TestReconfigureOffice:
         config_path = tmp_path / "nonexistent.xml"
 
         with mock.patch(
-            "office_janitor.repair.find_odt_setup_exe",
+            "office_janitor.repair_odt.find_odt_setup_exe",
             return_value=Path("C:/fake/setup.exe"),
         ):
             result = repair.reconfigure_office(config_path)
@@ -528,7 +528,7 @@ class TestReconfigureOffice:
         config_path.touch()
 
         with mock.patch(
-            "office_janitor.repair.find_odt_setup_exe",
+            "office_janitor.repair_odt.find_odt_setup_exe",
             return_value=None,
         ):
             result = repair.reconfigure_office(config_path)
@@ -719,8 +719,8 @@ class TestRunOemConfig:
 
         config_path = tmp_path / "test.xml"
 
-        with mock.patch("office_janitor.repair.get_oem_config_path") as mock_get_path:
-            with mock.patch("office_janitor.repair.reconfigure_office") as mock_reconfigure:
+        with mock.patch("office_janitor.repair_odt.get_oem_config_path") as mock_get_path:
+            with mock.patch("office_janitor.repair_odt.reconfigure_office") as mock_reconfigure:
                 mock_get_path.return_value = config_path
                 mock_reconfigure.return_value = CommandResult(
                     command=["test"],

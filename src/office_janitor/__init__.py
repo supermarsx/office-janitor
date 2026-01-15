@@ -16,6 +16,9 @@ __all__ = [
     "c2r_integrator",
     "licensing",
     "registry_tools",
+    "registry_office",
+    "registry_wi_cleanup",
+    "registry_user",
     "fs_tools",
     "processes",
     "tasks_services",
@@ -33,6 +36,7 @@ __all__ = [
     "msi_components",
     "odt_build",
     "repair",
+    "repair_odt",
     "auto_repair",
     "cli_help",
 ]
