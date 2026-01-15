@@ -143,3 +143,228 @@ By default logs are written beneath `%ProgramData%/OfficeJanitor/logs` on Window
 - `scripts/build_pyinstaller.ps1` — package the admin-elevated single-file executable.
 
 Bug reports and feature requests should reference the relevant sections of [`spec.md`](spec.md) so the discussion remains aligned with the intended architecture.
+
+## ODT XML Configuration Builder
+
+Office Janitor includes a built-in Office Deployment Tool (ODT) XML configuration generator. This allows you to create installation, removal, and download configurations for any Office product without needing separate tools.
+
+### Listing Available Options
+
+```bash
+# List all available Office products
+office-janitor --odt-list-products
+
+# List pre-built configuration presets
+office-janitor --odt-list-presets
+
+# List update channels
+office-janitor --odt-list-channels
+
+# List supported languages
+office-janitor --odt-list-languages
+```
+
+### Building Installation Configurations
+
+```bash
+# Use a preset (simplest method)
+office-janitor --odt-build --odt-preset 365-proplus-x64 --odt-output install.xml
+
+# Office LTSC 2024 with German and French
+office-janitor --odt-build --odt-preset office2024-x64 \
+  --odt-language de-de --odt-language fr-fr --odt-output install.xml
+
+# Custom product selection
+office-janitor --odt-build --odt-product O365ProPlusRetail \
+  --odt-include-visio --odt-include-project --odt-output install.xml
+
+# 32-bit Office 2021 for shared computers
+office-janitor --odt-build --odt-preset office2021-x86 \
+  --odt-shared-computer --odt-output install.xml
+
+# Exclude OneDrive and Teams from M365
+office-janitor --odt-build --odt-product O365ProPlusRetail \
+  --odt-exclude-app OneDrive --odt-exclude-app Teams --odt-output install.xml
+```
+
+### Building Removal Configurations
+
+```bash
+# Remove all Office products
+office-janitor --odt-removal --odt-output remove.xml
+
+# Remove specific products only
+office-janitor --odt-removal --odt-product VisioProRetail \
+  --odt-product ProjectProRetail --odt-output remove.xml
+
+# Remove all and clean MSI leftovers
+office-janitor --odt-removal --odt-remove-msi --odt-output remove.xml
+```
+
+### Building Download Configurations
+
+```bash
+# Download Office for offline installation
+office-janitor --odt-download "C:\ODTOffline" \
+  --odt-preset 365-proplus-x64 --odt-output download.xml
+
+# Download multiple languages for deployment
+office-janitor --odt-download "D:\OfficeSource" \
+  --odt-product O365ProPlusRetail \
+  --odt-language en-us --odt-language es-es --odt-language pt-br \
+  --odt-output download.xml
+```
+
+### Available Presets
+
+| Preset | Description |
+|--------|-------------|
+| `365-proplus-x64` | Microsoft 365 Apps for enterprise (64-bit) |
+| `365-proplus-x86` | Microsoft 365 Apps for enterprise (32-bit) |
+| `365-business-x64` | Microsoft 365 Apps for business (64-bit) |
+| `365-proplus-visio-project` | M365 Apps + Visio + Project (64-bit) |
+| `office2024-x64` | Office LTSC 2024 Professional Plus (64-bit) |
+| `office2024-x86` | Office LTSC 2024 Professional Plus (32-bit) |
+| `office2024-standard-x64` | Office LTSC 2024 Standard (64-bit) |
+| `office2021-x64` | Office LTSC 2021 Professional Plus (64-bit) |
+| `office2021-x86` | Office LTSC 2021 Professional Plus (32-bit) |
+| `office2019-x64` | Office 2019 Professional Plus (64-bit) |
+| `office2019-x86` | Office 2019 Professional Plus (32-bit) |
+| `visio-pro-x64` | Visio Professional 2024 (64-bit) |
+| `project-pro-x64` | Project Professional 2024 (64-bit) |
+| `365-shared-computer` | M365 Apps with Shared Computer Licensing |
+
+## Common Command Combinations
+
+### Diagnostics & Planning
+
+```bash
+# Full diagnostic without making changes
+office-janitor --diagnose --dry-run --plan report.json --verbose
+
+# Export detection results and plan to JSON
+office-janitor --diagnose --plan plan.json --json
+
+# Verify what would be removed before actual run
+office-janitor --auto-all --dry-run --plan preview.json
+```
+
+### Safe Removal Workflows
+
+```bash
+# Step 1: Always preview first
+office-janitor --auto-all --dry-run --plan step1_plan.json
+
+# Step 2: Review the plan, then execute with backup
+office-janitor --auto-all --backup "C:\Backups\OfficeRemoval" --yes
+
+# Remove everything but keep user data and licenses
+office-janitor --auto-all --keep-templates --keep-user-settings --keep-license
+
+# Aggressive cleanup after failed uninstalls
+office-janitor --cleanup-only --scrub-level aggressive --clean-all-licenses
+```
+
+### Targeted Version Removal
+
+```bash
+# Remove only Office 2016
+office-janitor --target 2016 --backup "C:\Backups"
+
+# Remove Office 365/Microsoft 365 only
+office-janitor --target 365 --dry-run
+
+# Remove Office 2019 including Visio and Project
+office-janitor --target 2019 --include visio,project
+```
+
+### Click-to-Run Operations
+
+```bash
+# Quick repair of Office C2R
+office-janitor --repair quick
+
+# Full online repair
+office-janitor --repair full --repair-visible
+
+# Use custom repair configuration
+office-janitor --repair-config "C:\Configs\custom_repair.xml"
+
+# Remove C2R with ODT
+office-janitor --use-odt --auto-all
+```
+
+### MSI Office Operations
+
+```bash
+# Remove MSI Office only
+office-janitor --msi-only --auto-all
+
+# Remove specific MSI product by GUID
+office-janitor --product-code "{90160000-0011-0000-0000-0000000FF1CE}"
+
+# Multiple passes for stubborn MSI installs
+office-janitor --target 2010 --passes 3
+```
+
+### Enterprise Deployment
+
+```bash
+# Silent unattended removal (for scripts/SCCM/Intune)
+office-janitor --auto-all --yes --quiet --no-restore-point
+
+# Generate removal config for ODT deployment
+office-janitor --odt-removal --odt-remove-msi --odt-output remove_all.xml
+
+# Cleanup only mode for post-uninstall scripts
+office-janitor --cleanup-only --clean-all-licenses --clean-shortcuts
+
+# Export logs to network share
+office-janitor --auto-all --logdir "\\server\logs\%COMPUTERNAME%"
+```
+
+### License Management
+
+```bash
+# Clean all Office licenses
+office-janitor --cleanup-only --clean-all-licenses
+
+# Clean SPP tokens only (KMS/MAK)
+office-janitor --cleanup-only --clean-spp
+
+# Clean vNext/device-based licensing
+office-janitor --cleanup-only --clean-vnext
+
+# Preserve licenses during removal
+office-janitor --auto-all --keep-license
+```
+
+### Troubleshooting
+
+```bash
+# Maximum verbosity for debugging
+office-janitor --diagnose -vvv --json
+
+# Skip specific phases to isolate issues
+office-janitor --auto-all --skip-processes --skip-services --dry-run
+
+# Registry-only cleanup (skip uninstall/filesystem)
+office-janitor --registry-only
+
+# Force through guardrails (use with caution)
+office-janitor --auto-all --force --skip-preflight
+```
+
+### Using Configuration Files
+
+```bash
+# Use a saved configuration
+office-janitor --config enterprise_removal.json
+
+# Override config options from CLI
+office-janitor --config base.json --dry-run --verbose
+
+# Combine config with specific target
+office-janitor --config cleanup_settings.json --target 2019
+```
+

@@ -30,6 +30,7 @@ from . import (
     exec_utils,
     fs_tools,
     logging_ext,
+    odt_build,
     processes,
     repair,
     safety,
@@ -650,6 +651,112 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
 
     # -------------------------------------------------------------------------
+    # ODT Build Options (XML Configuration Generator)
+    # -------------------------------------------------------------------------
+    odt_build_opts = parser.add_argument_group(
+        "ODT Build Options",
+        "Generate Office Deployment Tool XML configurations for installation.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-build",
+        action="store_true",
+        help="Generate an ODT XML configuration file instead of running scrub operations.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-preset",
+        metavar="NAME",
+        help="Use a predefined ODT installation preset (use --odt-list-presets to see options).",
+    )
+    odt_build_opts.add_argument(
+        "--odt-product",
+        metavar="ID",
+        action="append",
+        dest="odt_products",
+        help="Product ID to include in ODT config (can be repeated). Use --odt-list-products to see options.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-language",
+        metavar="CODE",
+        action="append",
+        dest="odt_languages",
+        help="Language code for ODT config (can be repeated, default: en-us).",
+    )
+    odt_build_opts.add_argument(
+        "--odt-arch",
+        choices=["32", "64"],
+        default="64",
+        metavar="BITS",
+        help="Architecture for ODT config: 32 or 64 (default: 64).",
+    )
+    odt_build_opts.add_argument(
+        "--odt-channel",
+        metavar="CHANNEL",
+        help="Update channel for ODT config (e.g., Current, PerpetualVL2024).",
+    )
+    odt_build_opts.add_argument(
+        "--odt-output",
+        metavar="FILE",
+        help="Output path for generated ODT XML (default: stdout).",
+    )
+    odt_build_opts.add_argument(
+        "--odt-shared-computer",
+        action="store_true",
+        help="Enable shared computer licensing in ODT config.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-remove-msi",
+        action="store_true",
+        help="Include RemoveMSI element to remove existing MSI Office.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-exclude-app",
+        metavar="APP",
+        action="append",
+        dest="odt_exclude_apps",
+        help="App to exclude from installation (e.g., OneDrive, Teams). Can be repeated.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-include-visio",
+        action="store_true",
+        help="Include Visio Professional in the ODT configuration.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-include-project",
+        action="store_true",
+        help="Include Project Professional in the ODT configuration.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-removal",
+        action="store_true",
+        help="Generate a removal XML instead of installation XML.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-download",
+        metavar="PATH",
+        help="Generate a download XML with the specified local path for offline files.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-list-products",
+        action="store_true",
+        help="List all available ODT product IDs and exit.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-list-presets",
+        action="store_true",
+        help="List all available ODT installation presets and exit.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-list-channels",
+        action="store_true",
+        help="List all available ODT update channels and exit.",
+    )
+    odt_build_opts.add_argument(
+        "--odt-list-languages",
+        action="store_true",
+        help="List all supported language codes and exit.",
+    )
+
+    # -------------------------------------------------------------------------
     # Repair Options
     # -------------------------------------------------------------------------
     repair_opts = parser.add_argument_group("Repair Options")
@@ -978,6 +1085,14 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress("Office Janitor - Main Entry Point")
     _progress("=" * 60)
 
+    # Phase 0: Pre-parse for ODT listing commands (no elevation needed)
+    parser = build_arg_parser()
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    # Handle ODT listing commands early (before elevation check)
+    if _handle_odt_list_commands(args):
+        return 0
+
     # Phase 1: Elevation check
     _progress("Phase 1: Checking administrative privileges...", newline=False)
     try:
@@ -992,14 +1107,12 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     enable_vt_mode_if_possible()
     _progress_ok("VT mode enabled")
 
-    # Phase 3: Argument parsing
-    _progress("Phase 3: Parsing command-line arguments...", newline=False)
-    parser = build_arg_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
-    _progress_ok()
+    # Handle ODT build commands (after elevation since they write files)
+    if _handle_odt_build_commands(args):
+        return 0
 
-    # Phase 4: Timeout configuration
-    _progress("Phase 4: Configuring execution timeout...", newline=False)
+    # Phase 3: Timeout configuration
+    _progress("Phase 3: Configuring execution timeout...", newline=False)
     timeout_val = getattr(args, "timeout", None)
     exec_utils.set_global_timeout(timeout_val)
     _progress_ok(f"{timeout_val}s" if timeout_val else "default")
@@ -1198,6 +1311,269 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     _progress(f"Execution complete in {_get_elapsed_secs():.3f}s")
     _progress("=" * 60)
     return 0
+
+
+def _handle_odt_list_commands(args: argparse.Namespace) -> bool:
+    """!
+    @brief Handle ODT listing commands that don't require elevation.
+    @details Processes --odt-list-* commands which are read-only operations
+    that can run without administrative privileges.
+    @param args Parsed command-line arguments.
+    @returns True if a list command was handled (caller should exit), False otherwise.
+    """
+    if getattr(args, "odt_list_products", False):
+        print("\nAvailable Office Products for ODT Configuration:")
+        print("=" * 80)
+        for product in odt_build.list_products():
+            channels = ", ".join(product.get("channels", []))  # type: ignore[arg-type]
+            print(f"\n  {product['id']}")
+            print(f"      Name: {product['name']}")
+            print(f"      Channels: {channels}")
+            print(f"      {product['description']}")
+        return True
+
+    if getattr(args, "odt_list_presets", False):
+        print("\nAvailable Installation Presets:")
+        print("=" * 80)
+        for preset in odt_build.list_presets():
+            products = ", ".join(preset.get("products", []))  # type: ignore[arg-type]
+            print(f"\n  {preset['name']}")
+            print(f"      Products: {products}")
+            print(f"      Architecture: {preset['architecture']}, Channel: {preset['channel']}")
+            print(f"      {preset['description']}")
+        return True
+
+    if getattr(args, "odt_list_channels", False):
+        print("\nAvailable Update Channels:")
+        print("=" * 60)
+        for ch in odt_build.list_channels():
+            print(f"  {ch['name']:<30} {ch['value']}")
+        return True
+
+    if getattr(args, "odt_list_languages", False):
+        print("\nSupported Language Codes:")
+        print("=" * 60)
+        langs = odt_build.list_languages()
+        for i in range(0, len(langs), 4):
+            row = langs[i : i + 4]
+            print("  " + "  ".join(f"{lang:<14}" for lang in row))
+        return True
+
+    return False
+
+
+def _handle_odt_build_commands(args: argparse.Namespace) -> bool:
+    """!
+    @brief Handle ODT build and configuration generation commands.
+    @details Processes --odt-build, --odt-removal, and --odt-download commands.
+    These commands may write files and run after elevation.
+    @param args Parsed command-line arguments.
+    @returns True if an ODT command was handled (caller should exit), False otherwise.
+    """
+    # Handle build command
+    if getattr(args, "odt_build", False):
+        return _build_odt_config(args)
+
+    # Handle removal XML generation
+    if getattr(args, "odt_removal", False):
+        return _build_odt_removal(args)
+
+    # Handle download XML generation
+    if getattr(args, "odt_download", None):
+        return _build_odt_download(args)
+
+    return False
+
+
+def _build_odt_config(args: argparse.Namespace) -> bool:
+    """!
+    @brief Build ODT installation XML configuration.
+    @param args Parsed command-line arguments.
+    @returns True (command was handled).
+    """
+    try:
+        preset = getattr(args, "odt_preset", None)
+        products = getattr(args, "odt_products", None)
+        languages = getattr(args, "odt_languages", None) or ["en-us"]
+
+        if preset:
+            # Use preset configuration
+            config = odt_build.ODTConfig.from_preset(preset, languages)
+        elif products:
+            # Build custom configuration from product list
+            arch = (
+                odt_build.Architecture.X64
+                if getattr(args, "odt_arch", "64") == "64"
+                else odt_build.Architecture.X86
+            )
+
+            # Determine channel
+            channel_arg = getattr(args, "odt_channel", None)
+            channel = odt_build.UpdateChannel.CURRENT
+            if channel_arg:
+                # Try to match channel by name or value
+                for ch in odt_build.UpdateChannel:
+                    if ch.name.lower() == channel_arg.lower().replace("-", "_"):
+                        channel = ch
+                        break
+                    if ch.value.lower() == channel_arg.lower():
+                        channel = ch
+                        break
+
+            exclude_apps = getattr(args, "odt_exclude_apps", None) or []
+            product_configs = [
+                odt_build.ProductConfig(pid, languages=languages, exclude_apps=exclude_apps)
+                for pid in products
+            ]
+
+            # Add optional products
+            if getattr(args, "odt_include_visio", False):
+                product_configs.append(
+                    odt_build.ProductConfig("VisioProRetail", languages=languages)
+                )
+            if getattr(args, "odt_include_project", False):
+                product_configs.append(
+                    odt_build.ProductConfig("ProjectProRetail", languages=languages)
+                )
+
+            config = odt_build.ODTConfig(
+                products=product_configs,
+                architecture=arch,
+                channel=channel,
+                shared_computer_licensing=getattr(args, "odt_shared_computer", False),
+                remove_msi=getattr(args, "odt_remove_msi", False),
+            )
+        else:
+            # No preset or products specified - use default M365 ProPlus
+            print("No preset or products specified. Use --odt-preset or --odt-product.")
+            print("Use --odt-list-presets or --odt-list-products to see available options.")
+            return True
+
+        xml_output = odt_build.build_xml(config)
+
+        output_path = getattr(args, "odt_output", None)
+        if output_path:
+            pathlib.Path(output_path).write_text(xml_output, encoding="utf-8")
+            print(f"ODT configuration written to: {output_path}")
+        else:
+            print(xml_output)
+
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return True
+
+    return True
+
+
+def _handle_odt_build_commands(args: argparse.Namespace) -> bool:
+    """!
+    @brief Handle ODT build and configuration generation commands.
+    @details Processes --odt-build, --odt-removal, and --odt-download commands.
+    These commands may write files and run after elevation.
+    @param args Parsed command-line arguments.
+    @returns True if an ODT command was handled (caller should exit), False otherwise.
+    """
+    # Handle build command
+    if getattr(args, "odt_build", False):
+        return _build_odt_config(args)
+
+    # Handle removal XML generation
+    if getattr(args, "odt_removal", False):
+        return _build_odt_removal(args)
+
+    # Handle download XML generation
+    if getattr(args, "odt_download", None):
+        return _build_odt_download(args)
+
+    return False
+
+
+def _build_odt_removal(args: argparse.Namespace) -> bool:
+    """!
+    @brief Build ODT removal XML configuration.
+    @param args Parsed command-line arguments.
+    @returns True (command was handled).
+    """
+    product_ids = getattr(args, "odt_products", None)
+    force_shutdown = not getattr(args, "no_force_app_shutdown", False)
+    remove_msi = getattr(args, "odt_remove_msi", False)
+
+    xml_output = odt_build.build_removal_xml(
+        remove_all=not product_ids,
+        product_ids=product_ids,
+        force_app_shutdown=force_shutdown,
+        remove_msi=remove_msi,
+    )
+
+    output_path = getattr(args, "odt_output", None)
+    if output_path:
+        pathlib.Path(output_path).write_text(xml_output, encoding="utf-8")
+        print(f"ODT removal configuration written to: {output_path}")
+    else:
+        print(xml_output)
+
+    return True
+
+
+def _build_odt_download(args: argparse.Namespace) -> bool:
+    """!
+    @brief Build ODT download XML configuration.
+    @param args Parsed command-line arguments.
+    @returns True (command was handled).
+    """
+    download_path = getattr(args, "odt_download", None)
+    if not download_path:
+        return False
+
+    try:
+        preset = getattr(args, "odt_preset", None)
+        products = getattr(args, "odt_products", None)
+        languages = getattr(args, "odt_languages", None) or ["en-us"]
+
+        if preset:
+            config = odt_build.ODTConfig.from_preset(preset, languages)
+        elif products:
+            arch = (
+                odt_build.Architecture.X64
+                if getattr(args, "odt_arch", "64") == "64"
+                else odt_build.Architecture.X86
+            )
+            channel = odt_build.UpdateChannel.CURRENT
+            channel_arg = getattr(args, "odt_channel", None)
+            if channel_arg:
+                for ch in odt_build.UpdateChannel:
+                    if ch.name.lower() == channel_arg.lower().replace("-", "_"):
+                        channel = ch
+                        break
+                    if ch.value.lower() == channel_arg.lower():
+                        channel = ch
+                        break
+
+            product_configs = [
+                odt_build.ProductConfig(pid, languages=languages) for pid in products
+            ]
+            config = odt_build.ODTConfig(
+                products=product_configs,
+                architecture=arch,
+                channel=channel,
+            )
+        else:
+            # Default to M365 ProPlus
+            config = odt_build.ODTConfig.from_preset("365-proplus-x64", languages)
+
+        xml_output = odt_build.build_download_xml(config, download_path)
+
+        output_path = getattr(args, "odt_output", None)
+        if output_path:
+            pathlib.Path(output_path).write_text(xml_output, encoding="utf-8")
+            print(f"ODT download configuration written to: {output_path}")
+        else:
+            print(xml_output)
+
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+
+    return True
 
 
 def _handle_repair_mode(

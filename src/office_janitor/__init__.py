@@ -29,4 +29,6 @@ __all__ = [
     "version",
     "guid_utils",
     "msi_components",
+    "odt_build",
+    "repair",
 ]
