@@ -1384,66 +1384,197 @@ class InstallMetrics:
 
 
 @dataclass
-class _ProcessStats:
+class _MonitorStats:
     """!
-    @brief Shared container for process CPU/RAM stats updated by polling thread.
+    @brief Shared container for all monitor stats updated by polling thread.
+    @details Caches all expensive metrics (disk, files, registry, CPU, RAM)
+    to reduce resource usage - polling happens every 900ms instead of real-time.
     """
 
+    # Process stats
     cpu_percent: float = 0.0
     memory_mb: float = 0.0
-    lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def update(self, cpu: float, mem: float) -> None:
-        """Thread-safe update of stats."""
-        with self.lock:
+    # Disk/file stats
+    install_size: int = 0
+    file_count: int = 0
+    registry_keys: int = 0
+
+    # Log parsing stats
+    log_status: str = ""
+    log_percent: int | None = None
+
+    # Download-specific stats
+    download_size: int = 0
+    download_files: int = 0
+
+    # Thread safety
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def update_install(
+        self,
+        cpu: float,
+        mem: float,
+        size: int,
+        files: int,
+        reg_keys: int,
+        log_status: str,
+        log_pct: int | None,
+    ) -> None:
+        """Thread-safe update of install stats."""
+        with self._lock:
             self.cpu_percent = cpu
             self.memory_mb = mem
+            self.install_size = size
+            self.file_count = files
+            self.registry_keys = reg_keys
+            self.log_status = log_status
+            self.log_percent = log_pct
 
-    def get(self) -> tuple[float, float]:
-        """Thread-safe read of stats."""
-        with self.lock:
-            return self.cpu_percent, self.memory_mb
+    def update_download(
+        self,
+        cpu: float,
+        mem: float,
+        dl_size: int,
+        dl_files: int,
+        log_status: str,
+        log_pct: int | None,
+    ) -> None:
+        """Thread-safe update of download stats."""
+        with self._lock:
+            self.cpu_percent = cpu
+            self.memory_mb = mem
+            self.download_size = dl_size
+            self.download_files = dl_files
+            self.log_status = log_status
+            self.log_percent = log_pct
+
+    def get_install(self) -> tuple[float, float, int, int, int, str, int | None]:
+        """Thread-safe read of install stats."""
+        with self._lock:
+            return (
+                self.cpu_percent,
+                self.memory_mb,
+                self.install_size,
+                self.file_count,
+                self.registry_keys,
+                self.log_status,
+                self.log_percent,
+            )
+
+    def get_download(self) -> tuple[float, float, int, int, str, int | None]:
+        """Thread-safe read of download stats."""
+        with self._lock:
+            return (
+                self.cpu_percent,
+                self.memory_mb,
+                self.download_size,
+                self.download_files,
+                self.log_status,
+                self.log_percent,
+            )
 
 
-def _stats_poller_thread(
+# Legacy alias for backward compatibility
+_ProcessStats = _MonitorStats
+
+
+def _install_poller_thread(
     pid: int,
-    stats: _ProcessStats,
+    stats: _MonitorStats,
     stop_event: threading.Event,
-    interval: float = 1.0,
+    interval: float = 0.9,
 ) -> None:
     """!
-    @brief Dedicated thread to poll CPU/RAM stats without blocking spinner.
+    @brief Dedicated thread to poll ALL install metrics without blocking spinner.
+    @details Polls disk, files, registry, logs, CPU, RAM every 900ms.
     @param pid Process ID to monitor.
-    @param stats Shared _ProcessStats object to update.
+    @param stats Shared _MonitorStats object to update.
     @param stop_event Event to signal when polling should stop.
-    @param interval Polling interval in seconds.
+    @param interval Polling interval in seconds (default 900ms).
     """
     while not stop_event.is_set():
         try:
-            # Get memory (fast, no blocking)
+            # Get process stats
             mem = _get_process_memory_mb(pid)
-
-            # Get CPU with short sampling window
             cpu = _get_process_cpu_percent(pid, interval=0.1)
 
+            # Get disk/file stats
+            size = _get_office_install_size()
+            files = _count_office_files()
+            reg_keys = sum(_count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS)
+
+            # Get log status
+            log_path = _find_latest_odt_log()
+            if log_path:
+                log_status, log_pct = _parse_odt_progress(log_path)
+            else:
+                log_status, log_pct = "Starting...", None
+
             # Update shared stats
-            stats.update(cpu, mem)
+            stats.update_install(cpu, mem, size, files, reg_keys, log_status, log_pct)
 
         except Exception:
             pass
 
-        # Wait for next poll (but check stop_event frequently)
+        # Wait for next poll
+        stop_event.wait(interval)
+
+
+def _download_poller_thread(
+    pid: int,
+    download_path: Path,
+    stats: _MonitorStats,
+    stop_event: threading.Event,
+    interval: float = 0.9,
+) -> None:
+    """!
+    @brief Dedicated thread to poll ALL download metrics without blocking spinner.
+    @details Polls download folder, logs, CPU, RAM every 900ms.
+    @param pid Process ID to monitor.
+    @param download_path Path where files are being downloaded.
+    @param stats Shared _MonitorStats object to update.
+    @param stop_event Event to signal when polling should stop.
+    @param interval Polling interval in seconds (default 900ms).
+    """
+    while not stop_event.is_set():
+        try:
+            # Get process stats
+            mem = _get_process_memory_mb(pid)
+            cpu = _get_process_cpu_percent(pid, interval=0.1)
+
+            # Get download folder stats
+            try:
+                dl_size = _get_folder_size(download_path)
+                dl_files = sum(1 for _ in download_path.rglob("*") if _.is_file())
+            except Exception:
+                dl_size, dl_files = 0, 0
+
+            # Get log status
+            log_path = _find_latest_odt_log()
+            if log_path:
+                log_status, log_pct = _parse_odt_progress(log_path)
+            else:
+                log_status, log_pct = "Starting...", None
+
+            # Update shared stats
+            stats.update_download(cpu, mem, dl_size, dl_files, log_status, log_pct)
+
+        except Exception:
+            pass
+
+        # Wait for next poll
         stop_event.wait(interval)
 
 
 def _capture_install_metrics(
     pid: int | None = None,
-    cached_stats: _ProcessStats | None = None,
+    cached_stats: _MonitorStats | None = None,
 ) -> InstallMetrics:
     """!
     @brief Capture current installation metrics.
-    @param pid Process ID to monitor for CPU/RAM (optional, ignored if cached_stats).
-    @param cached_stats Pre-polled process stats (preferred over pid).
+    @param pid Process ID to monitor for CPU/RAM (optional).
+    @param cached_stats Pre-polled _MonitorStats object (preferred for CPU/RAM).
     @returns InstallMetrics with current state.
     """
     metrics = InstallMetrics()
@@ -1460,7 +1591,10 @@ def _capture_install_metrics(
 
     # Get process stats from cached poller (non-blocking) or direct call
     if cached_stats is not None:
-        metrics.cpu_percent, metrics.memory_mb = cached_stats.get()
+        # Use cached CPU/RAM from MonitorStats
+        cpu, mem, _, _, _, _, _ = cached_stats.get_install()
+        metrics.cpu_percent = cpu
+        metrics.memory_mb = mem
     elif pid is not None:
         # Fallback: direct call (may block briefly)
         metrics.cpu_percent, metrics.memory_mb = _get_process_tree_stats(pid)
@@ -1496,14 +1630,14 @@ def _monitor_odt_progress(
     baseline_size = _get_office_install_size()
     baseline_files = _count_office_files()
 
-    # Start dedicated stats polling thread
-    process_stats = _ProcessStats()
+    # Start dedicated polling thread for ALL metrics (polls every 900ms)
+    monitor_stats = _MonitorStats()
     stats_stop = threading.Event()
     stats_thread = threading.Thread(
-        target=_stats_poller_thread,
-        args=(proc.pid, process_stats, stats_stop, 1.0),
+        target=_install_poller_thread,
+        args=(proc.pid, monitor_stats, stats_stop, 0.9),
         daemon=True,
-        name="odt-stats-poller",
+        name="odt-install-poller",
     )
     stats_thread.start()
 
@@ -1511,21 +1645,21 @@ def _monitor_odt_progress(
 
     try:
         while not stop_event.is_set() and proc.poll() is None:
-            # Capture current metrics using cached stats (non-blocking)
-            metrics = _capture_install_metrics(cached_stats=process_stats)
+            # Read cached stats (non-blocking, very fast)
+            cpu, mem, size, files, reg_keys, log_status, log_pct = monitor_stats.get_install()
 
             # Calculate deltas from baseline
-            size_delta = metrics.install_size - baseline_size
-            files_delta = metrics.file_count - baseline_files
+            size_delta = size - baseline_size
+            files_delta = files - baseline_files
 
             # Build display string with best available info
             parts: list[str] = []
 
             # Primary status from log if available
-            if metrics.log_percent is not None:
-                parts.append(f"{metrics.log_status} ({metrics.log_percent}%)")
-            elif metrics.log_status and metrics.log_status != "Starting...":
-                parts.append(metrics.log_status)
+            if log_pct is not None:
+                parts.append(f"{log_status} ({log_pct}%)")
+            elif log_status and log_status != "Starting...":
+                parts.append(log_status)
             else:
                 # Infer status from metrics
                 if size_delta > 0:
@@ -1547,12 +1681,12 @@ def _monitor_odt_progress(
                 parts.append(f"{files_delta:,} files")
 
             # Add CPU/RAM stats if meaningful
-            if metrics.cpu_percent > 1.0 or metrics.memory_mb > 10:
+            if cpu > 1.0 or mem > 10:
                 stats_parts = []
-                if metrics.cpu_percent > 1.0:
-                    stats_parts.append(f"CPU {metrics.cpu_percent:.0f}%")
-                if metrics.memory_mb > 10:
-                    stats_parts.append(f"RAM {metrics.memory_mb:.0f}MB")
+                if cpu > 1.0:
+                    stats_parts.append(f"CPU {cpu:.0f}%")
+                if mem > 10:
+                    stats_parts.append(f"RAM {mem:.0f}MB")
                 if stats_parts:
                     parts.append(" ".join(stats_parts))
 
@@ -1565,7 +1699,7 @@ def _monitor_odt_progress(
                 _spinner.set_task(display)
                 last_display = display
 
-            stop_event.wait(0.3)  # Check every 300ms for smoother spinner
+            stop_event.wait(0.15)  # Check every 150ms for smooth spinner
 
     finally:
         # Stop the stats polling thread
@@ -1734,7 +1868,7 @@ def _monitor_odt_download_progress(
     """!
     @brief Background thread to monitor ODT download progress.
     @details Monitors download folder size and ODT log files for progress.
-    Uses a dedicated thread to poll CPU/RAM stats to avoid blocking.
+    Uses a dedicated thread to poll ALL stats every 900ms for low resource usage.
     @param proc The ODT subprocess being monitored.
     @param stop_event Event to signal when monitoring should stop.
     @param download_path Path where files are being downloaded.
@@ -1744,52 +1878,50 @@ def _monitor_odt_download_progress(
 
     last_display = ""
     last_size = 0
+    last_time = time.monotonic()
 
-    # Start dedicated stats polling thread
-    process_stats = _ProcessStats()
+    # Start dedicated polling thread for ALL metrics (polls every 900ms)
+    monitor_stats = _MonitorStats()
     stats_stop = threading.Event()
     stats_thread = threading.Thread(
-        target=_stats_poller_thread,
-        args=(proc.pid, process_stats, stats_stop),
+        target=_download_poller_thread,
+        args=(proc.pid, download_path, monitor_stats, stats_stop, 0.9),
         daemon=True,
-        name="odt-download-stats-poller",
+        name="odt-download-poller",
     )
     stats_thread.start()
 
     try:
         while not stop_event.is_set() and proc.poll() is None:
+            # Read cached stats (non-blocking, very fast)
+            cpu, mem, dl_size, dl_files, log_status, log_pct = monitor_stats.get_download()
+
             parts: list[str] = []
 
-            # Check ODT log for status
-            log_path = _find_latest_odt_log()
-            if log_path:
-                status, pct = _parse_odt_progress(log_path)
-                if pct is not None:
-                    parts.append(f"Downloading ({pct}%)")
-                elif "download" in status.lower():
-                    parts.append(status)
+            # Log status
+            if log_pct is not None:
+                parts.append(f"Downloading ({log_pct}%)")
+            elif log_status and "download" in log_status.lower():
+                parts.append(log_status)
 
-            # Check download folder size
-            try:
-                total_size = _get_folder_size(download_path)
-                if total_size > 0:
-                    parts.append(_format_size(total_size))
-                    # Calculate download speed if we have previous measurement
-                    if last_size > 0 and total_size > last_size:
-                        speed = (total_size - last_size) * 3  # 0.3s interval
-                        if speed > 1024 * 1024:  # > 1 MB/s
-                            parts.append(f"{_format_size(speed)}/s")
-                    last_size = total_size
+            # Size info
+            if dl_size > 0:
+                parts.append(_format_size(dl_size))
+                # Calculate download speed
+                now = time.monotonic()
+                elapsed = now - last_time
+                if elapsed > 0.1 and last_size > 0 and dl_size > last_size:
+                    speed = (dl_size - last_size) / elapsed
+                    if speed > 1024 * 1024:  # > 1 MB/s
+                        parts.append(f"{_format_size(int(speed))}/s")
+                last_size = dl_size
+                last_time = now
 
-                # Count files being downloaded
-                file_count = sum(1 for _ in download_path.rglob("*") if _.is_file())
-                if file_count > 0:
-                    parts.append(f"{file_count} files")
-            except Exception:
-                pass
+            # File count
+            if dl_files > 0:
+                parts.append(f"{dl_files} files")
 
-            # Add CPU/RAM stats from cached values (non-blocking)
-            cpu, mem = process_stats.get()
+            # CPU/RAM stats
             if cpu > 1.0 or mem > 10:
                 stats_parts = []
                 if cpu > 1.0:
@@ -1809,7 +1941,7 @@ def _monitor_odt_download_progress(
                 _spinner.set_task(display)
                 last_display = display
 
-            stop_event.wait(0.3)  # Check every 300ms for smoother spinner
+            stop_event.wait(0.15)  # Check every 150ms for smooth spinner
 
     finally:
         # Stop the stats polling thread

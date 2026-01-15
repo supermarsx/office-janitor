@@ -834,36 +834,70 @@ class TestProcessMetrics:
         # Current process uses some memory
         assert metrics.memory_mb > 0
 
-    def test_process_stats_update_and_get(self) -> None:
-        """Verify _ProcessStats thread-safe update and get."""
-        stats = odt_build._ProcessStats()
+    def test_monitor_stats_install_update_and_get(self) -> None:
+        """Verify _MonitorStats thread-safe update and get for install."""
+        stats = odt_build._MonitorStats()
         # Default values
-        cpu, mem = stats.get()
+        cpu, mem, size, files, reg, status, pct = stats.get_install()
         assert cpu == 0.0
         assert mem == 0.0
+        assert size == 0
+        assert files == 0
+        assert reg == 0
+        assert status == ""
+        assert pct is None
 
         # Update values
-        stats.update(50.5, 123.4)
-        cpu, mem = stats.get()
+        stats.update_install(50.5, 123.4, 1000000, 500, 10, "Installing", 75)
+        cpu, mem, size, files, reg, status, pct = stats.get_install()
         assert cpu == 50.5
         assert mem == 123.4
+        assert size == 1000000
+        assert files == 500
+        assert reg == 10
+        assert status == "Installing"
+        assert pct == 75
 
-    def test_process_stats_concurrent_access(self) -> None:
-        """Verify _ProcessStats is thread-safe with concurrent access."""
+    def test_monitor_stats_download_update_and_get(self) -> None:
+        """Verify _MonitorStats thread-safe update and get for download."""
+        stats = odt_build._MonitorStats()
+        # Default values
+        cpu, mem, dl_size, dl_files, status, pct = stats.get_download()
+        assert cpu == 0.0
+        assert mem == 0.0
+        assert dl_size == 0
+        assert dl_files == 0
+        assert status == ""
+        assert pct is None
+
+        # Update values
+        stats.update_download(25.0, 64.0, 500000, 20, "Downloading", 50)
+        cpu, mem, dl_size, dl_files, status, pct = stats.get_download()
+        assert cpu == 25.0
+        assert mem == 64.0
+        assert dl_size == 500000
+        assert dl_files == 20
+        assert status == "Downloading"
+        assert pct == 50
+
+    def test_monitor_stats_concurrent_access(self) -> None:
+        """Verify _MonitorStats is thread-safe with concurrent access."""
         import threading
         import time
 
-        stats = odt_build._ProcessStats()
-        results: list[tuple[float, float]] = []
+        stats = odt_build._MonitorStats()
+        results: list[tuple[float, float, int, int, int, str, int | None]] = []
 
         def reader() -> None:
             for _ in range(10):
-                results.append(stats.get())
+                results.append(stats.get_install())
                 time.sleep(0.01)
 
         def writer() -> None:
             for i in range(10):
-                stats.update(float(i), float(i * 10))
+                stats.update_install(
+                    float(i), float(i * 10), i * 1000, i * 50, i, f"Step {i}", i * 10
+                )
                 time.sleep(0.01)
 
         t1 = threading.Thread(target=reader)
@@ -876,15 +910,9 @@ class TestProcessMetrics:
         # Should have collected 10 results without crashing
         assert len(results) == 10
         # All results should be valid tuples
-        for cpu, mem in results:
+        for cpu, mem, size, files, reg, status, pct in results:
             assert isinstance(cpu, float)
             assert isinstance(mem, float)
+            assert isinstance(size, int)
+            assert isinstance(files, int)
 
-    def test_capture_install_metrics_with_cached_stats(self) -> None:
-        """Verify capture_install_metrics uses cached stats when provided."""
-        stats = odt_build._ProcessStats()
-        stats.update(42.5, 256.0)
-
-        metrics = odt_build._capture_install_metrics(cached_stats=stats)
-        assert metrics.cpu_percent == 42.5
-        assert metrics.memory_mb == 256.0
