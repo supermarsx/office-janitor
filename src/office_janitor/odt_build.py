@@ -1540,7 +1540,9 @@ def _install_poller_thread(
                 log_status, log_pct = "Starting...", None
 
             # Update shared stats
-            stats.update_install(cpu, mem, cached_size, cached_files, cached_reg_keys, log_status, log_pct)
+            stats.update_install(
+                cpu, mem, cached_size, cached_files, cached_reg_keys, log_status, log_pct
+            )
 
         except Exception:
             pass

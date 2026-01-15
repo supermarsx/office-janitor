@@ -915,4 +915,3 @@ class TestProcessMetrics:
             assert isinstance(mem, float)
             assert isinstance(size, int)
             assert isinstance(files, int)
-
