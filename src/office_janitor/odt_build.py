@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
@@ -21,7 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import constants, logging_ext
+from . import constants, exec_utils, logging_ext
 
 # ---------------------------------------------------------------------------
 # Constants and Enumerations
@@ -454,12 +455,66 @@ INSTALL_PRESETS: Mapping[str, dict[str, object]] = {
         "channel": UpdateChannel.PERPETUAL_VL_2024,
         "description": "Project Professional 2024 (64-bit)",
     },
+    "ltsc2024-full-x64": {
+        "products": ["ProPlus2024Volume", "VisioPro2024Volume", "ProjectPro2024Volume"],
+        "architecture": Architecture.X64,
+        "channel": UpdateChannel.PERPETUAL_VL_2024,
+        "description": "Office LTSC 2024 + Visio + Project (64-bit)",
+    },
+    "ltsc2024-full-x86": {
+        "products": ["ProPlus2024Volume", "VisioPro2024Volume", "ProjectPro2024Volume"],
+        "architecture": Architecture.X86,
+        "channel": UpdateChannel.PERPETUAL_VL_2024,
+        "description": "Office LTSC 2024 + Visio + Project (32-bit)",
+    },
+    "ltsc2021-full-x64": {
+        "products": ["ProPlus2021Volume", "VisioPro2021Volume", "ProjectPro2021Volume"],
+        "architecture": Architecture.X64,
+        "channel": UpdateChannel.PERPETUAL_VL_2021,
+        "description": "Office LTSC 2021 + Visio + Project (64-bit)",
+    },
     "365-shared-computer": {
         "products": ["O365ProPlusRetail"],
         "architecture": Architecture.X64,
         "channel": UpdateChannel.CURRENT,
         "shared_computer": True,
         "description": "Microsoft 365 Apps with Shared Computer Licensing",
+    },
+    # Presets without OneDrive and Skype (Lync)
+    "ltsc2024-full-x64-clean": {
+        "products": ["ProPlus2024Volume", "VisioPro2024Volume", "ProjectPro2024Volume"],
+        "architecture": Architecture.X64,
+        "channel": UpdateChannel.PERPETUAL_VL_2024,
+        "exclude_apps": ["OneDrive", "Lync"],
+        "description": "Office LTSC 2024 + Visio + Project (64-bit) - No OneDrive/Skype",
+    },
+    "ltsc2024-full-x86-clean": {
+        "products": ["ProPlus2024Volume", "VisioPro2024Volume", "ProjectPro2024Volume"],
+        "architecture": Architecture.X86,
+        "channel": UpdateChannel.PERPETUAL_VL_2024,
+        "exclude_apps": ["OneDrive", "Lync"],
+        "description": "Office LTSC 2024 + Visio + Project (32-bit) - No OneDrive/Skype",
+    },
+    "ltsc2024-x64-clean": {
+        "products": ["ProPlus2024Volume"],
+        "architecture": Architecture.X64,
+        "channel": UpdateChannel.PERPETUAL_VL_2024,
+        "exclude_apps": ["OneDrive", "Lync"],
+        "description": "Office LTSC 2024 Professional Plus (64-bit) - No OneDrive/Skype",
+    },
+    "365-proplus-x64-clean": {
+        "products": ["O365ProPlusRetail"],
+        "architecture": Architecture.X64,
+        "channel": UpdateChannel.CURRENT,
+        "exclude_apps": ["OneDrive", "Lync"],
+        "description": "Microsoft 365 Apps (64-bit) - No OneDrive/Skype",
+    },
+    "365-proplus-visio-project-clean": {
+        "products": ["O365ProPlusRetail", "VisioProRetail", "ProjectProRetail"],
+        "architecture": Architecture.X64,
+        "channel": UpdateChannel.CURRENT,
+        "exclude_apps": ["OneDrive", "Lync"],
+        "description": "Microsoft 365 Apps + Visio + Project (64-bit) - No OneDrive/Skype",
     },
 }
 """!
@@ -549,8 +604,9 @@ class ODTConfig:
             raise ValueError(f"Unknown preset '{preset_name}'. Available: {available}")
 
         langs = languages or ["en-us"]
+        exclude_apps = preset.get("exclude_apps", [])  # type: ignore[union-attr]
         products = [
-            ProductConfig(product_id=pid, languages=langs)
+            ProductConfig(product_id=pid, languages=langs, exclude_apps=list(exclude_apps))
             for pid in preset.get("products", [])  # type: ignore[union-attr]
         ]
 
@@ -829,6 +885,359 @@ def write_temp_config(config: ODTConfig, prefix: str = "odt_install_") -> Path:
         raise
 
     return Path(temp_path)
+
+
+# ---------------------------------------------------------------------------
+# ODT Execution
+# ---------------------------------------------------------------------------
+
+
+def get_odt_setup_path() -> Path:
+    """!
+    @brief Get path to the embedded ODT setup.exe.
+    @details Looks for setup.exe in the oem/ folder relative to this module,
+    or in the PyInstaller _MEIPASS temp directory when running as frozen exe.
+    @returns Path to setup.exe.
+    @raises FileNotFoundError if setup.exe cannot be found.
+    """
+    # When running as PyInstaller bundle
+    if getattr(sys, "frozen", False):
+        base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    else:
+        # Development: look relative to this module
+        base_path = Path(__file__).parent.parent.parent
+
+    oem_path = base_path / "oem" / "setup.exe"
+    if oem_path.exists():
+        return oem_path
+
+    # Also check directly in base (for alternative packaging)
+    alt_path = base_path / "setup.exe"
+    if alt_path.exists():
+        return alt_path
+
+    raise FileNotFoundError(
+        f"ODT setup.exe not found. Checked:\n  {oem_path}\n  {alt_path}"
+    )
+
+
+@dataclass
+class ODTResult:
+    """!
+    @brief Result from an ODT operation.
+    """
+
+    success: bool
+    return_code: int
+    command: list[str]
+    config_path: Path | None
+    stdout: str
+    stderr: str
+    duration: float
+    error: str | None = None
+
+
+def run_odt_install(
+    config: ODTConfig,
+    *,
+    dry_run: bool = False,
+    timeout: float | None = None,
+) -> ODTResult:
+    """!
+    @brief Run ODT setup.exe to install Office with the given configuration.
+    @param config ODTConfig with products and settings.
+    @param dry_run If True, only generate the XML and print the command.
+    @param timeout Optional timeout in seconds.
+    @returns ODTResult with execution details.
+    """
+    log = logging_ext.get_human_logger()
+
+    try:
+        setup_path = get_odt_setup_path()
+    except FileNotFoundError as e:
+        return ODTResult(
+            success=False,
+            return_code=-1,
+            command=[],
+            config_path=None,
+            stdout="",
+            stderr=str(e),
+            duration=0.0,
+            error=str(e),
+        )
+
+    # Write config to temp file
+    config_path = write_temp_config(config, prefix="odt_install_")
+
+    command = [str(setup_path), "/configure", str(config_path)]
+
+    log.info(f"Installing Office with ODT: {' '.join(command)}")
+    log.info(f"Config file: {config_path}")
+
+    if dry_run:
+        log.info("[DRY-RUN] Would execute: %s", " ".join(command))
+        xml_content = config_path.read_text(encoding="utf-8")
+        log.info(f"Configuration XML:\n{xml_content}")
+        return ODTResult(
+            success=True,
+            return_code=0,
+            command=command,
+            config_path=config_path,
+            stdout="",
+            stderr="",
+            duration=0.0,
+        )
+
+    result = exec_utils.run_command(
+        command,
+        event="odt_install",
+        timeout=timeout,
+        human_message=f"Running ODT install: {config.products[0].product_id if config.products else 'unknown'}",
+    )
+
+    # Clean up temp file on success
+    if result.returncode == 0:
+        try:
+            config_path.unlink()
+        except OSError:
+            pass
+
+    return ODTResult(
+        success=result.returncode == 0,
+        return_code=result.returncode,
+        command=command,
+        config_path=config_path if result.returncode != 0 else None,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        duration=result.duration,
+        error=result.error,
+    )
+
+
+def run_odt_download(
+    config: ODTConfig,
+    download_path: str | Path,
+    *,
+    dry_run: bool = False,
+    timeout: float | None = None,
+) -> ODTResult:
+    """!
+    @brief Run ODT setup.exe to download Office installation files.
+    @param config ODTConfig with products and settings.
+    @param download_path Local path to store downloaded files.
+    @param dry_run If True, only generate the XML and print the command.
+    @param timeout Optional timeout in seconds.
+    @returns ODTResult with execution details.
+    """
+    log = logging_ext.get_human_logger()
+
+    try:
+        setup_path = get_odt_setup_path()
+    except FileNotFoundError as e:
+        return ODTResult(
+            success=False,
+            return_code=-1,
+            command=[],
+            config_path=None,
+            stdout="",
+            stderr=str(e),
+            duration=0.0,
+            error=str(e),
+        )
+
+    download_path = Path(download_path)
+    download_path.mkdir(parents=True, exist_ok=True)
+
+    # Generate download XML
+    xml_content = build_download_xml(config, str(download_path))
+
+    fd, temp_path = tempfile.mkstemp(suffix=".xml", prefix="odt_download_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(xml_content)
+    except Exception:
+        os.close(fd)
+        raise
+
+    config_path = Path(temp_path)
+    command = [str(setup_path), "/download", str(config_path)]
+
+    log.info(f"Downloading Office with ODT: {' '.join(command)}")
+    log.info(f"Download path: {download_path}")
+
+    if dry_run:
+        log.info("[DRY-RUN] Would execute: %s", " ".join(command))
+        log.info(f"Configuration XML:\n{xml_content}")
+        return ODTResult(
+            success=True,
+            return_code=0,
+            command=command,
+            config_path=config_path,
+            stdout="",
+            stderr="",
+            duration=0.0,
+        )
+
+    result = exec_utils.run_command(
+        command,
+        event="odt_download",
+        timeout=timeout,
+        human_message=f"Downloading Office files to {download_path}",
+    )
+
+    # Clean up temp file
+    try:
+        config_path.unlink()
+    except OSError:
+        pass
+
+    return ODTResult(
+        success=result.returncode == 0,
+        return_code=result.returncode,
+        command=command,
+        config_path=None,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        duration=result.duration,
+        error=result.error,
+    )
+
+
+def run_odt_remove(
+    *,
+    remove_all: bool = True,
+    product_ids: Sequence[str] | None = None,
+    remove_msi: bool = True,
+    dry_run: bool = False,
+    timeout: float | None = None,
+) -> ODTResult:
+    """!
+    @brief Run ODT setup.exe to remove Office installations.
+    @param remove_all Remove all Office products.
+    @param product_ids Specific product IDs to remove (if not remove_all).
+    @param remove_msi Also remove MSI-based installations.
+    @param dry_run If True, only generate the XML and print the command.
+    @param timeout Optional timeout in seconds.
+    @returns ODTResult with execution details.
+    """
+    log = logging_ext.get_human_logger()
+
+    try:
+        setup_path = get_odt_setup_path()
+    except FileNotFoundError as e:
+        return ODTResult(
+            success=False,
+            return_code=-1,
+            command=[],
+            config_path=None,
+            stdout="",
+            stderr=str(e),
+            duration=0.0,
+            error=str(e),
+        )
+
+    # Generate removal XML
+    xml_content = build_removal_xml(
+        remove_all=remove_all,
+        product_ids=product_ids,
+        remove_msi=remove_msi,
+    )
+
+    fd, temp_path = tempfile.mkstemp(suffix=".xml", prefix="odt_remove_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(xml_content)
+    except Exception:
+        os.close(fd)
+        raise
+
+    config_path = Path(temp_path)
+    command = [str(setup_path), "/configure", str(config_path)]
+
+    log.info(f"Removing Office with ODT: {' '.join(command)}")
+
+    if dry_run:
+        log.info("[DRY-RUN] Would execute: %s", " ".join(command))
+        log.info(f"Configuration XML:\n{xml_content}")
+        return ODTResult(
+            success=True,
+            return_code=0,
+            command=command,
+            config_path=config_path,
+            stdout="",
+            stderr="",
+            duration=0.0,
+        )
+
+    result = exec_utils.run_command(
+        command,
+        event="odt_remove",
+        timeout=timeout,
+        human_message="Removing Office installations",
+    )
+
+    # Clean up temp file
+    try:
+        config_path.unlink()
+    except OSError:
+        pass
+
+    return ODTResult(
+        success=result.returncode == 0,
+        return_code=result.returncode,
+        command=command,
+        config_path=None,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        duration=result.duration,
+        error=result.error,
+    )
+
+
+def install_from_preset(
+    preset_name: str,
+    languages: list[str] | None = None,
+    *,
+    dry_run: bool = False,
+    timeout: float | None = None,
+) -> ODTResult:
+    """!
+    @brief Quick install using a preset configuration.
+    @param preset_name Name of the preset from INSTALL_PRESETS.
+    @param languages List of language codes (default: ["en-us"]).
+    @param dry_run If True, only print what would be done.
+    @param timeout Optional timeout in seconds.
+    @returns ODTResult with execution details.
+    """
+    config = ODTConfig.from_preset(preset_name, languages)
+    return run_odt_install(config, dry_run=dry_run, timeout=timeout)
+
+
+def install_ltsc_2024_full(
+    languages: list[str] | None = None,
+    architecture: Architecture = Architecture.X64,
+    *,
+    dry_run: bool = False,
+    timeout: float | None = None,
+) -> ODTResult:
+    """!
+    @brief Quick install for Office LTSC 2024 + Visio + Project.
+    @param languages List of language codes (default: ["en-us"]).
+    @param architecture x64 or x86 (default: x64).
+    @param dry_run If True, only print what would be done.
+    @param timeout Optional timeout in seconds.
+    @returns ODTResult with execution details.
+    """
+    langs = languages or ["en-us"]
+    config = build_office_ltsc(
+        "2024",
+        architecture=architecture,
+        languages=langs,
+        volume=True,
+        include_visio=True,
+        include_project=True,
+    )
+    return run_odt_install(config, dry_run=dry_run, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------

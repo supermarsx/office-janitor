@@ -230,11 +230,86 @@ def build_arg_parser() -> argparse.ArgumentParser:
     values without changing the public CLI signature.
     """
 
+    epilog_text = """\
+================================================================================
+
+ODT INSTALLATION PRESETS (use with --odt-install --odt-preset NAME):
+
+  Microsoft 365 (Subscription):
+    365-proplus-x64              Microsoft 365 Apps for enterprise (64-bit)
+    365-proplus-x86              Microsoft 365 Apps for enterprise (32-bit)
+    365-business-x64             Microsoft 365 Apps for business (64-bit)
+    365-proplus-visio-project    M365 Apps + Visio + Project (64-bit)
+    365-shared-computer          M365 Apps with Shared Computer Licensing
+
+  Office LTSC 2024 (Perpetual):
+    office2024-x64               Office LTSC 2024 Professional Plus (64-bit)
+    office2024-x86               Office LTSC 2024 Professional Plus (32-bit)
+    office2024-standard-x64      Office LTSC 2024 Standard (64-bit)
+    ltsc2024-full-x64            Office 2024 + Visio + Project (64-bit)
+    ltsc2024-full-x86            Office 2024 + Visio + Project (32-bit)
+
+  Office LTSC 2021 (Perpetual):
+    office2021-x64               Office LTSC 2021 Professional Plus (64-bit)
+    office2021-x86               Office LTSC 2021 Professional Plus (32-bit)
+    office2021-standard-x64      Office LTSC 2021 Standard (64-bit)
+    ltsc2021-full-x64            Office 2021 + Visio + Project (64-bit)
+
+  Office 2019 (Perpetual):
+    office2019-x64               Office 2019 Professional Plus (64-bit)
+    office2019-x86               Office 2019 Professional Plus (32-bit)
+
+  Standalone Products:
+    visio-pro-x64                Visio Professional 2024 (64-bit)
+    project-pro-x64              Project Professional 2024 (64-bit)
+
+  Clean Presets (No OneDrive/Skype):
+    ltsc2024-full-x64-clean      Office 2024 + Visio + Project - No OneDrive/Skype
+    ltsc2024-full-x86-clean      Office 2024 + Visio + Project (32-bit) - No bloat
+    ltsc2024-x64-clean           Office 2024 ProPlus only - No OneDrive/Skype
+    365-proplus-x64-clean        M365 Apps - No OneDrive/Skype
+    365-proplus-visio-project-clean  M365 + Visio + Project - No OneDrive/Skype
+
+================================================================================
+
+QUICK EXAMPLES:
+
+  # Install Office LTSC 2024 + Visio + Project with multiple languages
+  office-janitor --odt-install --odt-preset ltsc2024-full-x64 ^
+    --odt-language en-us --odt-language es-mx --odt-language pt-br
+
+  # Install clean Office 2024 (no OneDrive/Skype)
+  office-janitor --odt-install --odt-preset ltsc2024-full-x64-clean
+
+  # Generate XML config without installing
+  office-janitor --odt-build --odt-preset office2024-x64 --odt-output install.xml
+
+  # Remove all Office installations
+  office-janitor --auto-all --dry-run  # Preview first!
+  office-janitor --auto-all --backup C:\\Backups
+
+  # Diagnose current Office state
+  office-janitor --diagnose --plan report.json
+
+================================================================================
+
+SUPPORTED LANGUAGES (common): en-us, de-de, fr-fr, es-es, es-mx, pt-br, pt-pt,
+  it-it, ja-jp, ko-kr, zh-cn, zh-tw, ru-ru, pl-pl, nl-nl, ar-sa, he-il, tr-tr
+
+Use --odt-list-languages for the complete list of 60+ supported language codes.
+Use --odt-list-products for all available Office product IDs.
+Use --odt-list-channels for update channel options.
+
+For legacy OffScrub compatibility, see --offscrub-* options.
+Full documentation: https://github.com/yourorg/office-janitor
+"""
+
     parser = argparse.ArgumentParser(
         prog="office-janitor",
         add_help=True,
         description="Detect, uninstall, and scrub Microsoft Office installations.",
-        epilog="For legacy OffScrub compatibility, see --offscrub-* options.",
+        epilog=epilog_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     metadata = version.build_info()
     parser.add_argument(
@@ -663,6 +738,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Generate an ODT XML configuration file instead of running scrub operations.",
     )
     odt_build_opts.add_argument(
+        "--odt-install",
+        action="store_true",
+        help="Install Office using ODT with the specified configuration (requires elevation).",
+    )
+    odt_build_opts.add_argument(
         "--odt-preset",
         metavar="NAME",
         help="Use a predefined ODT installation preset (use --odt-list-presets to see options).",
@@ -754,6 +834,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--odt-list-languages",
         action="store_true",
         help="List all supported language codes and exit.",
+    )
+
+    # -------------------------------------------------------------------------
+    # Author Quick Install Aliases
+    # -------------------------------------------------------------------------
+    author_opts = parser.add_argument_group(
+        "Quick Install Aliases",
+        "Author-defined shortcuts for common Office installations.",
+    )
+    author_opts.add_argument(
+        "--goobler",
+        action="store_true",
+        help="Install LTSC 2024 + Visio + Project (clean, no OneDrive/Skype) with pt-pt and en-us.",
+    )
+    author_opts.add_argument(
+        "--pupa",
+        action="store_true",
+        help="Install LTSC 2024 ProPlus only (clean, no OneDrive/Skype) with pt-pt and en-us.",
     )
 
     # -------------------------------------------------------------------------
@@ -1365,12 +1463,34 @@ def _handle_odt_list_commands(args: argparse.Namespace) -> bool:
 def _handle_odt_build_commands(args: argparse.Namespace) -> bool:
     """!
     @brief Handle ODT build and configuration generation commands.
-    @details Processes --odt-build, --odt-removal, and --odt-download commands.
+    @details Processes --odt-build, --odt-install, --odt-removal, --odt-download,
+    and author aliases (--goobler, --pupa).
     These commands may write files and run after elevation.
     @param args Parsed command-line arguments.
     @returns True if an ODT command was handled (caller should exit), False otherwise.
     """
-    # Handle build command
+    # Handle author quick install aliases
+    if getattr(args, "goobler", False):
+        return _run_author_install(
+            args,
+            preset="ltsc2024-full-x64-clean",
+            languages=["pt-pt", "en-us"],
+            name="Goobler",
+        )
+
+    if getattr(args, "pupa", False):
+        return _run_author_install(
+            args,
+            preset="ltsc2024-x64-clean",
+            languages=["pt-pt", "en-us"],
+            name="Pupa",
+        )
+
+    # Handle install command (actually runs ODT)
+    if getattr(args, "odt_install", False):
+        return _run_odt_install(args)
+
+    # Handle build command (generates XML)
     if getattr(args, "odt_build", False):
         return _build_odt_config(args)
 
@@ -1383,6 +1503,99 @@ def _handle_odt_build_commands(args: argparse.Namespace) -> bool:
         return _build_odt_download(args)
 
     return False
+
+
+def _run_odt_install(args: argparse.Namespace) -> bool:
+    """!
+    @brief Run ODT to install Office with the specified configuration.
+    @param args Parsed command-line arguments.
+    @returns True (command was handled).
+    """
+    dry_run = getattr(args, "dry_run", False)
+
+    try:
+        preset = getattr(args, "odt_preset", None)
+        products = getattr(args, "odt_products", None)
+        languages = getattr(args, "odt_languages", None) or ["en-us"]
+
+        if preset:
+            config = odt_build.ODTConfig.from_preset(preset, languages)
+        elif products:
+            arch = (
+                odt_build.Architecture.X64
+                if getattr(args, "odt_arch", "64") == "64"
+                else odt_build.Architecture.X86
+            )
+
+            channel_arg = getattr(args, "odt_channel", None)
+            channel = odt_build.UpdateChannel.CURRENT
+            if channel_arg:
+                for ch in odt_build.UpdateChannel:
+                    if ch.name.lower() == channel_arg.lower().replace("-", "_"):
+                        channel = ch
+                        break
+                    if ch.value.lower() == channel_arg.lower():
+                        channel = ch
+                        break
+
+            exclude_apps = getattr(args, "odt_exclude_apps", None) or []
+            product_configs = [
+                odt_build.ProductConfig(pid, languages=languages, exclude_apps=exclude_apps)
+                for pid in products
+            ]
+
+            if getattr(args, "odt_include_visio", False):
+                product_configs.append(
+                    odt_build.ProductConfig("VisioProRetail", languages=languages)
+                )
+            if getattr(args, "odt_include_project", False):
+                product_configs.append(
+                    odt_build.ProductConfig("ProjectProRetail", languages=languages)
+                )
+
+            config = odt_build.ODTConfig(
+                products=product_configs,
+                architecture=arch,
+                channel=channel,
+                shared_computer_licensing=getattr(args, "odt_shared_computer", False),
+                remove_msi=getattr(args, "odt_remove_msi", False),
+            )
+        else:
+            print("No preset or products specified for installation.")
+            print("Use --odt-preset or --odt-product to specify what to install.")
+            print("Use --odt-list-presets or --odt-list-products to see available options.")
+            print("\nExample: office-janitor --odt-install --odt-preset ltsc2024-full-x64 --odt-language en-us --odt-language es-es")
+            return True
+
+        # Show what we're about to install
+        print("\n" + "=" * 70)
+        print("ODT Installation")
+        print("=" * 70)
+        print(f"Products: {', '.join(p.product_id for p in config.products)}")
+        print(f"Languages: {', '.join(config.products[0].languages) if config.products else 'none'}")
+        print(f"Architecture: {config.architecture.value}-bit")
+        print(f"Channel: {config.channel.value}")
+        print("=" * 70)
+
+        result = odt_build.run_odt_install(config, dry_run=dry_run)
+
+        if result.success:
+            print("\n✓ Office installation completed successfully!")
+        else:
+            print(f"\n✗ Office installation failed with exit code {result.return_code}")
+            if result.stderr:
+                print(f"Error output:\n{result.stderr}")
+            if result.config_path:
+                print(f"Config file preserved at: {result.config_path}")
+
+        return True
+
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return True
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return True
 
 
 def _build_odt_config(args: argparse.Namespace) -> bool:
@@ -1463,29 +1676,6 @@ def _build_odt_config(args: argparse.Namespace) -> bool:
         return True
 
     return True
-
-
-def _handle_odt_build_commands(args: argparse.Namespace) -> bool:
-    """!
-    @brief Handle ODT build and configuration generation commands.
-    @details Processes --odt-build, --odt-removal, and --odt-download commands.
-    These commands may write files and run after elevation.
-    @param args Parsed command-line arguments.
-    @returns True if an ODT command was handled (caller should exit), False otherwise.
-    """
-    # Handle build command
-    if getattr(args, "odt_build", False):
-        return _build_odt_config(args)
-
-    # Handle removal XML generation
-    if getattr(args, "odt_removal", False):
-        return _build_odt_removal(args)
-
-    # Handle download XML generation
-    if getattr(args, "odt_download", None):
-        return _build_odt_download(args)
-
-    return False
 
 
 def _build_odt_removal(args: argparse.Namespace) -> bool:

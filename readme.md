@@ -146,7 +146,27 @@ Bug reports and feature requests should reference the relevant sections of [`spe
 
 ## ODT XML Configuration Builder
 
-Office Janitor includes a built-in Office Deployment Tool (ODT) XML configuration generator. This allows you to create installation, removal, and download configurations for any Office product without needing separate tools.
+Office Janitor includes a powerful Office Deployment Tool (ODT) XML configuration generator and installer. This allows you to create installation, removal, and download configurations for any Office product, and execute installations directly without needing separate tools.
+
+### ODT Installation (New!)
+
+You can now install Office directly using the embedded ODT setup.exe:
+
+```bash
+# Install Office LTSC 2024 + Visio + Project with 3 languages
+office-janitor --odt-install --odt-preset ltsc2024-full-x64 \
+  --odt-language en-us --odt-language es-mx --odt-language pt-br
+
+# Install clean version (no OneDrive/Skype bloat)
+office-janitor --odt-install --odt-preset ltsc2024-full-x64-clean \
+  --odt-language en-us --odt-language de-de
+
+# Preview what would be installed (dry-run)
+office-janitor --odt-install --odt-preset office2024-x64 --dry-run
+
+# Install Microsoft 365 Apps without OneDrive and Skype
+office-janitor --odt-install --odt-preset 365-proplus-x64-clean
+```
 
 ### Listing Available Options
 
@@ -215,26 +235,115 @@ office-janitor --odt-download "D:\OfficeSource" \
   --odt-output download.xml
 ```
 
-### Available Presets
+### Complete Preset Reference
 
-| Preset | Description |
-|--------|-------------|
-| `365-proplus-x64` | Microsoft 365 Apps for enterprise (64-bit) |
-| `365-proplus-x86` | Microsoft 365 Apps for enterprise (32-bit) |
-| `365-business-x64` | Microsoft 365 Apps for business (64-bit) |
-| `365-proplus-visio-project` | M365 Apps + Visio + Project (64-bit) |
-| `office2024-x64` | Office LTSC 2024 Professional Plus (64-bit) |
-| `office2024-x86` | Office LTSC 2024 Professional Plus (32-bit) |
-| `office2024-standard-x64` | Office LTSC 2024 Standard (64-bit) |
-| `office2021-x64` | Office LTSC 2021 Professional Plus (64-bit) |
-| `office2021-x86` | Office LTSC 2021 Professional Plus (32-bit) |
-| `office2019-x64` | Office 2019 Professional Plus (64-bit) |
-| `office2019-x86` | Office 2019 Professional Plus (32-bit) |
-| `visio-pro-x64` | Visio Professional 2024 (64-bit) |
-| `project-pro-x64` | Project Professional 2024 (64-bit) |
-| `365-shared-computer` | M365 Apps with Shared Computer Licensing |
+#### Microsoft 365 (Subscription-based)
+
+| Preset | Products | Description |
+|--------|----------|-------------|
+| `365-proplus-x64` | O365ProPlusRetail | Microsoft 365 Apps for enterprise (64-bit) |
+| `365-proplus-x86` | O365ProPlusRetail | Microsoft 365 Apps for enterprise (32-bit) |
+| `365-business-x64` | O365BusinessRetail | Microsoft 365 Apps for business (64-bit) |
+| `365-proplus-visio-project` | O365ProPlusRetail, VisioProRetail, ProjectProRetail | M365 Apps + Visio + Project (64-bit) |
+| `365-shared-computer` | O365ProPlusRetail | M365 Apps with Shared Computer Licensing |
+| `365-proplus-x64-clean` | O365ProPlusRetail | M365 Apps - **No OneDrive/Skype** |
+| `365-proplus-visio-project-clean` | O365ProPlusRetail, VisioProRetail, ProjectProRetail | M365 + Visio + Project - **No OneDrive/Skype** |
+
+#### Office LTSC 2024 (Perpetual/Volume License)
+
+| Preset | Products | Description |
+|--------|----------|-------------|
+| `office2024-x64` | ProPlus2024Volume | Office LTSC 2024 Professional Plus (64-bit) |
+| `office2024-x86` | ProPlus2024Volume | Office LTSC 2024 Professional Plus (32-bit) |
+| `office2024-standard-x64` | Standard2024Volume | Office LTSC 2024 Standard (64-bit) |
+| `ltsc2024-full-x64` | ProPlus2024Volume, VisioPro2024Volume, ProjectPro2024Volume | **Office 2024 + Visio Pro + Project Pro (64-bit)** |
+| `ltsc2024-full-x86` | ProPlus2024Volume, VisioPro2024Volume, ProjectPro2024Volume | Office 2024 + Visio Pro + Project Pro (32-bit) |
+| `ltsc2024-x64-clean` | ProPlus2024Volume | Office 2024 ProPlus - **No OneDrive/Skype** |
+| `ltsc2024-full-x64-clean` | ProPlus2024Volume, VisioPro2024Volume, ProjectPro2024Volume | **Office 2024 Full Suite - No OneDrive/Skype** |
+| `ltsc2024-full-x86-clean` | ProPlus2024Volume, VisioPro2024Volume, ProjectPro2024Volume | Office 2024 Full Suite (32-bit) - No bloat |
+
+#### Office LTSC 2021 (Perpetual/Volume License)
+
+| Preset | Products | Description |
+|--------|----------|-------------|
+| `office2021-x64` | ProPlus2021Volume | Office LTSC 2021 Professional Plus (64-bit) |
+| `office2021-x86` | ProPlus2021Volume | Office LTSC 2021 Professional Plus (32-bit) |
+| `office2021-standard-x64` | Standard2021Volume | Office LTSC 2021 Standard (64-bit) |
+| `ltsc2021-full-x64` | ProPlus2021Volume, VisioPro2021Volume, ProjectPro2021Volume | Office 2021 + Visio Pro + Project Pro (64-bit) |
+
+#### Office 2019 (Perpetual/Volume License)
+
+| Preset | Products | Description |
+|--------|----------|-------------|
+| `office2019-x64` | ProPlus2019Volume | Office 2019 Professional Plus (64-bit) |
+| `office2019-x86` | ProPlus2019Volume | Office 2019 Professional Plus (32-bit) |
+
+#### Standalone Products
+
+| Preset | Products | Description |
+|--------|----------|-------------|
+| `visio-pro-x64` | VisioPro2024Volume | Visio Professional 2024 (64-bit) |
+| `project-pro-x64` | ProjectPro2024Volume | Project Professional 2024 (64-bit) |
+
+### Supported Languages
+
+Office Janitor supports 60+ language codes. Common languages include:
+
+| Code | Language | Code | Language |
+|------|----------|------|----------|
+| `en-us` | English (US) | `de-de` | German |
+| `en-gb` | English (UK) | `fr-fr` | French (France) |
+| `es-es` | Spanish (Spain) | `fr-ca` | French (Canada) |
+| `es-mx` | Spanish (Mexico) | `it-it` | Italian |
+| `pt-br` | Portuguese (Brazil) | `ja-jp` | Japanese |
+| `pt-pt` | Portuguese (Portugal) | `ko-kr` | Korean |
+| `zh-cn` | Chinese (Simplified) | `ru-ru` | Russian |
+| `zh-tw` | Chinese (Traditional) | `pl-pl` | Polish |
+| `ar-sa` | Arabic | `nl-nl` | Dutch |
+| `he-il` | Hebrew | `tr-tr` | Turkish |
+
+Use `office-janitor --odt-list-languages` for the complete list.
+
+### Update Channels
+
+| Channel | Value | Use Case |
+|---------|-------|----------|
+| Current | `Current` | Latest features (M365 subscription) |
+| Monthly Enterprise | `MonthlyEnterprise` | Monthly updates with support (M365) |
+| Semi-Annual | `SemiAnnual` | Stability-focused, twice yearly (M365) |
+| Perpetual VL 2024 | `PerpetualVL2024` | Office LTSC 2024 |
+| Perpetual VL 2021 | `PerpetualVL2021` | Office LTSC 2021 |
+| Perpetual VL 2019 | `PerpetualVL2019` | Office 2019 |
+| Beta | `BetaChannel` | Preview/Insider builds |
 
 ## Common Command Combinations
+
+### ODT Installation Workflows
+
+```bash
+# Install Office LTSC 2024 + Visio + Project with multiple languages
+office-janitor --odt-install --odt-preset ltsc2024-full-x64 \
+  --odt-language en-us --odt-language es-mx --odt-language pt-br
+
+# Install clean Office 2024 (no OneDrive, no Skype/Lync)
+office-janitor --odt-install --odt-preset ltsc2024-full-x64-clean \
+  --odt-language en-us
+
+# Install Microsoft 365 for enterprise without bloatware
+office-janitor --odt-install --odt-preset 365-proplus-x64-clean \
+  --odt-language en-us --odt-language de-de
+
+# Install just ProPlus 2024 (no Visio/Project)
+office-janitor --odt-install --odt-preset office2024-x64 --odt-language en-us
+
+# Custom installation with specific products
+office-janitor --odt-install --odt-product ProPlus2024Volume \
+  --odt-product VisioPro2024Volume --odt-channel PerpetualVL2024 \
+  --odt-language en-us --odt-exclude-app OneDrive --odt-exclude-app Lync
+
+# Preview installation without executing (dry-run)
+office-janitor --odt-install --odt-preset ltsc2024-full-x64 --dry-run
+```
 
 ### Diagnostics & Planning
 

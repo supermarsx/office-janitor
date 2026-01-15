@@ -524,3 +524,113 @@ class TestSupportedLanguages:
         """Verify all language codes are lowercase."""
         for lang in odt_build.SUPPORTED_LANGUAGES:
             assert lang == lang.lower()
+
+
+class TestLTSCFullPresets:
+    """Tests for the new LTSC full presets with Visio + Project."""
+
+    def test_ltsc2024_full_preset_exists(self) -> None:
+        """Verify LTSC 2024 full preset is defined."""
+        assert "ltsc2024-full-x64" in odt_build.INSTALL_PRESETS
+        assert "ltsc2024-full-x86" in odt_build.INSTALL_PRESETS
+
+    def test_ltsc2021_full_preset_exists(self) -> None:
+        """Verify LTSC 2021 full preset is defined."""
+        assert "ltsc2021-full-x64" in odt_build.INSTALL_PRESETS
+
+    def test_ltsc2024_full_has_all_products(self) -> None:
+        """Verify LTSC 2024 full preset includes ProPlus, Visio, and Project."""
+        preset = odt_build.INSTALL_PRESETS["ltsc2024-full-x64"]
+        products = preset["products"]
+        assert "ProPlus2024Volume" in products
+        assert "VisioPro2024Volume" in products
+        assert "ProjectPro2024Volume" in products
+
+    def test_ltsc2024_full_preset_config(self) -> None:
+        """Verify LTSC 2024 full preset generates correct config."""
+        config = odt_build.ODTConfig.from_preset("ltsc2024-full-x64", ["en-us", "es-mx"])
+        assert len(config.products) == 3
+        product_ids = [p.product_id for p in config.products]
+        assert "ProPlus2024Volume" in product_ids
+        assert "VisioPro2024Volume" in product_ids
+        assert "ProjectPro2024Volume" in product_ids
+        assert config.channel == odt_build.UpdateChannel.PERPETUAL_VL_2024
+        assert config.architecture == odt_build.Architecture.X64
+        # Check languages are applied to all products
+        for p in config.products:
+            assert "en-us" in p.languages
+            assert "es-mx" in p.languages
+
+
+class TestGetOdtSetupPath:
+    """Tests for ODT setup.exe path discovery."""
+
+    def test_get_odt_setup_path_finds_exe(self) -> None:
+        """Verify setup.exe can be found in oem folder."""
+        # This test assumes setup.exe exists in oem/
+        try:
+            path = odt_build.get_odt_setup_path()
+            assert path.name == "setup.exe"
+            assert path.exists()
+        except FileNotFoundError:
+            pytest.skip("setup.exe not present in oem folder")
+
+
+class TestODTResult:
+    """Tests for ODTResult dataclass."""
+
+    def test_odt_result_defaults(self) -> None:
+        """Verify ODTResult has correct default values."""
+        result = odt_build.ODTResult(
+            success=True,
+            return_code=0,
+            command=["test"],
+            config_path=None,
+            stdout="",
+            stderr="",
+            duration=1.5,
+        )
+        assert result.success is True
+        assert result.error is None
+
+    def test_odt_result_with_error(self) -> None:
+        """Verify ODTResult captures error information."""
+        result = odt_build.ODTResult(
+            success=False,
+            return_code=1,
+            command=["setup.exe", "/configure", "config.xml"],
+            config_path=Path("config.xml"),
+            stdout="",
+            stderr="Error occurred",
+            duration=2.0,
+            error="Installation failed",
+        )
+        assert result.success is False
+        assert result.return_code == 1
+        assert result.error == "Installation failed"
+
+
+class TestInstallLtsc2024Full:
+    """Tests for install_ltsc_2024_full quick function."""
+
+    def test_install_ltsc_2024_full_config(self) -> None:
+        """Verify install_ltsc_2024_full generates correct config internally."""
+        # We can't actually run the install, but we can test the config generation
+        config = odt_build.build_office_ltsc(
+            "2024",
+            languages=["en-us", "es-mx", "pt-br"],
+            volume=True,
+            include_visio=True,
+            include_project=True,
+        )
+        assert len(config.products) == 3
+        product_ids = [p.product_id for p in config.products]
+        assert "ProPlus2024Volume" in product_ids
+        assert "VisioPro2024Volume" in product_ids
+        assert "ProjectPro2024Volume" in product_ids
+        # Check languages
+        for p in config.products:
+            assert "en-us" in p.languages
+            assert "es-mx" in p.languages
+            assert "pt-br" in p.languages
+
