@@ -259,6 +259,18 @@ def _sigint_handler(signum: int, frame: object) -> None:
     except (OSError, ValueError):
         pass
 
+    # Check if there are active processes to kill
+    has_processes = False
+    with _process_lock:
+        has_processes = any(p.poll() is None for p in _active_processes)
+
+    if has_processes:
+        try:
+            console.write("\033[33m[WAITING]\033[0m Terminating active processes (this may take a moment)...\n")
+            console.flush()
+        except (OSError, ValueError):
+            pass
+
     # Kill all tracked subprocesses and their children immediately
     _kill_process_trees()
 
@@ -451,6 +463,9 @@ def update_task(task_name: str) -> None:
     but keep the same elapsed time counter. If no task is active, this
     acts like set_task() and starts a new timer.
 
+    Unlike set_task(), this does NOT draw immediately - it lets the
+    spinner loop handle drawing so the animation stays smooth.
+
     @param task_name The new task name to display.
     """
     global _current_task, _task_start_time, _spinner_idx
@@ -460,10 +475,9 @@ def update_task(task_name: str) -> None:
         if _current_task is None:
             _task_start_time = time.monotonic()
             _spinner_idx = 0
-        # Just update the text, don't reset timer
+        # Just update the text, don't reset timer or draw
+        # Let the spinner loop handle drawing for smooth animation
         _current_task = task_name
-        # Draw immediately
-        _draw_status_line()
 
 
 def clear_task() -> None:

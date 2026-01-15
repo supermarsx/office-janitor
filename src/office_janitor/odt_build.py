@@ -1792,6 +1792,10 @@ def run_odt_install(
 
     log.info(f"Installing Office with ODT: {' '.join(command)}")
     log.info(f"Config file: {config_path}")
+    log.warning(
+        "Office installation may take 10-30 minutes depending on products selected "
+        "and network speed. Please be patient."
+    )
 
     if dry_run:
         log.info("[DRY-RUN] Would execute: %s", " ".join(command))
