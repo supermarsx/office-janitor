@@ -705,3 +705,63 @@ class TestProgressMonitoring:
         
         status, pct = odt_build._parse_odt_progress(log_file)
         assert pct == 80
+
+
+class TestInstallMetrics:
+    """Tests for installation metrics functions."""
+
+    def test_format_size_bytes(self) -> None:
+        """Verify format_size handles bytes."""
+        assert odt_build._format_size(500) == "500 B"
+
+    def test_format_size_kilobytes(self) -> None:
+        """Verify format_size handles kilobytes."""
+        result = odt_build._format_size(2048)
+        assert "KB" in result
+
+    def test_format_size_megabytes(self) -> None:
+        """Verify format_size handles megabytes."""
+        result = odt_build._format_size(50 * 1024 * 1024)
+        assert "MB" in result
+        assert "50" in result
+
+    def test_format_size_gigabytes(self) -> None:
+        """Verify format_size handles gigabytes."""
+        result = odt_build._format_size(2 * 1024 * 1024 * 1024)
+        assert "GB" in result
+        assert "2" in result
+
+    def test_get_folder_size_empty(self, tmp_path: Path) -> None:
+        """Verify get_folder_size returns 0 for empty folder."""
+        size = odt_build._get_folder_size(tmp_path)
+        assert size == 0
+
+    def test_get_folder_size_with_files(self, tmp_path: Path) -> None:
+        """Verify get_folder_size counts file sizes."""
+        # Create test files
+        (tmp_path / "file1.txt").write_text("hello")
+        (tmp_path / "file2.txt").write_text("world!")
+        
+        size = odt_build._get_folder_size(tmp_path)
+        assert size > 0
+        assert size >= 11  # At least "hello" + "world!"
+
+    def test_get_folder_size_nonexistent(self) -> None:
+        """Verify get_folder_size returns 0 for nonexistent folder."""
+        size = odt_build._get_folder_size(Path("/nonexistent/path"))
+        assert size == 0
+
+    def test_count_office_files_returns_int(self) -> None:
+        """Verify count_office_files returns an integer."""
+        count = odt_build._count_office_files()
+        assert isinstance(count, int)
+        assert count >= 0
+
+    def test_capture_install_metrics_returns_dataclass(self) -> None:
+        """Verify capture_install_metrics returns proper dataclass."""
+        metrics = odt_build._capture_install_metrics()
+        assert isinstance(metrics, odt_build.InstallMetrics)
+        assert isinstance(metrics.install_size, int)
+        assert isinstance(metrics.file_count, int)
+        assert isinstance(metrics.registry_keys, int)
+        assert metrics.log_status  # Should have some status string

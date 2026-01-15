@@ -950,6 +950,22 @@ class ODTResult:
 # ---------------------------------------------------------------------------
 
 
+# Common Office installation paths to monitor
+_OFFICE_INSTALL_PATHS = [
+    Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Microsoft Office",
+    Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")) / "Microsoft Office",
+    Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Common Files" / "microsoft shared" / "ClickToRun",
+    Path(os.environ.get("ProgramData", "C:\\ProgramData")) / "Microsoft" / "ClickToRun",
+]
+
+# Registry keys to monitor for Office installation
+_OFFICE_REGISTRY_KEYS = [
+    r"SOFTWARE\Microsoft\Office\ClickToRun",
+    r"SOFTWARE\Microsoft\Office\16.0",
+    r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+]
+
+
 def _get_odt_log_path() -> Path:
     """!
     @brief Get the path where ODT writes installation logs.
@@ -971,6 +987,122 @@ def _find_latest_odt_log() -> Path | None:
         return None
     # Return the most recently modified
     return Path(max(logs, key=os.path.getmtime))
+
+
+def _get_folder_size(path: Path) -> int:
+    """!
+    @brief Get total size of a folder in bytes.
+    @param path Path to the folder.
+    @returns Total size in bytes, or 0 if folder doesn't exist.
+    """
+    if not path.exists():
+        return 0
+    try:
+        total = 0
+        for entry in path.rglob("*"):
+            if entry.is_file():
+                try:
+                    total += entry.stat().st_size
+                except (OSError, PermissionError):
+                    pass
+        return total
+    except (OSError, PermissionError):
+        return 0
+
+
+def _get_office_install_size() -> int:
+    """!
+    @brief Get combined size of all Office installation folders.
+    @returns Total size in bytes.
+    """
+    total = 0
+    for path in _OFFICE_INSTALL_PATHS:
+        total += _get_folder_size(path)
+    return total
+
+
+def _count_office_files() -> int:
+    """!
+    @brief Count files in Office installation folders.
+    @returns Total file count.
+    """
+    count = 0
+    for path in _OFFICE_INSTALL_PATHS:
+        if path.exists():
+            try:
+                count += sum(1 for _ in path.rglob("*") if _.is_file())
+            except (OSError, PermissionError):
+                pass
+    return count
+
+
+def _check_registry_key_exists(key_path: str) -> bool:
+    """!
+    @brief Check if a registry key exists under HKLM.
+    @param key_path Registry key path (without HKLM prefix).
+    @returns True if key exists.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+        winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
+        return True
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def _count_registry_subkeys(key_path: str) -> int:
+    """!
+    @brief Count subkeys under a registry key.
+    @param key_path Registry key path (without HKLM prefix).
+    @returns Number of subkeys, or 0 if key doesn't exist.
+    """
+    if sys.platform != "win32":
+        return 0
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
+        info = winreg.QueryInfoKey(key)
+        winreg.CloseKey(key)
+        return info[0]  # Number of subkeys
+    except (FileNotFoundError, OSError):
+        return 0
+
+
+def _get_c2r_version() -> str | None:
+    """!
+    @brief Get the installed Click-to-Run version from registry.
+    @returns Version string or None if not found.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
+        )
+        version, _ = winreg.QueryValueEx(key, "VersionToReport")
+        winreg.CloseKey(key)
+        return str(version)
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+
+
+def _format_size(size_bytes: int) -> str:
+    """!
+    @brief Format byte size as human-readable string.
+    @param size_bytes Size in bytes.
+    @returns Formatted string like "1.5 GB" or "256 MB".
+    """
+    if size_bytes >= 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+    elif size_bytes >= 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.0f} MB"
+    elif size_bytes >= 1024:
+        return f"{size_bytes / 1024:.0f} KB"
+    return f"{size_bytes} B"
 
 
 def _parse_odt_progress(log_path: Path) -> tuple[str, int | None]:
@@ -1031,6 +1163,41 @@ def _parse_odt_progress(log_path: Path) -> tuple[str, int | None]:
         return "Installing Office...", None
 
 
+@dataclass
+class InstallMetrics:
+    """!
+    @brief Metrics captured during Office installation.
+    """
+    install_size: int = 0
+    file_count: int = 0
+    registry_keys: int = 0
+    c2r_version: str | None = None
+    log_status: str = ""
+    log_percent: int | None = None
+
+
+def _capture_install_metrics() -> InstallMetrics:
+    """!
+    @brief Capture current installation metrics.
+    @returns InstallMetrics with current state.
+    """
+    metrics = InstallMetrics()
+    metrics.install_size = _get_office_install_size()
+    metrics.file_count = _count_office_files()
+    metrics.registry_keys = sum(
+        _count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS
+    )
+    metrics.c2r_version = _get_c2r_version()
+
+    log_path = _find_latest_odt_log()
+    if log_path:
+        metrics.log_status, metrics.log_percent = _parse_odt_progress(log_path)
+    else:
+        metrics.log_status = "Starting..."
+
+    return metrics
+
+
 def _monitor_odt_progress(
     proc: subprocess.Popen[str],
     stop_event: threading.Event,
@@ -1038,38 +1205,74 @@ def _monitor_odt_progress(
 ) -> None:
     """!
     @brief Background thread to monitor ODT installation progress.
+    @details Monitors multiple indicators of installation progress:
+    - ODT log files for status messages and percentages
+    - Office installation folder size (disk usage)
+    - File count in installation directories
+    - Registry key changes
     @param proc The ODT subprocess being monitored.
     @param stop_event Event to signal when monitoring should stop.
     @param products List of product names being installed.
     """
-    if not (_spinner is not None):
+    if _spinner is None:
         return
 
     product_str = ", ".join(products[:2])
     if len(products) > 2:
         product_str += f" +{len(products) - 2}"
 
-    last_status = ""
-    last_pct: int | None = None
+    # Capture baseline metrics before installation
+    baseline_size = _get_office_install_size()
+    baseline_files = _count_office_files()
+
+    last_display = ""
 
     while not stop_event.is_set() and proc.poll() is None:
-        log_path = _find_latest_odt_log()
-        if log_path:
-            status, pct = _parse_odt_progress(log_path)
+        # Capture current metrics
+        metrics = _capture_install_metrics()
 
-            # Build display string
-            if pct is not None:
-                display = f"ODT: {status} ({pct}%) - {product_str}"
-            else:
-                display = f"ODT: {status} - {product_str}"
+        # Calculate deltas from baseline
+        size_delta = metrics.install_size - baseline_size
+        files_delta = metrics.file_count - baseline_files
 
-            # Only update if changed
-            if display != last_status or pct != last_pct:
-                _spinner.set_task(display)
-                last_status = display
-                last_pct = pct
+        # Build display string with best available info
+        parts: list[str] = []
+
+        # Primary status from log if available
+        if metrics.log_percent is not None:
+            parts.append(f"{metrics.log_status} ({metrics.log_percent}%)")
+        elif metrics.log_status and metrics.log_status != "Starting...":
+            parts.append(metrics.log_status)
         else:
-            _spinner.set_task(f"ODT: Starting installation - {product_str}")
+            # Infer status from metrics
+            if size_delta > 0:
+                if size_delta < 100 * 1024 * 1024:  # < 100 MB
+                    parts.append("Downloading")
+                elif size_delta < 1024 * 1024 * 1024:  # < 1 GB
+                    parts.append("Installing")
+                else:
+                    parts.append("Installing (finalizing)")
+            else:
+                parts.append("Starting")
+
+        # Add size info if there's meaningful disk activity
+        if size_delta > 1024 * 1024:  # > 1 MB
+            parts.append(_format_size(size_delta))
+
+        # Add file count if meaningful
+        if files_delta > 100:
+            parts.append(f"{files_delta:,} files")
+
+        # Build final display
+        status_part = " | ".join(parts) if parts else "Working"
+        display = f"ODT: {status_part} - {product_str}"
+
+        # Only update spinner if changed
+        if display != last_display:
+            _spinner.set_task(display)
+            last_display = display
+
+        stop_event.wait(0.5)  # Check every 500ms
 
         stop_event.wait(0.5)  # Check every 500ms
 
@@ -1234,37 +1437,57 @@ def _monitor_odt_download_progress(
 ) -> None:
     """!
     @brief Background thread to monitor ODT download progress.
+    @details Monitors download folder size and ODT log files for progress.
     @param proc The ODT subprocess being monitored.
     @param stop_event Event to signal when monitoring should stop.
     @param download_path Path where files are being downloaded.
     """
-    if not (_spinner is not None):
+    if _spinner is None:
         return
 
-    last_status = ""
+    last_display = ""
+    last_size = 0
 
     while not stop_event.is_set() and proc.poll() is None:
+        parts: list[str] = []
+
+        # Check ODT log for status
         log_path = _find_latest_odt_log()
         if log_path:
             status, pct = _parse_odt_progress(log_path)
             if pct is not None:
-                display = f"ODT: Downloading ({pct}%)"
-            else:
-                display = f"ODT: {status}"
-        else:
-            # Check download folder size as progress indicator
-            try:
-                total_size = sum(
-                    f.stat().st_size for f in download_path.rglob("*") if f.is_file()
-                )
-                size_mb = total_size / (1024 * 1024)
-                display = f"ODT: Downloading ({size_mb:.0f} MB)"
-            except Exception:
-                display = "ODT: Downloading..."
+                parts.append(f"Downloading ({pct}%)")
+            elif "download" in status.lower():
+                parts.append(status)
 
-        if display != last_status:
+        # Check download folder size
+        try:
+            total_size = _get_folder_size(download_path)
+            if total_size > 0:
+                parts.append(_format_size(total_size))
+                # Calculate download speed if we have previous measurement
+                if last_size > 0 and total_size > last_size:
+                    speed = (total_size - last_size) * 2  # 0.5s interval
+                    if speed > 1024 * 1024:  # > 1 MB/s
+                        parts.append(f"{_format_size(speed)}/s")
+                last_size = total_size
+
+            # Count files being downloaded
+            file_count = sum(1 for _ in download_path.rglob("*") if _.is_file())
+            if file_count > 0:
+                parts.append(f"{file_count} files")
+        except Exception:
+            pass
+
+        # Build display
+        if parts:
+            display = f"ODT: {' | '.join(parts)}"
+        else:
+            display = "ODT: Downloading..."
+
+        if display != last_display:
             _spinner.set_task(display)
-            last_status = display
+            last_display = display
 
         stop_event.wait(0.5)
 

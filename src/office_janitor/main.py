@@ -1568,44 +1568,43 @@ def _run_odt_install(args: argparse.Namespace) -> bool:
                 remove_msi=getattr(args, "odt_remove_msi", False),
             )
         else:
-            print("No preset or products specified for installation.")
-            print("Use --odt-preset or --odt-product to specify what to install.")
-            print("Use --odt-list-presets or --odt-list-products to see available options.")
-            print(
-                "\nExample: office-janitor --odt-install --odt-preset ltsc2024-full-x64 --odt-language en-us --odt-language es-es"
-            )
+            _progress("No preset or products specified for installation.")
+            _progress("  Use --odt-preset or --odt-product to specify what to install.", indent=1)
+            _progress("  Use --odt-list-presets or --odt-list-products for options.", indent=1)
             return True
 
-        # Show what we're about to install
-        print("\n" + "=" * 70)
-        print("ODT Installation")
-        print("=" * 70)
-        print(f"Products: {', '.join(p.product_id for p in config.products)}")
-        print(
-            f"Languages: {', '.join(config.products[0].languages) if config.products else 'none'}"
+        # Show what we're about to install using consistent logging format
+        _progress("-" * 60)
+        _progress("ODT Installation")
+        _progress("-" * 60)
+        _progress(f"  Products: {', '.join(p.product_id for p in config.products)}")
+        _progress(
+            f"  Languages: {', '.join(config.products[0].languages) if config.products else 'none'}"
         )
-        print(f"Architecture: {config.architecture.value}-bit")
-        print(f"Channel: {config.channel.value}")
-        print("=" * 70)
+        _progress(f"  Architecture: {config.architecture.value}-bit")
+        _progress(f"  Channel: {config.channel.value}")
+        _progress("-" * 60)
 
+        _progress("ODT: Installing Office...", newline=False)
         result = odt_build.run_odt_install(config, dry_run=dry_run)
 
         if result.success:
-            print("\n✓ Office installation completed successfully!")
+            _progress_ok(f"{result.duration:.1f}s")
+            _progress("Installation complete")
         else:
-            print(f"\n✗ Office installation failed with exit code {result.return_code}")
+            _progress_fail(f"exit {result.return_code}")
             if result.stderr:
-                print(f"Error output:\n{result.stderr}")
+                _progress(f"  Error: {result.stderr}", indent=1)
             if result.config_path:
-                print(f"Config file preserved at: {result.config_path}")
+                _progress(f"  Config preserved: {result.config_path}", indent=1)
 
         return True
 
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        _progress_fail(str(e))
         return True
     except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        _progress_fail(str(e))
         return True
 
 
@@ -1629,37 +1628,40 @@ def _run_author_install(
     try:
         config = odt_build.ODTConfig.from_preset(preset, languages)
 
-        # Show what we're about to install
-        print("\n" + "=" * 70)
-        print(f"Quick Install: {name}")
-        print("=" * 70)
-        print(f"Preset: {preset}")
-        print(f"Products: {', '.join(p.product_id for p in config.products)}")
-        print(f"Languages: {', '.join(languages)}")
-        print(f"Architecture: {config.architecture.value}-bit")
-        print(f"Channel: {config.channel.value}")
+        # Show what we're about to install using consistent logging format
+        _progress("-" * 60)
+        _progress(f"Quick Install: {name}")
+        _progress("-" * 60)
+        _progress(f"  Preset: {preset}")
+        _progress(f"  Products: {', '.join(p.product_id for p in config.products)}")
+        _progress(f"  Languages: {', '.join(languages)}")
+        _progress(f"  Architecture: {config.architecture.value}-bit")
+        _progress(f"  Channel: {config.channel.value}")
         if config.products and config.products[0].exclude_apps:
-            print(f"Excluded: {', '.join(config.products[0].exclude_apps)}")
-        print("=" * 70)
+            _progress(f"  Excluded: {', '.join(config.products[0].exclude_apps)}")
+        _progress("-" * 60)
 
+        # Run installation with progress tracking
+        _progress(f"ODT: Installing {name}...", newline=False)
         result = odt_build.run_odt_install(config, dry_run=dry_run)
 
         if result.success:
-            print(f"\n[OK] {name} installation completed successfully!")
+            _progress_ok(f"{result.duration:.1f}s")
+            _progress(f"Installation complete: {name}")
         else:
-            print(f"\n[FAILED] {name} installation failed with exit code {result.return_code}")
+            _progress_fail(f"exit {result.return_code}")
             if result.stderr:
-                print(f"Error output:\n{result.stderr}")
+                _progress(f"  Error: {result.stderr}", indent=1)
             if result.config_path:
-                print(f"Config file preserved at: {result.config_path}")
+                _progress(f"  Config preserved: {result.config_path}", indent=1)
 
         return True
 
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        _progress_fail(str(e))
         return True
     except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        _progress_fail(str(e))
         return True
 
 
