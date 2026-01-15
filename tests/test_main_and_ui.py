@@ -1840,3 +1840,71 @@ class TestConfigFile:
         assert options["force"] is True
         assert options["clean_msocache"] is True
         assert options["skip_registry"] is True
+
+
+class TestSpinnerUpdateTask:
+    """Test spinner update_task preserves elapsed time."""
+
+    def test_update_task_preserves_start_time(self) -> None:
+        """Verify update_task doesn't reset the timer."""
+        import time
+        from office_janitor import spinner
+
+        # Set initial task
+        spinner.set_task("Initial task")
+        initial_start = spinner._task_start_time
+
+        # Wait a bit
+        time.sleep(0.05)
+
+        # Update task (should NOT reset timer)
+        spinner.update_task("Updated task")
+        updated_start = spinner._task_start_time
+
+        # Start time should be the same
+        assert initial_start == updated_start
+        assert spinner._current_task == "Updated task"
+
+        # Clean up
+        spinner.clear_task()
+
+    def test_set_task_resets_start_time(self) -> None:
+        """Verify set_task DOES reset the timer."""
+        import time
+        from office_janitor import spinner
+
+        # Set initial task
+        spinner.set_task("Initial task")
+        initial_start = spinner._task_start_time
+
+        # Wait a bit
+        time.sleep(0.05)
+
+        # Set new task (SHOULD reset timer)
+        spinner.set_task("New task")
+        new_start = spinner._task_start_time
+
+        # Start time should be different (later)
+        assert new_start > initial_start
+        assert spinner._current_task == "New task"
+
+        # Clean up
+        spinner.clear_task()
+
+    def test_update_task_starts_timer_if_no_task(self) -> None:
+        """Verify update_task starts a timer if no task was active."""
+        from office_janitor import spinner
+
+        # Make sure no task is active
+        spinner.clear_task()
+        assert spinner._current_task is None
+
+        # Update task when none active
+        spinner.update_task("New task via update")
+
+        # Should have set start time
+        assert spinner._task_start_time > 0
+        assert spinner._current_task == "New task via update"
+
+        # Clean up
+        spinner.clear_task()
