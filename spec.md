@@ -74,10 +74,13 @@ Project Root
 │
 └─ .github/
    └─ workflows/
-      format.yml            # Black formatting check (no code changes)
-      lint.yml              # Ruff + MyPy static checks
-      test.yml              # Pytest on Windows only
-      build.yml             # PyInstaller onefile build on Windows
+      ci.yml                # Unified CI: lint, test, build, release, publish
+│
+├─ bucket/
+│  └─ office-janitor.json   # Scoop package manifest (auto-updated by CI)
+│
+└─ winget/
+   └─ supermarsx.office-janitor/   # Winget manifests (auto-updated by CI)
 
 # (optional) build/, dist/ — artifacts output only; not committed
 ```
@@ -678,80 +681,129 @@ UninstallLicenses('sppc.dll')
 
 ---
 
+
 ## 21) CI & Quality Gates
 
-**Philosophy:** runtime has zero external deps; CI may use dev tools.
+**Philosophy:** runtime has zero external deps; CI may use dev tools. All CI is consolidated into a **single unified workflow** (`ci.yml`) with staged jobs and automatic rolling releases.
 
-### 21.1 `format.yml` (Black check)
+### 21.1 Versioning: Rolling Releases (YY.X)
 
-- **Trigger:** push/PR.
-- **Job:** ubuntu‑latest → `pip install black` → `black --check src tests office_janitor.py`.
+- **Format:** `YY.X` where `YY` is the two-digit year and `X` is the release number within that year.
+- **Examples:** `26.1`, `26.2`, `26.15` for the 1st, 2nd, and 15th releases of 2026.
+- **Internal version:** Always `0.0.0` in code; actual version is derived from git tags at build time.
+- **Automatic:** Each push to `main` that passes all quality gates triggers a new rolling release.
 
-### 21.2 `lint.yml` (Ruff + MyPy)
+### 21.2 Unified CI Pipeline (`ci.yml`)
 
-- **Trigger:** push/PR.
-- **Jobs:**
-  - `ruff`: `pip install ruff` → `ruff check src tests`.
-  - `mypy`: `pip install mypy types-ctypes` → `mypy --ignore-missing-imports src`.
+Single workflow with four stages:
 
-### 21.3 `test.yml` (Pytest)
+```
++-------------------------------------------------------------+
+| STAGE 1: Quality Checks (parallel)                          |
+|   +-- format (Black) ---------------------+                 |
+|   +-- lint (Ruff + MyPy) -----------------+---> STAGE 2     |
+|   +-- test (Python 3.9 & 3.11) -----------+                 |
++-------------------------------------------------------------+
+| STAGE 2: Build (requires all Stage 1 jobs)                  |
+|   +-- PyInstaller executable + Python distributions         |
++-------------------------------------------------------------+
+| STAGE 3: Release (on main branch push only)                 |
+|   +-- Create GitHub Release with tag YY.X                   |
++-------------------------------------------------------------+
+| STAGE 4: Publish (after release)                            |
+|   +-- publish-pypi -----------------------+                 |
+|   +-- update-scoop -----------------------+---> (parallel)  |
+|   +-- update-winget ----------------------+                 |
++-------------------------------------------------------------+
+```
 
-- **Matrix:** `os: [windows-latest]`, `python: [3.9, 3.11]`.
-- **Steps:** checkout → setup‑python → `pip install -r requirements-dev.txt` → `pytest -q`.
+#### Stage 1: Quality Checks
 
-### 21.4 `build.yml` (PyInstaller, Windows only)
+| Job | Runner | Tools | Command |
+|-----|--------|-------|---------|
+| `format` | ubuntu-latest | Black | `black --check src tests oj_entry.py` |
+| `lint` | ubuntu-latest | Ruff, MyPy | `ruff check src tests` + `mypy --ignore-missing-imports src` |
+| `test` | windows-latest | Pytest | Matrix: Python 3.9 & 3.11 |
 
-- **Trigger:** push to `main` and tags `v*`.
-- **Matrix:**
-  - **Windows:** `windows-latest` (x64).
-  - *(Optional)* add a **self‑hosted** Windows ARM64 runner for an ARM64 artifact.
-- **Key steps:**
-  - Setup Python 3.11.
-  - `pip install pyinstaller`.
-  - Build: `pyinstaller --onefile --uac-admin --name OfficeJanitor office_janitor.py --paths src`.
-  - Upload artifacts (e.g., `OfficeJanitor-win-x64.exe`, optionally `OfficeJanitor-win-arm64.exe`).
+#### Stage 2: Build
 
-`build.yml` (PyInstaller, multi‑OS/arch)
+- **Runner:** `windows-latest`
+- **Artifacts:**
+  - `office-janitor.exe` (PyInstaller onefile with UAC admin manifest)
+  - `*.tar.gz` and `*.whl` (Python distributions)
+  - `config.example.json` (configuration template)
+  - `checksums.sha256` (SHA256 hashes for all artifacts)
 
-- **Trigger:** push to `main` and tags `v*`.
-- **Matrix:**
-  - **Windows:** `windows-latest` (x64), `windows-2022-arm64` (or self‑hosted arm64).
-  - **macOS:** `macos-13` (x86\_64), `macos-14` (arm64).
-  - **Linux:** `ubuntu-latest` (x86\_64), aarch64 via `uraimo/run-on-arch-action@v2`.
-- **Key steps:**
-  - Setup Python 3.11.
-  - `pip install pyinstaller`.
-  - Build: `pyinstaller --onefile --uac-admin --name OfficeJanitor office_janitor.py --paths src`.
-  - Upload artifacts per‑platform (e.g., `OfficeJanitor-win-x64.exe`, `OfficeJanitor-macos-arm64`, etc.).
+#### Stage 3: Release
 
-### 21.5 `publish-pypi.yml` (PyPI when everything passes)
+- **Trigger:** Push to `main` after build succeeds
+- **Actions:**
+  - Calculate next rolling version (`YY.X`)
+  - Create and push git tag
+  - Create GitHub Release with all artifacts
 
-- **Trigger:** on **tag **`` and **workflow\_run** success for `format`, `lint`, `test`, `build`.
-- **Build dist:** `python -m build` → creates `sdist` + wheel (Windows‑targeted package; functionality is Windows‑only).
-- **Twine upload:** `python -m twine upload dist/*` using `PYPI_API_TOKEN` secret.
-- **Package metadata:** console entry point `office-janitor=office_janitor.main:main` via `pyproject.toml`; classifiers indicate **Operating System :: Microsoft :: Windows**.
+#### Stage 4: Publish
 
-### 21.6 `release.yml` (Auto GitHub Release)
+- **PyPI:** Upload distributions using `PYPI_API_TOKEN` secret
+- **Scoop:** Update `bucket/office-janitor.json` manifest with new hash
+- **Winget:** Update `winget/` manifests with new version
 
-- **Trigger:** `workflow_run` after `format`, `lint`, `test`, `build` **all succeed** for a tag.
+### 21.3 Package Manager Support
 
-- **Actions:** create GitHub Release named from tag; attach Windows artifacts + checksums. `release.yml` (Auto GitHub Release)
+#### Scoop (bucket/)
 
-- **Trigger:** `workflow_run` after `format`, `lint`, `test`, `build` **all succeed** for a tag.
+```json
+{
+  "version": "26.1",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/supermarsx/office-janitor/releases/download/26.1/office-janitor.exe",
+      "hash": "<sha256>"
+    }
+  },
+  "bin": "office-janitor.exe",
+  "checkver": "github",
+  "autoupdate": { ... }
+}
+```
 
-- **Actions:** create GitHub Release named from tag; attach all PyInstaller artifacts + checksums.
+Installation:
+```powershell
+scoop bucket add office-janitor https://github.com/supermarsx/office-janitor
+scoop install office-janitor
+```
 
-### 21.7 Suggested `requirements-dev.txt`
+#### Winget (winget/)
+
+Three-manifest structure per version:
+- `supermarsx.office-janitor.yaml` (version)
+- `supermarsx.office-janitor.installer.yaml` (installer details)
+- `supermarsx.office-janitor.locale.en-US.yaml` (metadata)
+
+Installation:
+```powershell
+winget install supermarsx.office-janitor
+```
+
+### 21.4 Required Secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `GITHUB_TOKEN` | Auto-provided; used for releases and manifest commits |
+| `PYPI_API_TOKEN` | PyPI upload authentication |
+
+### 21.5 Development Dependencies
 
 ```
 black
 ruff
 mypy
+types-ctypes
 pytest
+pytest-cov
 pyinstaller
 build
 twine
 ```
 
-> Note: These are **dev‑only** and do not affect the app’s stdlib‑only runtime.
-
+> Note: These are **dev-only** and do not affect the app's stdlib-only runtime.

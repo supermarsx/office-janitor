@@ -1,5 +1,12 @@
 # Office Janitor
 
+[![GitHub stars](https://img.shields.io/github/stars/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/network/members)
+[![GitHub watchers](https://img.shields.io/github/watchers/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/watchers)
+[![GitHub Downloads](https://img.shields.io/github/downloads/supermarsx/office-janitor/total?style=flat-square)](https://github.com/supermarsx/office-janitor/releases)
+[![GitHub Issues](https://img.shields.io/github/issues/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/issues)
+[![License](https://img.shields.io/github/license/supermarsx/office-janitor?style=flat-square)](license.md)
+
 <img width="1017" height="902" alt="image" src="https://github.com/user-attachments/assets/37748fbb-f3a6-446b-81ec-1c2780e7137b" />
 
 <br>
@@ -51,7 +58,7 @@ The tool follows the architecture defined in [`spec.md`](spec.md) and can be pac
 ### Running from Source
 ```bash
 # Clone and enter the repository
-git clone https://github.com/yourorg/office-janitor.git
+git clone https://github.com/supermarsx/office-janitor.git
 cd office-janitor
 
 # Create virtual environment (recommended)
@@ -708,7 +715,7 @@ office-janitor --offscrub-test-rerun   # Double-pass
 ### Development Setup
 
 ```bash
-git clone https://github.com/yourorg/office-janitor.git
+git clone https://github.com/supermarsx/office-janitor.git
 cd office-janitor
 python -m venv .venv
 .venv\Scripts\activate

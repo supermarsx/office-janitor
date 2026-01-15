@@ -1,0 +1,14 @@
+PackageIdentifier: supermarsx.office-janitor
+PackageVersion: 0.0.0
+Platform:
+  - Windows.Desktop
+MinimumOSVersion: 10.0.0.0
+InstallerType: portable
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/supermarsx/office-janitor/releases/latest/download/office-janitor.exe
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    Commands:
+      - office-janitor
+ManifestType: installer
+ManifestVersion: 1.6.0

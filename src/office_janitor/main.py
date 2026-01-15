@@ -308,7 +308,7 @@ Use --odt-list-products for all available Office product IDs.
 Use --odt-list-channels for update channel options.
 
 For legacy OffScrub compatibility, see --offscrub-* options.
-Full documentation: https://github.com/yourorg/office-janitor
+Full documentation: https://github.com/supermarsx/office-janitor
 """
 
     parser = argparse.ArgumentParser(

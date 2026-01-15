@@ -1,0 +1,35 @@
+PackageIdentifier: supermarsx.office-janitor
+PackageVersion: 0.0.0
+PackageLocale: en-US
+Publisher: supermarsx
+PublisherUrl: https://github.com/supermarsx
+PackageName: Office Janitor
+PackageUrl: https://github.com/supermarsx/office-janitor
+License: MIT
+LicenseUrl: https://github.com/supermarsx/office-janitor/blob/main/license.md
+ShortDescription: Comprehensive Office uninstaller, scrubber, repair and installation tool
+Description: |
+  Office Janitor is a comprehensive, stdlib-only Python utility for managing 
+  Microsoft Office installations on Windows.
+  
+  Features:
+  - Install: Deploy Office using ODT with presets, custom configurations, and live progress monitoring
+  - Repair: Quick and full repair for Click-to-Run installations with bundled OEM configurations  
+  - Scrub: Deep uninstall and cleanup of MSI and Click-to-Run Office (2003-2024, Microsoft 365)
+  
+  The tool follows a clean architecture and can be packaged into a single-file 
+  Windows executable with PyInstaller.
+Tags:
+  - office
+  - microsoft
+  - uninstaller
+  - cleanup
+  - scrubber
+  - repair
+  - installation
+  - windows
+  - admin
+  - odt
+ReleaseNotesUrl: https://github.com/supermarsx/office-janitor/releases/latest
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

@@ -1,0 +1,422 @@
+# Office Janitor - Unified CI Pipeline
+# Rolling releases: YY.X versioning (e.g., 26.1, 26.2, ...)
+# Flow: Test → Build → Release → Publish
+
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: "Force a new rolling release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ============================================================================
+  # STAGE 1: Quality Checks (parallel)
+  # ============================================================================
+  
+  format:
+    name: Format (Black)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install Black
+        run: pip install black
+      
+      - name: Check formatting
+        run: black --check src tests oj_entry.py
+
+  lint:
+    name: Lint (Ruff + MyPy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install linters
+        run: |
+          pip install ruff mypy types-ctypes
+          pip install -e .
+      
+      - name: Ruff check
+        run: ruff check src tests
+      
+      - name: MyPy check
+        run: mypy --ignore-missing-imports src
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest pytest-cov
+      
+      - name: Run tests
+        run: pytest -q --tb=short
+
+  # ============================================================================
+  # STAGE 2: Build (requires all quality checks to pass)
+  # ============================================================================
+
+  build:
+    name: Build
+    runs-on: windows-latest
+    needs: [format, lint, test]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      exe_hash: ${{ steps.hash.outputs.exe_hash }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for tag counting
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Calculate rolling version (YY.X)
+        id: version
+        shell: pwsh
+        run: |
+          $year = (Get-Date).ToString("yy")
+          # Count releases this year
+          $tags = git tag --list "${year}.*" 2>$null
+          if ($tags) {
+            $maxRelease = ($tags | ForEach-Object { [int]($_ -split '\.')[-1] } | Measure-Object -Maximum).Maximum
+            $release = $maxRelease + 1
+          } else {
+            $release = 1
+          }
+          $version = "${year}.${release}"
+          Write-Host "Rolling version: $version"
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+      
+      - name: Install build dependencies
+        run: |
+          pip install -e .
+          pip install pyinstaller build
+      
+      - name: Build PyInstaller executable
+        shell: pwsh
+        run: |
+          pyinstaller --clean --onefile --uac-admin --name office-janitor oj_entry.py --paths src
+      
+      - name: Build Python distributions
+        run: python -m build
+      
+      - name: Copy config example to dist
+        shell: pwsh
+        run: |
+          Copy-Item config.example.json dist/
+      
+      - name: Calculate SHA256 hash
+        id: hash
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/office-janitor.exe -Algorithm SHA256).Hash.ToLower()
+          echo "exe_hash=$hash" >> $env:GITHUB_OUTPUT
+          echo "SHA256: $hash"
+      
+      - name: Generate checksums file
+        shell: pwsh
+        working-directory: dist
+        run: |
+          $files = @(
+            "office-janitor.exe",
+            (Get-ChildItem "*.tar.gz" | Select-Object -First 1).Name,
+            (Get-ChildItem "*.whl" | Select-Object -First 1).Name,
+            "config.example.json"
+          )
+          $checksums = foreach ($file in $files) {
+            if (Test-Path $file) {
+              $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+              "$hash  $file"
+            }
+          }
+          $checksums | Out-File -Encoding utf8 checksums.sha256
+          Get-Content checksums.sha256
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: office-janitor-build
+          path: |
+            dist/office-janitor.exe
+            dist/*.tar.gz
+            dist/*.whl
+            dist/config.example.json
+            dist/checksums.sha256
+          retention-days: 30
+
+  # ============================================================================
+  # STAGE 3: Release (on main branch push only)
+  # ============================================================================
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: office-janitor-build
+          path: artifacts/
+      
+      - name: Create rolling release tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Rolling release $VERSION"
+          git push origin "$VERSION"
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.version }}
+          name: "Office Janitor ${{ needs.build.outputs.version }}"
+          body: |
+            ## Rolling Release ${{ needs.build.outputs.version }}
+            
+            Automated rolling release from main branch.
+            
+            ### Downloads
+            - **Windows executable**: `office-janitor.exe` (portable, no installation required)
+            - **Python package**: Available on PyPI (`pip install office-janitor`)
+            - **Config template**: `config.example.json`
+            
+            ### Installation via Package Managers
+            ```powershell
+            # Scoop
+            scoop bucket add office-janitor https://github.com/${{ github.repository }}
+            scoop install office-janitor
+            
+            # Winget
+            winget install ${{ github.repository_owner }}.office-janitor
+            ```
+            
+            ### Checksums (SHA256)
+            ```
+            ${{ needs.build.outputs.exe_hash }}  office-janitor.exe
+            ```
+          generate_release_notes: true
+          files: |
+            artifacts/office-janitor.exe
+            artifacts/*.tar.gz
+            artifacts/*.whl
+            artifacts/config.example.json
+            artifacts/checksums.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================
+  # STAGE 4: Publish (after release)
+  # ============================================================================
+
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [release, build]
+    environment:
+      name: pypi
+      url: https://pypi.org/p/office-janitor
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: office-janitor-build
+          path: dist/
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install twine
+        run: pip install twine
+      
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          cd dist
+          python -m twine upload *.tar.gz *.whl --skip-existing
+
+  update-scoop:
+    name: Update Scoop Manifest
+    runs-on: ubuntu-latest
+    needs: [release, build]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      
+      - name: Update Scoop manifest
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          EXE_HASH: ${{ needs.build.outputs.exe_hash }}
+          REPO: ${{ github.repository }}
+        run: |
+          cat > bucket/office-janitor.json << EOF
+          {
+            "\$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
+            "version": "${VERSION}",
+            "description": "Comprehensive Office uninstaller, scrubber, repair and installation tool",
+            "homepage": "https://github.com/${REPO}",
+            "license": "MIT",
+            "architecture": {
+              "64bit": {
+                "url": "https://github.com/${REPO}/releases/download/${VERSION}/office-janitor.exe",
+                "hash": "${EXE_HASH}"
+              }
+            },
+            "bin": "office-janitor.exe",
+            "checkver": "github",
+            "autoupdate": {
+              "architecture": {
+                "64bit": {
+                  "url": "https://github.com/${REPO}/releases/download/\$version/office-janitor.exe"
+                }
+              }
+            },
+            "notes": "Run with administrator privileges: sudo office-janitor"
+          }
+          EOF
+          
+          # Also update config example in bucket
+          cp config.example.json bucket/ 2>/dev/null || true
+      
+      - name: Commit Scoop manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/
+          git diff --staged --quiet || git commit -m "chore: update scoop manifest to ${{ needs.build.outputs.version }}"
+          git push
+
+  update-winget:
+    name: Update Winget Manifest
+    runs-on: ubuntu-latest
+    needs: [release, build]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      
+      - name: Update Winget manifests
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          EXE_HASH: ${{ needs.build.outputs.exe_hash }}
+          REPO: ${{ github.repository }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          WINGET_DIR="winget/${REPO_OWNER}.office-janitor/${VERSION}"
+          mkdir -p "$WINGET_DIR"
+          
+          # Version manifest
+          cat > "${WINGET_DIR}/${REPO_OWNER}.office-janitor.yaml" << EOF
+          PackageIdentifier: ${REPO_OWNER}.office-janitor
+          PackageVersion: ${VERSION}
+          DefaultLocale: en-US
+          ManifestType: version
+          ManifestVersion: 1.6.0
+          EOF
+          
+          # Installer manifest
+          cat > "${WINGET_DIR}/${REPO_OWNER}.office-janitor.installer.yaml" << EOF
+          PackageIdentifier: ${REPO_OWNER}.office-janitor
+          PackageVersion: ${VERSION}
+          Platform:
+            - Windows.Desktop
+          MinimumOSVersion: 10.0.0.0
+          InstallerType: portable
+          Installers:
+            - Architecture: x64
+              InstallerUrl: https://github.com/${REPO}/releases/download/${VERSION}/office-janitor.exe
+              InstallerSha256: ${EXE_HASH}
+              Commands:
+                - office-janitor
+          ManifestType: installer
+          ManifestVersion: 1.6.0
+          EOF
+          
+          # Locale manifest
+          cat > "${WINGET_DIR}/${REPO_OWNER}.office-janitor.locale.en-US.yaml" << EOF
+          PackageIdentifier: ${REPO_OWNER}.office-janitor
+          PackageVersion: ${VERSION}
+          PackageLocale: en-US
+          Publisher: ${REPO_OWNER}
+          PublisherUrl: https://github.com/${REPO_OWNER}
+          PackageName: Office Janitor
+          PackageUrl: https://github.com/${REPO}
+          License: MIT
+          LicenseUrl: https://github.com/${REPO}/blob/main/license.md
+          ShortDescription: Comprehensive Office uninstaller, scrubber, repair and installation tool
+          Description: |
+            Office Janitor is a comprehensive, stdlib-only Python utility for managing Microsoft Office installations on Windows.
+            
+            Features:
+            - Install: Deploy Office using ODT with presets, custom configurations, and live progress monitoring
+            - Repair: Quick and full repair for Click-to-Run installations
+            - Scrub: Deep uninstall and cleanup of MSI and Click-to-Run Office (2003-2024, Microsoft 365)
+          Tags:
+            - office
+            - microsoft
+            - uninstaller
+            - cleanup
+            - windows
+            - admin
+          ReleaseNotesUrl: https://github.com/${REPO}/releases/tag/${VERSION}
+          ManifestType: defaultLocale
+          ManifestVersion: 1.6.0
+          EOF
+          
+          # Create latest symlink/copy
+          rm -rf "winget/${REPO_OWNER}.office-janitor/latest" 2>/dev/null || true
+          cp -r "$WINGET_DIR" "winget/${REPO_OWNER}.office-janitor/latest"
+      
+      - name: Commit Winget manifests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add winget/
+          git diff --staged --quiet || git commit -m "chore: update winget manifest to ${{ needs.build.outputs.version }}"
+          git push
