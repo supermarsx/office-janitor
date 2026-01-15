@@ -10,19 +10,29 @@ programmatically.
 
 from __future__ import annotations
 
+import glob
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from types import ModuleType
 
-from . import constants, exec_utils, logging_ext
+from . import logging_ext
+
+# Try to import spinner for progress display
+_spinner: ModuleType | None
+try:
+    from . import spinner as _spinner
+except ImportError:
+    _spinner = None
 
 # ---------------------------------------------------------------------------
 # Constants and Enumerations
@@ -935,17 +945,148 @@ class ODTResult:
     error: str | None = None
 
 
+# ---------------------------------------------------------------------------
+# ODT Progress Monitoring
+# ---------------------------------------------------------------------------
+
+
+def _get_odt_log_path() -> Path:
+    """!
+    @brief Get the path where ODT writes installation logs.
+    @returns Path to the ODT log directory (typically %TEMP%).
+    """
+    return Path(os.environ.get("TEMP", tempfile.gettempdir()))
+
+
+def _find_latest_odt_log() -> Path | None:
+    """!
+    @brief Find the most recent ODT Click-to-Run log file.
+    @returns Path to the latest log file, or None if not found.
+    """
+    log_dir = _get_odt_log_path()
+    # ODT creates logs like "Microsoft Office Click-to-Run*.log"
+    pattern = str(log_dir / "Microsoft Office Click-to-Run*.log")
+    logs = glob.glob(pattern)
+    if not logs:
+        return None
+    # Return the most recently modified
+    return Path(max(logs, key=os.path.getmtime))
+
+
+def _parse_odt_progress(log_path: Path) -> tuple[str, int | None]:
+    """!
+    @brief Parse ODT log file for installation progress.
+    @param log_path Path to the ODT log file.
+    @returns Tuple of (status_message, percentage or None).
+    """
+    if not log_path.exists():
+        return "Starting installation...", None
+
+    try:
+        # Read last portion of log (it can be large)
+        with open(log_path, encoding="utf-8", errors="ignore") as f:
+            # Seek to end and read last 8KB
+            f.seek(0, 2)  # End of file
+            size = f.tell()
+            f.seek(max(0, size - 8192))
+            content = f.read()
+
+        lines = content.strip().split("\n")
+
+        # Look for progress indicators from bottom up
+        for line in reversed(lines[-50:]):  # Check last 50 lines
+            line_lower = line.lower()
+
+            # Check for percentage patterns
+            pct_match = re.search(r"(\d{1,3})%", line)
+
+            # Check for specific status messages
+            if "downloading" in line_lower:
+                pct = int(pct_match.group(1)) if pct_match else None
+                return "Downloading Office files", pct
+            elif "installing" in line_lower:
+                pct = int(pct_match.group(1)) if pct_match else None
+                return "Installing Office", pct
+            elif "configuring" in line_lower:
+                return "Configuring Office", None
+            elif "applying" in line_lower:
+                return "Applying settings", None
+            elif "finalizing" in line_lower or "completing" in line_lower:
+                return "Finalizing installation", None
+            elif "registering" in line_lower:
+                return "Registering components", None
+            elif "updating" in line_lower:
+                return "Updating Office", None
+            elif "removing" in line_lower:
+                return "Removing old version", None
+            elif "verifying" in line_lower:
+                return "Verifying installation", None
+            elif pct_match:
+                # Found a percentage without specific context
+                return "Installing Office", int(pct_match.group(1))
+
+        return "Installing Office...", None
+
+    except Exception:
+        return "Installing Office...", None
+
+
+def _monitor_odt_progress(
+    proc: subprocess.Popen[str],
+    stop_event: threading.Event,
+    products: list[str],
+) -> None:
+    """!
+    @brief Background thread to monitor ODT installation progress.
+    @param proc The ODT subprocess being monitored.
+    @param stop_event Event to signal when monitoring should stop.
+    @param products List of product names being installed.
+    """
+    if not (_spinner is not None):
+        return
+
+    product_str = ", ".join(products[:2])
+    if len(products) > 2:
+        product_str += f" +{len(products) - 2}"
+
+    last_status = ""
+    last_pct: int | None = None
+
+    while not stop_event.is_set() and proc.poll() is None:
+        log_path = _find_latest_odt_log()
+        if log_path:
+            status, pct = _parse_odt_progress(log_path)
+
+            # Build display string
+            if pct is not None:
+                display = f"ODT: {status} ({pct}%) - {product_str}"
+            else:
+                display = f"ODT: {status} - {product_str}"
+
+            # Only update if changed
+            if display != last_status or pct != last_pct:
+                _spinner.set_task(display)
+                last_status = display
+                last_pct = pct
+        else:
+            _spinner.set_task(f"ODT: Starting installation - {product_str}")
+
+        stop_event.wait(0.5)  # Check every 500ms
+
+
 def run_odt_install(
     config: ODTConfig,
     *,
     dry_run: bool = False,
     timeout: float | None = None,
+    show_progress: bool = True,
 ) -> ODTResult:
     """!
     @brief Run ODT setup.exe to install Office with the given configuration.
     @param config ODTConfig with products and settings.
     @param dry_run If True, only generate the XML and print the command.
     @param timeout Optional timeout in seconds.
+    @param show_progress If True, display spinner with progress updates.
     @returns ODTResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -986,30 +1127,146 @@ def run_odt_install(
             duration=0.0,
         )
 
-    result = exec_utils.run_command(
-        command,
-        event="odt_install",
-        timeout=timeout,
-        human_message=f"Running ODT install: {config.products[0].product_id if config.products else 'unknown'}",
-    )
+    # Get product names for progress display
+    product_names = [p.product_id for p in config.products]
+
+    # Start spinner if available and requested
+    spinner_started = False
+    if show_progress and (_spinner is not None):
+        _spinner.start_spinner_thread()
+        _spinner.set_task(f"ODT: Starting installation - {', '.join(product_names[:2])}")
+        spinner_started = True
+
+    start_time = time.monotonic()
+    stop_event = threading.Event()
+    monitor_thread: threading.Thread | None = None
+    proc: subprocess.Popen[str] | None = None
+
+    try:
+        # Start the ODT process
+        proc = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        # Register for cleanup on Ctrl+C
+        if (_spinner is not None):
+            _spinner.register_process(proc)
+
+        # Start progress monitoring thread
+        if show_progress and (_spinner is not None):
+            monitor_thread = threading.Thread(
+                target=_monitor_odt_progress,
+                args=(proc, stop_event, product_names),
+                daemon=True,
+                name="odt-progress",
+            )
+            monitor_thread.start()
+
+        # Wait for process to complete
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return_code = proc.returncode
+        error = None
+
+    except subprocess.TimeoutExpired:
+        if proc is not None:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+        else:
+            stdout, stderr = "", ""
+        return_code = -1
+        error = f"Installation timed out after {timeout} seconds"
+    except Exception as e:
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.communicate()
+            except Exception:
+                pass
+        return_code = -1
+        stdout = ""
+        stderr = str(e)
+        error = str(e)
+    finally:
+        # Stop monitoring
+        stop_event.set()
+        if monitor_thread and monitor_thread.is_alive():
+            monitor_thread.join(timeout=1.0)
+
+        # Unregister process
+        if (_spinner is not None) and proc is not None:
+            try:
+                _spinner.unregister_process(proc)
+            except Exception:
+                pass
+
+        # Clear spinner task
+        if spinner_started and (_spinner is not None):
+            _spinner.clear_task()
+
+    duration = time.monotonic() - start_time
 
     # Clean up temp file on success
-    if result.returncode == 0:
+    if return_code == 0:
         try:
             config_path.unlink()
         except OSError:
             pass
 
     return ODTResult(
-        success=result.returncode == 0,
-        return_code=result.returncode,
+        success=return_code == 0,
+        return_code=return_code,
         command=command,
-        config_path=config_path if result.returncode != 0 else None,
-        stdout=result.stdout,
-        stderr=result.stderr,
-        duration=result.duration,
-        error=result.error,
+        config_path=config_path if return_code != 0 else None,
+        stdout=stdout,
+        stderr=stderr,
+        duration=duration,
+        error=error,
     )
+
+
+def _monitor_odt_download_progress(
+    proc: subprocess.Popen[str],
+    stop_event: threading.Event,
+    download_path: Path,
+) -> None:
+    """!
+    @brief Background thread to monitor ODT download progress.
+    @param proc The ODT subprocess being monitored.
+    @param stop_event Event to signal when monitoring should stop.
+    @param download_path Path where files are being downloaded.
+    """
+    if not (_spinner is not None):
+        return
+
+    last_status = ""
+
+    while not stop_event.is_set() and proc.poll() is None:
+        log_path = _find_latest_odt_log()
+        if log_path:
+            status, pct = _parse_odt_progress(log_path)
+            if pct is not None:
+                display = f"ODT: Downloading ({pct}%)"
+            else:
+                display = f"ODT: {status}"
+        else:
+            # Check download folder size as progress indicator
+            try:
+                total_size = sum(
+                    f.stat().st_size for f in download_path.rglob("*") if f.is_file()
+                )
+                size_mb = total_size / (1024 * 1024)
+                display = f"ODT: Downloading ({size_mb:.0f} MB)"
+            except Exception:
+                display = "ODT: Downloading..."
+
+        if display != last_status:
+            _spinner.set_task(display)
+            last_status = display
+
+        stop_event.wait(0.5)
 
 
 def run_odt_download(
@@ -1018,6 +1275,7 @@ def run_odt_download(
     *,
     dry_run: bool = False,
     timeout: float | None = None,
+    show_progress: bool = True,
 ) -> ODTResult:
     """!
     @brief Run ODT setup.exe to download Office installation files.
@@ -1025,6 +1283,7 @@ def run_odt_download(
     @param download_path Local path to store downloaded files.
     @param dry_run If True, only generate the XML and print the command.
     @param timeout Optional timeout in seconds.
+    @param show_progress If True, display spinner with progress updates.
     @returns ODTResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -1076,12 +1335,83 @@ def run_odt_download(
             duration=0.0,
         )
 
-    result = exec_utils.run_command(
-        command,
-        event="odt_download",
-        timeout=timeout,
-        human_message=f"Downloading Office files to {download_path}",
-    )
+    # Start spinner if available and requested
+    spinner_started = False
+    if show_progress and (_spinner is not None):
+        _spinner.start_spinner_thread()
+        _spinner.set_task("ODT: Starting download...")
+        spinner_started = True
+
+    start_time = time.monotonic()
+    stop_event = threading.Event()
+    monitor_thread: threading.Thread | None = None
+    proc: subprocess.Popen[str] | None = None
+
+    try:
+        # Start the ODT process
+        proc = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        # Register for cleanup on Ctrl+C
+        if (_spinner is not None):
+            _spinner.register_process(proc)
+
+        # Start progress monitoring thread
+        if show_progress and (_spinner is not None):
+            monitor_thread = threading.Thread(
+                target=_monitor_odt_download_progress,
+                args=(proc, stop_event, download_path),
+                daemon=True,
+                name="odt-download-progress",
+            )
+            monitor_thread.start()
+
+        # Wait for process to complete
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return_code = proc.returncode
+        error = None
+
+    except subprocess.TimeoutExpired:
+        if proc is not None:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+        else:
+            stdout, stderr = "", ""
+        return_code = -1
+        error = f"Download timed out after {timeout} seconds"
+    except Exception as e:
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.communicate()
+            except Exception:
+                pass
+        return_code = -1
+        stdout = ""
+        stderr = str(e)
+        error = str(e)
+    finally:
+        # Stop monitoring
+        stop_event.set()
+        if monitor_thread and monitor_thread.is_alive():
+            monitor_thread.join(timeout=1.0)
+
+        # Unregister process
+        if (_spinner is not None) and proc is not None:
+            try:
+                _spinner.unregister_process(proc)
+            except Exception:
+                pass
+
+        # Clear spinner task
+        if spinner_started and (_spinner is not None):
+            _spinner.clear_task()
+
+    duration = time.monotonic() - start_time
 
     # Clean up temp file
     try:
@@ -1090,14 +1420,14 @@ def run_odt_download(
         pass
 
     return ODTResult(
-        success=result.returncode == 0,
-        return_code=result.returncode,
+        success=return_code == 0,
+        return_code=return_code,
         command=command,
         config_path=None,
-        stdout=result.stdout,
-        stderr=result.stderr,
-        duration=result.duration,
-        error=result.error,
+        stdout=stdout,
+        stderr=stderr,
+        duration=duration,
+        error=error,
     )
 
 
@@ -1108,6 +1438,7 @@ def run_odt_remove(
     remove_msi: bool = True,
     dry_run: bool = False,
     timeout: float | None = None,
+    show_progress: bool = True,
 ) -> ODTResult:
     """!
     @brief Run ODT setup.exe to remove Office installations.
@@ -1116,6 +1447,7 @@ def run_odt_remove(
     @param remove_msi Also remove MSI-based installations.
     @param dry_run If True, only generate the XML and print the command.
     @param timeout Optional timeout in seconds.
+    @param show_progress If True, display spinner with progress updates.
     @returns ODTResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -1167,12 +1499,83 @@ def run_odt_remove(
             duration=0.0,
         )
 
-    result = exec_utils.run_command(
-        command,
-        event="odt_remove",
-        timeout=timeout,
-        human_message="Removing Office installations",
-    )
+    # Start spinner if available and requested
+    spinner_started = False
+    if show_progress and (_spinner is not None):
+        _spinner.start_spinner_thread()
+        _spinner.set_task("ODT: Removing Office...")
+        spinner_started = True
+
+    start_time = time.monotonic()
+    stop_event = threading.Event()
+    monitor_thread: threading.Thread | None = None
+    proc: subprocess.Popen[str] | None = None
+
+    try:
+        # Start the ODT process
+        proc = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        # Register for cleanup on Ctrl+C
+        if (_spinner is not None):
+            _spinner.register_process(proc)
+
+        # Start progress monitoring thread (reuse install monitor)
+        if show_progress and (_spinner is not None):
+            monitor_thread = threading.Thread(
+                target=_monitor_odt_progress,
+                args=(proc, stop_event, ["Removing Office"]),
+                daemon=True,
+                name="odt-remove-progress",
+            )
+            monitor_thread.start()
+
+        # Wait for process to complete
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return_code = proc.returncode
+        error = None
+
+    except subprocess.TimeoutExpired:
+        if proc is not None:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+        else:
+            stdout, stderr = "", ""
+        return_code = -1
+        error = f"Removal timed out after {timeout} seconds"
+    except Exception as e:
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.communicate()
+            except Exception:
+                pass
+        return_code = -1
+        stdout = ""
+        stderr = str(e)
+        error = str(e)
+    finally:
+        # Stop monitoring
+        stop_event.set()
+        if monitor_thread and monitor_thread.is_alive():
+            monitor_thread.join(timeout=1.0)
+
+        # Unregister process
+        if (_spinner is not None) and proc is not None:
+            try:
+                _spinner.unregister_process(proc)
+            except Exception:
+                pass
+
+        # Clear spinner task
+        if spinner_started and (_spinner is not None):
+            _spinner.clear_task()
+
+    duration = time.monotonic() - start_time
 
     # Clean up temp file
     try:
@@ -1181,14 +1584,14 @@ def run_odt_remove(
         pass
 
     return ODTResult(
-        success=result.returncode == 0,
-        return_code=result.returncode,
+        success=return_code == 0,
+        return_code=return_code,
         command=command,
         config_path=None,
-        stdout=result.stdout,
-        stderr=result.stderr,
-        duration=result.duration,
-        error=result.error,
+        stdout=stdout,
+        stderr=stderr,
+        duration=duration,
+        error=error,
     )
 
 

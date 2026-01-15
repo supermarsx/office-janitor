@@ -633,3 +633,75 @@ class TestInstallLtsc2024Full:
             assert "en-us" in p.languages
             assert "es-mx" in p.languages
             assert "pt-br" in p.languages
+
+
+class TestProgressMonitoring:
+    """Tests for ODT progress monitoring functions."""
+
+    def test_get_odt_log_path(self) -> None:
+        """Verify log path returns valid directory."""
+        log_path = odt_build._get_odt_log_path()
+        assert isinstance(log_path, Path)
+        # Should be TEMP directory or similar
+        assert log_path.exists() or log_path.parent.exists()
+
+    def test_find_latest_odt_log_no_logs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify returns None when no logs exist."""
+        monkeypatch.setattr(odt_build, "_get_odt_log_path", lambda: tmp_path)
+        result = odt_build._find_latest_odt_log()
+        assert result is None
+
+    def test_find_latest_odt_log_with_logs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify returns latest log file when logs exist."""
+        monkeypatch.setattr(odt_build, "_get_odt_log_path", lambda: tmp_path)
+        # Create mock log files
+        log1 = tmp_path / "Microsoft Office Click-to-Run 1.log"
+        log2 = tmp_path / "Microsoft Office Click-to-Run 2.log"
+        log1.write_text("old log")
+        import time
+        time.sleep(0.01)  # Ensure different timestamps
+        log2.write_text("new log")
+        
+        result = odt_build._find_latest_odt_log()
+        assert result == log2
+
+    def test_parse_odt_progress_nonexistent_file(self) -> None:
+        """Verify returns default message for nonexistent file."""
+        status, pct = odt_build._parse_odt_progress(Path("/nonexistent/log.txt"))
+        assert status == "Starting installation..."
+        assert pct is None
+
+    def test_parse_odt_progress_downloading(self, tmp_path: Path) -> None:
+        """Verify parses downloading status."""
+        log_file = tmp_path / "test.log"
+        log_file.write_text("2024-01-01 downloading files 50%\n")
+        
+        status, pct = odt_build._parse_odt_progress(log_file)
+        assert "Downloading" in status
+        assert pct == 50
+
+    def test_parse_odt_progress_installing(self, tmp_path: Path) -> None:
+        """Verify parses installing status."""
+        log_file = tmp_path / "test.log"
+        log_file.write_text("2024-01-01 Installing Office components 75%\n")
+        
+        status, pct = odt_build._parse_odt_progress(log_file)
+        assert "Installing" in status
+        assert pct == 75
+
+    def test_parse_odt_progress_configuring(self, tmp_path: Path) -> None:
+        """Verify parses configuring status."""
+        log_file = tmp_path / "test.log"
+        log_file.write_text("2024-01-01 Configuring Office settings\n")
+        
+        status, pct = odt_build._parse_odt_progress(log_file)
+        assert "Configuring" in status
+        assert pct is None
+
+    def test_parse_odt_progress_percentage_only(self, tmp_path: Path) -> None:
+        """Verify parses percentage without specific context."""
+        log_file = tmp_path / "test.log"
+        log_file.write_text("Progress: 80%\n")
+        
+        status, pct = odt_build._parse_odt_progress(log_file)
+        assert pct == 80
