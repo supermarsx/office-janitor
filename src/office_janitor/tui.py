@@ -29,11 +29,10 @@ from .tui_helpers import (
     default_key_reader,
     format_inventory,
     read_input_line,
-    supports_ansi,
 )
 from .tui_render import TUIRendererMixin
 
-# Re-export for backward compatibility
+# Re-export for backward compatibility (tests patch these underscore aliases)
 from .tui_helpers import (
     decode_key as _decode_key,
     default_key_reader as _default_key_reader,
@@ -122,7 +121,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         self.status_lines: list[str] = []
         self.progress_message = "Ready"
         self.log_lines: list[str] = []
-        self.ansi_supported = supports_ansi() and not bool(
+        self.ansi_supported = _supports_ansi() and not bool(
             getattr(self.app_state.get("args"), "no_color", False)
         )
         self._key_reader: Callable[[], str] | None = self.app_state.get("key_reader")
@@ -242,7 +241,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             self._notify("tui.suppressed", "TUI launch suppressed by CLI flags.")
             return
 
-        if not self.ansi_supported and not supports_ansi():
+        if not self.ansi_supported and not _supports_ansi():
             from . import ui
 
             self._notify("tui.fallback", "Falling back to CLI menu (ANSI unavailable).")

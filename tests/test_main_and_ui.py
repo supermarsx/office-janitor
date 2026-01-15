@@ -20,6 +20,7 @@ if str(SRC_PATH) not in sys.path:
 
 from office_janitor import main, ui, version  # noqa: E402
 from office_janitor import tui as tui_module  # noqa: E402
+from office_janitor import tui_actions as tui_actions_module  # noqa: E402
 
 
 def _no_op(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -714,6 +715,7 @@ def test_tui_commands_drive_backends(monkeypatch) -> None:
 
     monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None: True)
     monkeypatch.setattr(tui_module, "_spinner", lambda duration, message: None)
+    monkeypatch.setattr(tui_actions_module, "spinner", lambda duration, message: None)
     monkeypatch.setattr(tui_module.OfficeJanitorTUI, "_drain_events", lambda self: False)
 
     keys = iter(
@@ -811,6 +813,7 @@ def test_tui_auto_mode_invokes_overrides(monkeypatch) -> None:
 
     monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None: True)
     monkeypatch.setattr(tui_module, "_spinner", lambda duration, message: None)
+    monkeypatch.setattr(tui_actions_module, "spinner", lambda duration, message: None)
     monkeypatch.setattr(tui_module.OfficeJanitorTUI, "_drain_events", lambda self: False)
 
     keys = iter(["down", "enter", "quit"])
@@ -861,6 +864,7 @@ def test_tui_targeted_collects_input(monkeypatch) -> None:
 
     monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None, **_: True)
     monkeypatch.setattr(tui_module, "_spinner", lambda duration, message: None)
+    monkeypatch.setattr(tui_actions_module, "spinner", lambda duration, message: None)
     monkeypatch.setattr(tui_module.OfficeJanitorTUI, "_drain_events", lambda self: False)
     monkeypatch.setattr(
         tui_module.OfficeJanitorTUI, "_selected_targets", lambda self: ["2016", "365"]
