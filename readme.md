@@ -5,6 +5,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/network/members)
 [![GitHub watchers](https://img.shields.io/github/watchers/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/watchers)
 [![GitHub Downloads](https://img.shields.io/github/downloads/supermarsx/office-janitor/total?style=flat-square)](https://github.com/supermarsx/office-janitor/releases)
+[![PyPI Downloads](https://img.shields.io/pepy/dt/office-janitor?style=flat-square&label=PyPI%20Downloads)](https://pepy.tech/project/office-janitor)
 [![GitHub Issues](https://img.shields.io/github/issues/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/issues)
 [![License](https://img.shields.io/github/license/supermarsx/office-janitor?style=flat-square)](license.md)
 
