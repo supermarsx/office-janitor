@@ -212,6 +212,25 @@ jobs:
           git tag -a "$VERSION" -m "Rolling release $VERSION"
           git push origin "$VERSION"
 
+      - name: Generate changelog from commits
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -n "$PREV_TAG" ]; then
+            echo "Generating changelog since $PREV_TAG"
+            COMMITS=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD)
+          else
+            echo "No previous tag, using last 150 commits"
+            COMMITS=$(git log --pretty=format:"- %s (%h)" -150)
+          fi
+          
+          # Write to output (handle multiline)
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -220,7 +239,8 @@ jobs:
           body: |
             ## Rolling Release ${{ needs.build.outputs.version }}
 
-            Automated rolling release from main branch.
+            ### What's Changed
+            ${{ steps.changelog.outputs.commits }}
 
             ### Downloads
             - **Windows executable**: `office-janitor.exe` (portable, no installation required)
@@ -241,7 +261,6 @@ jobs:
             ```
             ${{ needs.build.outputs.exe_hash }}  office-janitor.exe
             ```
-          generate_release_notes: true
           files: |
             artifacts/office-janitor.exe
             artifacts/*.tar.gz
@@ -269,7 +288,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: office-janitor-build
-          path: dist/
+          path: artifacts/
+
+      - name: Prepare dist for PyPI
+        run: |
+          mkdir -p dist
+          cp artifacts/*.whl artifacts/*.tar.gz dist/ 2>/dev/null || true
+          ls -la dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
