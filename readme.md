@@ -1,5 +1,6 @@
 # Office Janitor
 
+[![CI](https://img.shields.io/github/actions/workflow/status/supermarsx/office-janitor/ci.yml?style=flat-square&label=CI)](https://github.com/supermarsx/office-janitor/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/network/members)
 [![GitHub watchers](https://img.shields.io/github/watchers/supermarsx/office-janitor?style=flat-square)](https://github.com/supermarsx/office-janitor/watchers)
