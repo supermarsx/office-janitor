@@ -368,8 +368,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add bucket/
           git diff --staged --quiet || git commit -m "chore: update scoop manifest to ${{ needs.build.outputs.version }}"
-          git pull --rebase origin main
-          git push
+          for i in 1 2 3; do
+            git fetch origin main
+            git rebase origin/main && git push && break
+            echo "Retry $i failed, trying again..."
+            sleep 2
+          done
 
   update-winget:
     name: Update Winget Manifest
@@ -458,5 +462,9 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add winget/
           git diff --staged --quiet || git commit -m "chore: update winget manifest to ${{ needs.build.outputs.version }}"
-          git pull --rebase origin main
-          git push
+          for i in 1 2 3; do
+            git fetch origin main
+            git rebase origin/main && git push && break
+            echo "Retry $i failed, trying again..."
+            sleep 2
+          done
