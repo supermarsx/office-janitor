@@ -1801,7 +1801,7 @@ class TestConfigFile:
     def test_config_file_not_found_exits(self, tmp_path) -> None:
         """Test missing config file causes exit."""
         parser = main.build_arg_parser()
-        args = parser.parse_args(["--auto-all", "--config", str(tmp_path / "missing.json")])
+        parser.parse_args(["--auto-all", "--config", str(tmp_path / "missing.json")])
 
         with pytest.raises(SystemExit):
             main._load_config_file(str(tmp_path / "missing.json"))
@@ -1848,6 +1848,7 @@ class TestSpinnerUpdateTask:
     def test_update_task_preserves_start_time(self) -> None:
         """Verify update_task doesn't reset the timer."""
         import time
+
         from office_janitor import spinner
 
         # Set initial task
@@ -1871,6 +1872,7 @@ class TestSpinnerUpdateTask:
     def test_set_task_resets_start_time(self) -> None:
         """Verify set_task DOES reset the timer."""
         import time
+
         from office_janitor import spinner
 
         # Set initial task

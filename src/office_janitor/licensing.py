@@ -710,7 +710,6 @@ def clean_vnext_cache(*, dry_run: bool = False) -> int:
     @param dry_run If True, only report what would be removed.
     @returns Number of paths cleaned.
     """
-    import os
 
     human_logger = logging_ext.get_human_logger()
 
@@ -743,7 +742,6 @@ def clean_activation_tokens(*, dry_run: bool = False) -> int:
     @param dry_run If True, only report what would be removed.
     @returns Number of paths cleaned.
     """
-    import os
 
     human_logger = logging_ext.get_human_logger()
 
@@ -778,7 +776,6 @@ def clean_scl_cache(*, dry_run: bool = False) -> int:
     @param dry_run If True, only report what would be removed.
     @returns Number of paths cleaned.
     """
-    import os
 
     human_logger = logging_ext.get_human_logger()
 

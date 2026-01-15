@@ -2117,7 +2117,6 @@ def run_odt_install(
     monitor_thread: threading.Thread | None = None
     c2r_monitor_thread: threading.Thread | None = None
     proc: subprocess.Popen[str] | None = None
-    setup_exited_early = False
 
     try:
         # Start the ODT process
@@ -2162,7 +2161,6 @@ def run_odt_install(
         if return_code != 0:
             c2r_procs = _find_running_clicktorun_processes()
             if c2r_procs:
-                setup_exited_early = True
                 # Warn about setup exit but continue monitoring
                 log.warning(
                     f"setup.exe exited with code {return_code}, but ClickToRun "

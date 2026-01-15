@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Final
 from . import guid_utils
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from win32com.client import CDispatch
+    pass
 
 _LOGGER = logging.getLogger(__name__)
 

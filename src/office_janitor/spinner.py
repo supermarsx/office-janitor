@@ -21,7 +21,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any, Callable, TextIO
+from typing import Any, TextIO
 
 # ---------------------------------------------------------------------------
 # Direct console output - NEVER use logging for spinner
@@ -715,7 +715,7 @@ class SpinnerTask:
         self._task_name = task_name
         self._previous_task: str | None = None
 
-    def __enter__(self) -> "SpinnerTask":
+    def __enter__(self) -> SpinnerTask:
         self._previous_task = get_current_task()
         set_task(self._task_name)
         return self
@@ -789,7 +789,7 @@ def wait_for_future(
                 elapsed = time.monotonic() - start
                 if elapsed >= timeout:
                     future.cancel()
-                    raise TimeoutError(f"Timed out after {elapsed:.1f}s")
+                    raise TimeoutError(f"Timed out after {elapsed:.1f}s") from None
             # Continue polling
             continue
 
@@ -809,7 +809,6 @@ def wait_for_futures(
     @raises KeyboardInterrupt if cancellation is requested.
     @raises Exception if any future raised an exception.
     """
-    import concurrent.futures
 
     results: dict[str, Any] = {}
     errors: dict[str, Exception] = {}

@@ -1346,7 +1346,7 @@ def _perform_filesystem_cleanup(
 
     # Add shortcut paths if requested
     if clean_shortcuts:
-        shortcut_paths = [
+        [
             str(Path.home() / "Desktop"),  # Will filter for Office .lnk files
             str(Path(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs")),
             str(
@@ -1389,7 +1389,7 @@ def _perform_filesystem_cleanup(
     if cleanup_targets:
         _scrub_progress(f"Removing {len(cleanup_targets)} filesystem paths...", indent=3)
         fs_tools.remove_paths(cleanup_targets, dry_run=dry_run)
-        _scrub_progress(f"Filesystem path removal complete", indent=3)
+        _scrub_progress("Filesystem path removal complete", indent=3)
     elif paths:
         human_logger.info("All filesystem cleanup targets were preserved; nothing to remove.")
 

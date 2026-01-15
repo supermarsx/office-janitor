@@ -910,7 +910,7 @@ class TestProcessMetrics:
         # Should have collected 10 results without crashing
         assert len(results) == 10
         # All results should be valid tuples
-        for cpu, mem, size, files, reg, status, pct in results:
+        for cpu, mem, size, files, _reg, _status, _pct in results:
             assert isinstance(cpu, float)
             assert isinstance(mem, float)
             assert isinstance(size, int)

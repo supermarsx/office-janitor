@@ -7,8 +7,6 @@ Windows Installer access.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -23,7 +21,6 @@ from office_janitor.msi_components import (
     enumerate_products,
     get_component_clients,
     get_component_path,
-    get_component_state,
     is_office_component,
 )
 

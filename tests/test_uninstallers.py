@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -519,7 +520,7 @@ class TestOdtDownloadUrls:
 
     def test_urls_are_https_or_http(self) -> None:
         """URLs should be proper HTTP(S) URLs."""
-        for version, url in c2r_uninstall.ODT_DOWNLOAD_URLS.items():
+        for _version, url in c2r_uninstall.ODT_DOWNLOAD_URLS.items():
             assert url.startswith("http://") or url.startswith("https://")
 
 

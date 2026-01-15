@@ -15,17 +15,16 @@ import pytest
 from office_janitor import repair
 from office_janitor.repair import (
     DEFAULT_CULTURE,
-    DisplayLevel,
     PLATFORM_X64,
     PLATFORM_X86,
     REPAIR_TIMEOUT_FULL,
     REPAIR_TIMEOUT_QUICK,
+    SUPPORTED_CULTURES,
+    DisplayLevel,
     RepairConfig,
     RepairResult,
     RepairType,
-    SUPPORTED_CULTURES,
 )
-
 
 # ---------------------------------------------------------------------------
 # RepairConfig Tests
@@ -648,7 +647,7 @@ class TestGetOemConfigPath:
 
     def test_accepts_preset_name(self) -> None:
         """Test resolves preset name from dictionary."""
-        from office_janitor.repair import get_oem_config_path, OEM_CONFIG_PRESETS
+        from office_janitor.repair import OEM_CONFIG_PRESETS, get_oem_config_path
 
         # Test with first preset that exists in the mapping
         preset_name = list(OEM_CONFIG_PRESETS.keys())[0]
@@ -694,7 +693,7 @@ class TestListOemConfigs:
 
     def test_includes_all_presets(self) -> None:
         """Test all presets from OEM_CONFIG_PRESETS are listed."""
-        from office_janitor.repair import list_oem_configs, OEM_CONFIG_PRESETS
+        from office_janitor.repair import OEM_CONFIG_PRESETS, list_oem_configs
 
         result = list_oem_configs()
         listed_names = {item[0] for item in result}
@@ -715,8 +714,8 @@ class TestRunOemConfig:
 
     def test_calls_reconfigure_office(self, tmp_path: Path) -> None:
         """Test passes config path to reconfigure_office."""
-        from office_janitor.repair import run_oem_config
         from office_janitor.exec_utils import CommandResult
+        from office_janitor.repair import run_oem_config
 
         config_path = tmp_path / "test.xml"
 

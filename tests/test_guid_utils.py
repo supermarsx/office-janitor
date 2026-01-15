@@ -19,7 +19,6 @@ from office_janitor.guid_utils import (
     guid_to_registry_path,
     is_compressed_guid,
     is_office_product_code,
-    is_squished_guid,
     is_valid_guid,
     normalize_guid,
     squish_guid,

@@ -1736,7 +1736,6 @@ def cleanup_temp_arp_entries(*, dry_run: bool = False) -> int:
 
         # Delete the identified keys
         for key_name in keys_to_delete:
-            full_path = f"HKLM\\{base_path}\\{key_name}"
             if dry_run:
                 human_logger.info("[DRY-RUN] Would delete temp ARP: %s", key_name)
                 removed += 1

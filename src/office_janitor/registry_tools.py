@@ -889,7 +889,7 @@ def export_keys(
                     extra={"key": key, "path": str(export_path)},
                 )
                 exported.append(export_path)
-            except Exception as exc:
+            except Exception:
                 # Export failure is non-fatal - key may not exist or access denied
                 # Use spinner-aware output to avoid mangled console lines
                 spinner.pause_for_output()
@@ -939,7 +939,7 @@ def delete_keys(
                 check=True,
                 extra={"key": key},
             )
-        except Exception as exc:
+        except Exception:
             # Deletion failure is non-fatal - key may not exist or access denied
             spinner.pause_for_output()
             logger.warning(
@@ -1288,7 +1288,6 @@ def cleanup_shell_extensions(
     @details Cleans up shell extensions that reference non-existent DLLs.
     This includes context menu handlers, property sheet handlers, etc.
     """
-    from . import constants
 
     logger = logger or _LOGGER
     removed = 0
@@ -1556,7 +1555,7 @@ def cleanup_vnext_identity_registry(
         except Exception as e:
             logger.debug("Failed to delete SPP key %s: %s", spp_key, e)
 
-    total_deleted = (
+    (
         len(results["keys_deleted"])
         + len(results["values_deleted"])
         + len(results["patterns_matched"])

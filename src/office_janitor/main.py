@@ -1142,10 +1142,10 @@ def _load_config_file(config_path: str | None) -> dict[str, object]:
         return config
     except json.JSONDecodeError as e:
         print(f"Error: Invalid JSON in configuration file: {path}\n{e}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
     except OSError as e:
         print(f"Error: Cannot read configuration file: {path}\n{e}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 def main(argv: Iterable[str] | None = None, *, start_time: float | None = None) -> int:

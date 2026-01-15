@@ -722,8 +722,8 @@ def download_odt(
     @returns Path to downloaded setup.exe, or None if download failed.
     """
     import tempfile
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     human_logger = logging_ext.get_human_logger()
 

@@ -917,16 +917,16 @@ def generate_repair_config_xml(
 
     products_xml = ""
     for pid in product_ids:
-        products_xml += f'''    <Product ID="{pid}">
+        products_xml += f"""    <Product ID="{pid}">
       <Language ID="{language}" />
     </Product>
-'''
+"""
 
     # Determine edition based on platform
     platform = _detect_office_platform()
     edition = "64" if platform == PLATFORM_X64 else "32"
 
-    xml_content = f'''<Configuration>
+    xml_content = f"""<Configuration>
   <Add OfficeClientEdition="{edition}">
 {products_xml}  </Add>
   <Updates Enabled="TRUE" />
@@ -934,7 +934,7 @@ def generate_repair_config_xml(
   <Logging Level="Standard" Path="%temp%" />
   <Property Name="FORCEAPPSHUTDOWN" Value="{str(force_app_shutdown).upper()}" />
 </Configuration>
-'''
+"""
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(xml_content, encoding="utf-8")

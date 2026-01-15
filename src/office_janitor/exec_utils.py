@@ -302,7 +302,7 @@ def run_command(
                         proc.wait()
                         raise subprocess.TimeoutExpired(
                             command_list, effective_timeout, output=stdout_data, stderr=stderr_data
-                        )
+                        ) from None
                 # Otherwise continue polling
                 continue
 
