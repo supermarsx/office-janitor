@@ -7,7 +7,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/supermarsx/office-janitor/releases/download/26.1/office-janitor.exe",
-      "hash": "8250e0f2c463c501ad4eab5646023911769651a8322222dd4bea78e94e1216b3"
+      "hash": "4471a24d462724ddd1dd1b5df9e5eef3953697f94cd731cd182d008cfb257602"
     }
   },
   "bin": "office-janitor.exe",
