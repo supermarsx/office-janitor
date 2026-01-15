@@ -352,6 +352,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add bucket/
           git diff --staged --quiet || git commit -m "chore: update scoop manifest to ${{ needs.build.outputs.version }}"
+          git pull --rebase origin main
           git push
 
   update-winget:
@@ -441,4 +442,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add winget/
           git diff --staged --quiet || git commit -m "chore: update winget manifest to ${{ needs.build.outputs.version }}"
+          git pull --rebase origin main
           git push
