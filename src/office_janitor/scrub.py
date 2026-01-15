@@ -357,7 +357,7 @@ class StepExecutor:
         if attempt == 1:
             slow_step_warnings: dict[str, str] = {
                 "filesystem-cleanup": (
-                    "Filesystem cleanup may take several minutes " "depending on data volume"
+                    "Filesystem cleanup may take several minutes depending on data volume"
                 ),
                 "registry-cleanup": ("Registry cleanup may take a minute while exporting backups"),
                 "msi-uninstall": "MSI uninstall may take several minutes per product",
