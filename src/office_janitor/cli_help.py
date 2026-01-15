@@ -442,6 +442,11 @@ def add_data_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         help="Preserve Outlook OST/PST files and profiles.",
     )
     data.add_argument(
+        "--keep-outlook-signatures",
+        action="store_true",
+        help="Preserve Outlook email signatures when deleting Outlook data.",
+    )
+    data.add_argument(
         "--clean-shortcuts",
         action="store_true",
         help="Remove Office shortcuts from Start Menu and Desktop.",

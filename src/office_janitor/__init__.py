@@ -9,6 +9,7 @@ __all__ = [
     "main",
     "detect",
     "plan",
+    "plan_helpers",
     "scrub",
     "scrub_executor",
     "scrub_cleanup",

@@ -1536,6 +1536,7 @@ class TestCLIArgumentsIntoPlanOptions:
                 "--auto-all",
                 "--keep-user-settings",
                 "--keep-outlook-data",
+                "--keep-outlook-signatures",
                 "--clean-shortcuts",
             ]
         )
@@ -1543,6 +1544,7 @@ class TestCLIArgumentsIntoPlanOptions:
         options = main._collect_plan_options(args, mode)
         assert options["keep_user_settings"] is True
         assert options["keep_outlook_data"] is True
+        assert options["keep_outlook_signatures"] is True
         assert options["clean_shortcuts"] is True
 
     def test_registry_cleanup_flags_in_plan_options(self) -> None:

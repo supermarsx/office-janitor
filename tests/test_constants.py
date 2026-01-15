@@ -86,3 +86,12 @@ class TestConstantsModule:
         residues = constants.REGISTRY_RESIDUE_PATHS
         depths = [path.count("\\") for _, path in residues]
         assert depths == sorted(depths, reverse=True)
+
+    def test_outlook_data_paths_defined(self) -> None:
+        """!
+        @brief Outlook data paths and signatures path are exported.
+        """
+
+        assert constants.OUTLOOK_SIGNATURES_PATH == r"%APPDATA%\\Microsoft\\Signatures"
+        assert len(constants.OUTLOOK_DATA_PATHS) >= 1
+        assert any("Outlook" in path for path in constants.OUTLOOK_DATA_PATHS)

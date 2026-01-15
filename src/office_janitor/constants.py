@@ -861,6 +861,18 @@ RESIDUE_PATH_TEMPLATES = (
         "path": r"%APPDATA%\\Microsoft\\Templates",
         "category": "user_data",
     },
+    # Outlook signatures
+    {
+        "label": "appdata_outlook_signatures",
+        "path": r"%APPDATA%\\Microsoft\\Signatures",
+        "category": "outlook_data",
+    },
+    # Outlook data directories (OST/PST/profiles)
+    {
+        "label": "localappdata_outlook",
+        "path": r"%LOCALAPPDATA%\\Microsoft\\Outlook",
+        "category": "outlook_data",
+    },
     # Document Recovery
     {
         "label": "localappdata_word_recovery",
@@ -886,6 +898,24 @@ RESIDUE_PATH_TEMPLATES = (
 )
 """!
 @brief Filesystem residue directories removed by the reference scripts.
+"""
+
+# ---------------------------------------------------------------------------
+# Outlook Data Paths
+# ---------------------------------------------------------------------------
+
+OUTLOOK_SIGNATURES_PATH = r"%APPDATA%\\Microsoft\\Signatures"
+"""!
+@brief Path to Outlook email signatures folder.
+@details Contains user-created email signatures (.htm, .rtf, .txt files).
+"""
+
+OUTLOOK_DATA_PATHS: tuple[str, ...] = (
+    r"%LOCALAPPDATA%\\Microsoft\\Outlook",
+    r"%APPDATA%\\Microsoft\\Outlook",
+)
+"""!
+@brief Paths to Outlook data (OST/PST files, profiles, caches).
 """
 
 # Export the TypeLib GUIDs for use by registry cleanup
@@ -1711,6 +1741,8 @@ __all__ = [
     "OSPP_REGISTRY_PATH",
     "OFFSCRUB_EXECUTABLE",
     "OFFSCRUB_HOST_ARGS",
+    "OUTLOOK_DATA_PATHS",
+    "OUTLOOK_SIGNATURES_PATH",
     "REGISTRY_RESIDUE_PATHS",
     "REGISTRY_ROOTS",
     "RESIDUE_PATH_TEMPLATES",

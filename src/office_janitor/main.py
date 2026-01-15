@@ -394,6 +394,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Preserve Outlook OST/PST files and profiles.",
     )
     data_opts.add_argument(
+        "--keep-outlook-signatures",
+        action="store_true",
+        help="Preserve Outlook email signatures when deleting Outlook data.",
+    )
+    data_opts.add_argument(
         "--clean-shortcuts",
         action="store_true",
         help="Remove Office shortcuts from Start Menu and Desktop.",
@@ -2465,6 +2470,7 @@ def _collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, obje
         "keep_user_settings": _get("keep_user_settings", False, is_bool=True),
         "delete_user_settings": _get("delete_user_settings", False, is_bool=True),
         "keep_outlook_data": _get("keep_outlook_data", False, is_bool=True),
+        "keep_outlook_signatures": _get("keep_outlook_signatures", False, is_bool=True),
         "clean_shortcuts": _get("clean_shortcuts", False, is_bool=True),
         "skip_shortcut_detection": _get("skip_shortcut_detection", False, is_bool=True),
         # Registry cleanup
