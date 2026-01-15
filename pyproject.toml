@@ -63,8 +63,11 @@ ignore = []
 [tool.mypy]
 python_version = "3.9"
 namespace_packages = false
-strict = false
-disable_error_code = ["call-overload", "arg-type", "assignment", "attr-defined", "misc", "index", "operator", "union-attr"]
+strict = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+# Disable error codes for dynamic dict patterns and variadic typing
+disable_error_code = ["call-overload", "arg-type", "operator", "index", "misc", "attr-defined", "union-attr", "assignment"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

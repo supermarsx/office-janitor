@@ -26,9 +26,9 @@ from . import (
 from . import off_scrub_helpers as _helpers
 from .off_scrub_helpers import ExecutionDirectives, LegacyInvocation
 
-fs_tools = _helpers.fs_tools
-registry_tools = _helpers.registry_tools
-constants = _helpers.constants
+fs_tools = _helpers.fs_tools  # dynamic module ref
+registry_tools = _helpers.registry_tools  # dynamic module ref
+constants = _helpers.constants  # dynamic module ref
 
 
 def _wrap_parse_legacy_arguments(command: str, argv: Sequence[str]) -> LegacyInvocation:
@@ -81,7 +81,7 @@ def uninstall_products(
     human_logger = logging_ext.get_human_logger()
     human_logger.info("OffScrub native C2R: starting uninstall (dry_run=%s)", bool(dry_run))
 
-    kwargs = {"dry_run": dry_run}
+    kwargs: dict[str, object] = {"dry_run": dry_run}
     if retries is not None:
         kwargs["retries"] = retries
 
@@ -107,7 +107,7 @@ def uninstall_msi_products(
         bool(dry_run),
     )
 
-    kwargs = {"dry_run": dry_run}
+    kwargs: dict[str, object] = {"dry_run": dry_run}
     if retries is not None:
         kwargs["retries"] = retries
 

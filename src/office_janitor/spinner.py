@@ -374,10 +374,10 @@ def _kill_process_tree(pid: int) -> None:
     else:
         # Unix: kill process group if possible, otherwise just the process
         try:
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
+            os.killpg(os.getpgid(pid), signal.SIGKILL)  # Unix only
         except (ProcessLookupError, PermissionError, OSError):
             try:
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, signal.SIGKILL)  # Unix only
             except Exception:
                 pass
 

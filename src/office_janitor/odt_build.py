@@ -614,17 +614,17 @@ class ODTConfig:
             raise ValueError(f"Unknown preset '{preset_name}'. Available: {available}")
 
         langs = languages or ["en-us"]
-        exclude_apps = preset.get("exclude_apps", [])  # type: ignore[union-attr]
+        exclude_apps = preset.get("exclude_apps", [])
         products = [
             ProductConfig(product_id=pid, languages=langs, exclude_apps=list(exclude_apps))
-            for pid in preset.get("products", [])  # type: ignore[union-attr]
+            for pid in preset.get("products", [])
         ]
 
         config = cls(
             products=products,
-            architecture=preset.get("architecture", Architecture.X64),  # type: ignore[arg-type]
-            channel=preset.get("channel", UpdateChannel.CURRENT),  # type: ignore[arg-type]
-            shared_computer_licensing=preset.get("shared_computer", False),  # type: ignore[arg-type]
+            architecture=preset.get("architecture", Architecture.X64),
+            channel=preset.get("channel", UpdateChannel.CURRENT),
+            shared_computer_licensing=preset.get("shared_computer", False),
         )
         return config
 
@@ -912,7 +912,7 @@ def get_odt_setup_path() -> Path:
     """
     # When running as PyInstaller bundle
     if getattr(sys, "frozen", False):
-        base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+        base_path = Path(sys._MEIPASS)  # PyInstaller runtime
     else:
         # Development: look relative to this module
         base_path = Path(__file__).parent.parent.parent
@@ -1250,7 +1250,9 @@ def _get_process_cpu_percent(pid: int, interval: float = 0.1) -> float:
 
             # Calculate CPU time delta (100ns units)
             def filetime_to_int(ft: FILETIME) -> int:
-                return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
+                high: int = ft.dwHighDateTime
+                low: int = ft.dwLowDateTime
+                return (high << 32) | low
 
             kernel_delta = filetime_to_int(kernel_time2) - filetime_to_int(kernel_time1)
             user_delta = filetime_to_int(user_time2) - filetime_to_int(user_time1)
@@ -1309,7 +1311,8 @@ def _get_process_memory_mb(pid: int) -> float:
             counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
 
             if psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
-                return counters.WorkingSetSize / (1024 * 1024)
+                working_set: int = counters.WorkingSetSize
+                return float(working_set) / (1024 * 1024)
             return 0.0
 
         finally:
@@ -2755,7 +2758,7 @@ def list_products() -> list[dict[str, object]]:
                 "id": pid,
                 "name": meta.get("name", pid),
                 "description": meta.get("description", ""),
-                "channels": [ch.value for ch in meta.get("channels", [])],  # type: ignore[union-attr]
+                "channels": [ch.value for ch in meta.get("channels", [])],
             }
         )
     return result
@@ -2772,8 +2775,8 @@ def list_presets() -> list[dict[str, object]]:
             {
                 "name": name,
                 "products": preset.get("products", []),
-                "architecture": preset.get("architecture", Architecture.X64).value,  # type: ignore[union-attr]
-                "channel": preset.get("channel", UpdateChannel.CURRENT).value,  # type: ignore[union-attr]
+                "architecture": preset.get("architecture", Architecture.X64).value,
+                "channel": preset.get("channel", UpdateChannel.CURRENT).value,
                 "description": preset.get("description", ""),
             }
         )
@@ -2895,7 +2898,8 @@ def _print_products() -> None:
     print("\nAvailable Office Products:")
     print("-" * 80)
     for product in list_products():
-        channels = ", ".join(product.get("channels", []))  # type: ignore[arg-type]
+        channels_list: list[str] = product.get("channels", [])
+        channels = ", ".join(channels_list)
         print(f"  {product['id']:<30} {product['name']}")
         print(f"      Channels: {channels}")
         print(f"      {product['description']}")
@@ -2907,7 +2911,8 @@ def _print_presets() -> None:
     print("\nAvailable Installation Presets:")
     print("-" * 80)
     for preset in list_presets():
-        products = ", ".join(preset.get("products", []))  # type: ignore[arg-type]
+        products_list: list[str] = preset.get("products", [])
+        products = ", ".join(products_list)
         print(f"  {preset['name']:<30}")
         print(f"      Products: {products}")
         print(f"      Architecture: {preset['architecture']}, Channel: {preset['channel']}")

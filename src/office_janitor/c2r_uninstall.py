@@ -69,7 +69,7 @@ def _get_oem_dir() -> Path | None:
     try:
         if getattr(sys, "frozen", False):
             # Running as PyInstaller bundle
-            base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+            base_path = Path(sys._MEIPASS)  # PyInstaller runtime
         else:
             # Running from source - oem/ is at repository root
             base_path = Path(__file__).parent.parent.parent

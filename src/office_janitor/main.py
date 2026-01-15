@@ -1443,7 +1443,8 @@ def _handle_odt_list_commands(args: argparse.Namespace) -> bool:
         print("\nAvailable Office Products for ODT Configuration:")
         print("=" * 80)
         for product in odt_build.list_products():
-            channels = ", ".join(product.get("channels", []))  # type: ignore[arg-type]
+            channels_list: list[str] = product.get("channels", [])
+            channels = ", ".join(channels_list)
             print(f"\n  {product['id']}")
             print(f"      Name: {product['name']}")
             print(f"      Channels: {channels}")
@@ -1454,7 +1455,8 @@ def _handle_odt_list_commands(args: argparse.Namespace) -> bool:
         print("\nAvailable Installation Presets:")
         print("=" * 80)
         for preset in odt_build.list_presets():
-            products = ", ".join(preset.get("products", []))  # type: ignore[arg-type]
+            products_list: list[str] = preset.get("products", [])
+            products = ", ".join(products_list)
             print(f"\n  {preset['name']}")
             print(f"      Products: {products}")
             print(f"      Architecture: {preset['architecture']}, Channel: {preset['channel']}")
