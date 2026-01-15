@@ -272,6 +272,13 @@ ODT INSTALLATION PRESETS (use with --odt-install --odt-preset NAME):
 
 ================================================================================
 
+QUICK INSTALL ALIASES (author shortcuts):
+
+  --goobler    LTSC 2024 + Visio + Project (clean) with pt-pt + en-us
+  --pupa       LTSC 2024 ProPlus only (clean) with pt-pt + en-us
+
+================================================================================
+
 QUICK EXAMPLES:
 
   # Install Office LTSC 2024 + Visio + Project with multiple languages
@@ -1583,6 +1590,60 @@ def _run_odt_install(args: argparse.Namespace) -> bool:
             print("\n✓ Office installation completed successfully!")
         else:
             print(f"\n✗ Office installation failed with exit code {result.return_code}")
+            if result.stderr:
+                print(f"Error output:\n{result.stderr}")
+            if result.config_path:
+                print(f"Config file preserved at: {result.config_path}")
+
+        return True
+
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return True
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return True
+
+
+def _run_author_install(
+    args: argparse.Namespace,
+    *,
+    preset: str,
+    languages: list[str],
+    name: str,
+) -> bool:
+    """!
+    @brief Run a pre-configured author install alias.
+    @param args Parsed command-line arguments.
+    @param preset The preset name to use.
+    @param languages List of language codes.
+    @param name Display name for the alias.
+    @returns True (command was handled).
+    """
+    dry_run = getattr(args, "dry_run", False)
+
+    try:
+        config = odt_build.ODTConfig.from_preset(preset, languages)
+
+        # Show what we're about to install
+        print("\n" + "=" * 70)
+        print(f"Quick Install: {name}")
+        print("=" * 70)
+        print(f"Preset: {preset}")
+        print(f"Products: {', '.join(p.product_id for p in config.products)}")
+        print(f"Languages: {', '.join(languages)}")
+        print(f"Architecture: {config.architecture.value}-bit")
+        print(f"Channel: {config.channel.value}")
+        if config.products and config.products[0].exclude_apps:
+            print(f"Excluded: {', '.join(config.products[0].exclude_apps)}")
+        print("=" * 70)
+
+        result = odt_build.run_odt_install(config, dry_run=dry_run)
+
+        if result.success:
+            print(f"\n[OK] {name} installation completed successfully!")
+        else:
+            print(f"\n[FAILED] {name} installation failed with exit code {result.return_code}")
             if result.stderr:
                 print(f"Error output:\n{result.stderr}")
             if result.config_path:

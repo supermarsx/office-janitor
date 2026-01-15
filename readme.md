@@ -184,6 +184,26 @@ office-janitor --odt-list-channels
 office-janitor --odt-list-languages
 ```
 
+### Quick Install Aliases
+
+For convenience, author-defined shortcuts are available for common installations:
+
+```bash
+# Goobler: LTSC 2024 + Visio Pro + Project Pro (no OneDrive/Skype) with pt-pt and en-us
+office-janitor --goobler
+
+# Pupa: LTSC 2024 ProPlus only (no OneDrive/Skype) with pt-pt and en-us
+office-janitor --pupa
+
+# Both support --dry-run to preview
+office-janitor --goobler --dry-run
+```
+
+| Alias | Preset | Products | Languages |
+|-------|--------|----------|-----------|
+| `--goobler` | `ltsc2024-full-x64-clean` | ProPlus 2024 + Visio Pro + Project Pro | pt-pt, en-us |
+| `--pupa` | `ltsc2024-x64-clean` | ProPlus 2024 only | pt-pt, en-us |
+
 ### Building Installation Configurations
 
 ```bash
