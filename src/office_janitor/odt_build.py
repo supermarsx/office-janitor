@@ -1496,58 +1496,89 @@ def _install_poller_thread(
     pid: int,
     stats: _MonitorStats,
     stop_event: threading.Event,
-    interval: float = 0.9,
+    interval: float = 0.5,
 ) -> None:
     """!
     @brief Dedicated thread to poll install metrics without blocking spinner.
-    @details Polls CPU/RAM every 900ms, heavy disk/file ops every 3 seconds.
+    @details Polls lightweight stats frequently, heavy disk/file ops less often.
     @param pid Process ID to monitor.
     @param stats Shared _MonitorStats object to update.
     @param stop_event Event to signal when polling should stop.
-    @param interval Polling interval in seconds (default 900ms).
+    @param interval Polling interval in seconds (default 500ms).
     """
     heavy_poll_counter = 0
-    HEAVY_POLL_INTERVAL = 3  # Only poll disk/files every 3 intervals (~2.7s)
+    HEAVY_POLL_INTERVAL = 5  # Only poll disk/files every 5 intervals (~2.5s)
 
     # Cache for heavy operations
     cached_size = 0
     cached_files = 0
     cached_reg_keys = 0
+    cached_cpu = 0.0
+    cached_mem = 0.0
 
     while not stop_event.is_set():
         try:
-            # Always poll CPU/RAM (fast via Windows API)
-            mem = _get_process_memory_mb(pid)
-            cpu = _get_process_cpu_percent(pid, interval=0.05)  # Shorter interval
+            # Yield GIL at start of loop
+            time.sleep(0)
 
-            # Only poll heavy disk/file operations occasionally
+            # Poll CPU/RAM - these can block briefly, so do them less often
             heavy_poll_counter += 1
             if heavy_poll_counter >= HEAVY_POLL_INTERVAL:
                 heavy_poll_counter = 0
-                # Yield GIL before heavy I/O
-                time.sleep(0)
-                cached_size = _get_office_install_size()
+
+                # CPU measurement with short interval (blocks for 50ms)
+                try:
+                    cached_cpu = _get_process_cpu_percent(pid, interval=0.05)
+                except Exception:
+                    cached_cpu = 0.0
+
                 time.sleep(0)  # Yield GIL
-                cached_files = _count_office_files()
+
+                try:
+                    cached_mem = _get_process_memory_mb(pid)
+                except Exception:
+                    cached_mem = 0.0
+
                 time.sleep(0)  # Yield GIL
-                cached_reg_keys = sum(_count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS)
+
+                # Heavy disk/file operations
+                try:
+                    cached_size = _get_office_install_size()
+                except Exception:
+                    pass
+
+                time.sleep(0)  # Yield GIL
+
+                try:
+                    cached_files = _count_office_files()
+                except Exception:
+                    pass
+
+                time.sleep(0)  # Yield GIL
+
+                try:
+                    cached_reg_keys = sum(_count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS)
+                except Exception:
+                    pass
 
             # Log status is lightweight - check every poll
-            log_path = _find_latest_odt_log()
-            if log_path:
-                log_status, log_pct = _parse_odt_progress(log_path)
-            else:
-                log_status, log_pct = "Starting...", None
+            log_status, log_pct = "Starting...", None
+            try:
+                log_path = _find_latest_odt_log()
+                if log_path:
+                    log_status, log_pct = _parse_odt_progress(log_path)
+            except Exception:
+                pass
 
             # Update shared stats
             stats.update_install(
-                cpu, mem, cached_size, cached_files, cached_reg_keys, log_status, log_pct
+                cached_cpu, cached_mem, cached_size, cached_files, cached_reg_keys, log_status, log_pct
             )
 
         except Exception:
             pass
 
-        # Wait for next poll
+        # Wait for next poll - short interval for responsiveness
         stop_event.wait(interval)
 
 
@@ -1556,56 +1587,78 @@ def _download_poller_thread(
     download_path: Path,
     stats: _MonitorStats,
     stop_event: threading.Event,
-    interval: float = 0.9,
+    interval: float = 0.5,
 ) -> None:
     """!
     @brief Dedicated thread to poll download metrics without blocking spinner.
-    @details Polls CPU/RAM every 900ms, heavy disk ops every 3 intervals.
+    @details Polls lightweight stats frequently, heavy disk ops less often.
     @param pid Process ID to monitor.
     @param download_path Path where files are being downloaded.
     @param stats Shared _MonitorStats object to update.
     @param stop_event Event to signal when polling should stop.
-    @param interval Polling interval in seconds (default 900ms).
+    @param interval Polling interval in seconds (default 500ms).
     """
     heavy_poll_counter = 0
-    HEAVY_POLL_INTERVAL = 3  # Only poll disk every 3 intervals (~2.7s)
+    HEAVY_POLL_INTERVAL = 5  # Only poll disk every 5 intervals (~2.5s)
 
     # Cache for heavy operations
     cached_dl_size = 0
     cached_dl_files = 0
+    cached_cpu = 0.0
+    cached_mem = 0.0
 
     while not stop_event.is_set():
         try:
-            # Always poll CPU/RAM (fast via Windows API)
-            mem = _get_process_memory_mb(pid)
-            cpu = _get_process_cpu_percent(pid, interval=0.05)  # Shorter interval
+            # Yield GIL at start of loop
+            time.sleep(0)
 
-            # Only poll heavy disk operations occasionally
+            # Poll CPU/RAM and disk - do them together less often
             heavy_poll_counter += 1
             if heavy_poll_counter >= HEAVY_POLL_INTERVAL:
                 heavy_poll_counter = 0
+
                 try:
-                    time.sleep(0)  # Yield GIL
+                    cached_cpu = _get_process_cpu_percent(pid, interval=0.05)
+                except Exception:
+                    cached_cpu = 0.0
+
+                time.sleep(0)  # Yield GIL
+
+                try:
+                    cached_mem = _get_process_memory_mb(pid)
+                except Exception:
+                    cached_mem = 0.0
+
+                time.sleep(0)  # Yield GIL
+
+                try:
                     cached_dl_size = _get_folder_size(download_path)
-                    time.sleep(0)  # Yield GIL
+                except Exception:
+                    pass
+
+                time.sleep(0)  # Yield GIL
+
+                try:
                     cached_dl_files = sum(1 for _ in download_path.rglob("*") if _.is_file())
                 except Exception:
                     pass
 
             # Log status is lightweight - check every poll
-            log_path = _find_latest_odt_log()
-            if log_path:
-                log_status, log_pct = _parse_odt_progress(log_path)
-            else:
-                log_status, log_pct = "Starting...", None
+            log_status, log_pct = "Starting...", None
+            try:
+                log_path = _find_latest_odt_log()
+                if log_path:
+                    log_status, log_pct = _parse_odt_progress(log_path)
+            except Exception:
+                pass
 
             # Update shared stats
-            stats.update_download(cpu, mem, cached_dl_size, cached_dl_files, log_status, log_pct)
+            stats.update_download(cached_cpu, cached_mem, cached_dl_size, cached_dl_files, log_status, log_pct)
 
         except Exception:
             pass
 
-        # Wait for next poll
+        # Wait for next poll - short interval for responsiveness
         stop_event.wait(interval)
 
 
@@ -1651,12 +1704,7 @@ def _monitor_odt_progress(
 ) -> None:
     """!
     @brief Background thread to monitor ODT installation progress.
-    @details Monitors multiple indicators of installation progress:
-    - ODT log files for status messages and percentages
-    - Office installation folder size (disk usage)
-    - File count in installation directories
-    - Registry key changes
-    - CPU and RAM usage of ODT process tree (via dedicated poller thread)
+    @details Uses a dedicated poller thread for I/O, this thread only updates spinner.
     @param proc The ODT subprocess being monitored.
     @param stop_event Event to signal when monitoring should stop.
     @param products List of product names being installed.
@@ -1668,90 +1716,68 @@ def _monitor_odt_progress(
     if len(products) > 2:
         product_str += f" +{len(products) - 2}"
 
-    # Capture baseline metrics before installation
-    baseline_size = _get_office_install_size()
-    baseline_files = _count_office_files()
+    # Shared stats object for non-blocking reads
+    stats = _MonitorStats()
+    poller_stop = threading.Event()
 
-    # Start dedicated polling thread for ALL metrics (polls every 900ms)
-    monitor_stats = _MonitorStats()
-    stats_stop = threading.Event()
-    stats_thread = threading.Thread(
+    # Start dedicated poller thread for all I/O operations
+    pid = proc.pid
+    poller = threading.Thread(
         target=_install_poller_thread,
-        args=(proc.pid, monitor_stats, stats_stop, 0.9),
+        args=(pid, stats, poller_stop),
         daemon=True,
         name="odt-install-poller",
     )
-    stats_thread.start()
-
-    last_display = ""
-
-    # Set initial task (starts the timer)
-    initial_task = f"ODT: Starting - {product_str}"
-    _spinner.set_task(initial_task)
-    last_display = initial_task
+    poller.start()
 
     try:
+        # Update spinner with stats every 200ms (non-blocking reads only)
         while not stop_event.is_set() and proc.poll() is None:
-            # Read cached stats (non-blocking, very fast)
-            cpu, mem, size, files, reg_keys, log_status, log_pct = monitor_stats.get_install()
+            # Read cached stats (non-blocking, thread-safe)
+            cpu, mem, size_bytes, files, reg_keys, log_status, log_pct = stats.get_install()
 
-            # Calculate deltas from baseline
-            size_delta = size - baseline_size
-            files_delta = files - baseline_files
-
-            # Build display string with best available info
-            parts: list[str] = []
-
-            # Primary status from log if available
-            if log_pct is not None:
-                parts.append(f"{log_status} ({log_pct}%)")
-            elif log_status and log_status != "Starting...":
-                parts.append(log_status)
+            # Format size
+            if size_bytes >= 1_000_000_000:
+                size_str = f"{size_bytes / 1_000_000_000:.1f}GB"
+            elif size_bytes >= 1_000_000:
+                size_str = f"{size_bytes / 1_000_000:.0f}MB"
             else:
-                # Infer status from metrics
-                if size_delta > 0:
-                    if size_delta < 100 * 1024 * 1024:  # < 100 MB
-                        parts.append("Downloading")
-                    elif size_delta < 1024 * 1024 * 1024:  # < 1 GB
-                        parts.append("Installing")
-                    else:
-                        parts.append("Installing (finalizing)")
-                else:
-                    parts.append("Starting")
+                size_str = f"{size_bytes / 1_000:.0f}KB"
 
-            # Add size info if there's meaningful disk activity
-            if size_delta > 1024 * 1024:  # > 1 MB
-                parts.append(_format_size(size_delta))
+            # Build status line
+            parts = [f"ODT: {product_str}"]
+            if log_pct is not None:
+                parts.append(f"{log_pct}%")
+            if log_status and log_status != "Starting...":
+                # Truncate long status
+                status_short = log_status[:30] + "..." if len(log_status) > 33 else log_status
+                parts.append(status_short)
 
-            # Add file count if meaningful
-            if files_delta > 100:
-                parts.append(f"{files_delta:,} files")
+            # Add metrics
+            metrics = []
+            if size_bytes > 0:
+                metrics.append(size_str)
+            if files > 0:
+                metrics.append(f"{files} files")
+            if reg_keys > 0:
+                metrics.append(f"{reg_keys} keys")
+            if cpu > 0:
+                metrics.append(f"CPU {cpu:.0f}%")
+            if mem > 0:
+                metrics.append(f"RAM {mem:.0f}MB")
 
-            # Add CPU/RAM stats if meaningful
-            if cpu > 1.0 or mem > 10:
-                stats_parts = []
-                if cpu > 1.0:
-                    stats_parts.append(f"CPU {cpu:.0f}%")
-                if mem > 10:
-                    stats_parts.append(f"RAM {mem:.0f}MB")
-                if stats_parts:
-                    parts.append(" ".join(stats_parts))
+            if metrics:
+                parts.append(f"[{', '.join(metrics)}]")
 
-            # Build final display
-            status_part = " | ".join(parts) if parts else "Working"
-            display = f"ODT: {status_part} - {product_str}"
+            # Update spinner text (non-blocking)
+            _spinner.update_task(" ".join(parts))
 
-            # Only update spinner if changed (use update_task to preserve timer)
-            if display != last_display:
-                _spinner.update_task(display)
-                last_display = display
-
-            stop_event.wait(0.15)  # Check every 150ms for smooth spinner
-
+            # Short sleep to keep responsive
+            stop_event.wait(0.2)
     finally:
-        # Stop the stats polling thread
-        stats_stop.set()
-        stats_thread.join(timeout=0.5)
+        # Stop the poller thread
+        poller_stop.set()
+        poller.join(timeout=1.0)
 
 
 def run_odt_install(
@@ -1790,14 +1816,9 @@ def run_odt_install(
 
     command = [str(setup_path), "/configure", str(config_path)]
 
-    log.info(f"Installing Office with ODT: {' '.join(command)}")
-    log.info(f"Config file: {config_path}")
-    log.warning(
-        "Office installation may take 10-30 minutes depending on products selected "
-        "and network speed. Please be patient."
-    )
-
     if dry_run:
+        log.info(f"Installing Office with ODT: {' '.join(command)}")
+        log.info(f"Config file: {config_path}")
         log.info("[DRY-RUN] Would execute: %s", " ".join(command))
         xml_content = config_path.read_text(encoding="utf-8")
         log.info(f"Configuration XML:\n{xml_content}")
@@ -1814,7 +1835,15 @@ def run_odt_install(
     # Get product names for progress display
     product_names = [p.product_id for p in config.products]
 
-    # Start spinner if available and requested
+    # Log BEFORE starting spinner so messages appear correctly
+    log.info(f"Installing Office with ODT: {' '.join(command)}")
+    log.info(f"Config file: {config_path}")
+    log.warning(
+        "Office installation may take 10-30 minutes depending on products selected "
+        "and network speed. Please be patient."
+    )
+
+    # Start spinner AFTER logging
     spinner_started = False
     if show_progress and (_spinner is not None):
         _spinner.start_spinner_thread()
@@ -1828,10 +1857,12 @@ def run_odt_install(
 
     try:
         # Start the ODT process
+        # Don't capture stdout/stderr - ODT writes to its own logs
+        # Using DEVNULL prevents pipe buffer blocking issues on Windows
         proc = subprocess.Popen(
             command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
 
@@ -1849,24 +1880,31 @@ def run_odt_install(
             )
             monitor_thread.start()
 
-        # Wait for process to complete
-        stdout, stderr = proc.communicate(timeout=timeout)
-        return_code = proc.returncode
+        # Wait for process with polling to keep threads responsive
+        return_code = None
+        deadline = time.monotonic() + timeout if timeout else None
+        while return_code is None:
+            return_code = proc.poll()
+            if return_code is None:
+                if deadline and time.monotonic() > deadline:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                time.sleep(0.1)  # Poll every 100ms
+
+        stdout, stderr = "", ""
         error = None
 
     except subprocess.TimeoutExpired:
         if proc is not None:
             proc.kill()
-            stdout, stderr = proc.communicate()
-        else:
-            stdout, stderr = "", ""
+            proc.wait()  # Wait for process to actually terminate
+        stdout, stderr = "", ""
         return_code = -1
         error = f"Installation timed out after {timeout} seconds"
     except Exception as e:
         if proc is not None:
             try:
                 proc.kill()
-                proc.communicate()
+                proc.wait()
             except Exception:
                 pass
         return_code = -1
@@ -1918,8 +1956,7 @@ def _monitor_odt_download_progress(
 ) -> None:
     """!
     @brief Background thread to monitor ODT download progress.
-    @details Monitors download folder size and ODT log files for progress.
-    Uses a dedicated thread to poll ALL stats every 900ms for low resource usage.
+    @details Uses a dedicated poller thread for I/O, this thread only updates spinner.
     @param proc The ODT subprocess being monitored.
     @param stop_event Event to signal when monitoring should stop.
     @param download_path Path where files are being downloaded.
@@ -1927,83 +1964,66 @@ def _monitor_odt_download_progress(
     if _spinner is None:
         return
 
-    last_display = ""
-    last_size = 0
-    last_time = time.monotonic()
+    # Shared stats object for non-blocking reads
+    stats = _MonitorStats()
+    poller_stop = threading.Event()
 
-    # Start dedicated polling thread for ALL metrics (polls every 900ms)
-    monitor_stats = _MonitorStats()
-    stats_stop = threading.Event()
-    stats_thread = threading.Thread(
+    # Start dedicated poller thread for all I/O operations
+    pid = proc.pid
+    poller = threading.Thread(
         target=_download_poller_thread,
-        args=(proc.pid, download_path, monitor_stats, stats_stop, 0.9),
+        args=(pid, download_path, stats, poller_stop),
         daemon=True,
         name="odt-download-poller",
     )
-    stats_thread.start()
-
-    # Set initial task (starts the timer)
-    initial_task = "ODT: Starting download..."
-    _spinner.set_task(initial_task)
-    last_display = initial_task
+    poller.start()
 
     try:
+        # Update spinner with stats every 200ms (non-blocking reads only)
         while not stop_event.is_set() and proc.poll() is None:
-            # Read cached stats (non-blocking, very fast)
-            cpu, mem, dl_size, dl_files, log_status, log_pct = monitor_stats.get_download()
+            # Read cached stats (non-blocking, thread-safe)
+            cpu, mem, dl_size, dl_files, log_status, log_pct = stats.get_download()
 
-            parts: list[str] = []
-
-            # Log status
-            if log_pct is not None:
-                parts.append(f"Downloading ({log_pct}%)")
-            elif log_status and "download" in log_status.lower():
-                parts.append(log_status)
-
-            # Size info
-            if dl_size > 0:
-                parts.append(_format_size(dl_size))
-                # Calculate download speed
-                now = time.monotonic()
-                elapsed = now - last_time
-                if elapsed > 0.1 and last_size > 0 and dl_size > last_size:
-                    speed = (dl_size - last_size) / elapsed
-                    if speed > 1024 * 1024:  # > 1 MB/s
-                        parts.append(f"{_format_size(int(speed))}/s")
-                last_size = dl_size
-                last_time = now
-
-            # File count
-            if dl_files > 0:
-                parts.append(f"{dl_files} files")
-
-            # CPU/RAM stats
-            if cpu > 1.0 or mem > 10:
-                stats_parts = []
-                if cpu > 1.0:
-                    stats_parts.append(f"CPU {cpu:.0f}%")
-                if mem > 10:
-                    stats_parts.append(f"RAM {mem:.0f}MB")
-                if stats_parts:
-                    parts.append(" ".join(stats_parts))
-
-            # Build display
-            if parts:
-                display = f"ODT: {' | '.join(parts)}"
+            # Format size
+            if dl_size >= 1_000_000_000:
+                size_str = f"{dl_size / 1_000_000_000:.1f}GB"
+            elif dl_size >= 1_000_000:
+                size_str = f"{dl_size / 1_000_000:.0f}MB"
             else:
-                display = "ODT: Downloading..."
+                size_str = f"{dl_size / 1_000:.0f}KB"
 
-            # Only update spinner if changed (use update_task to preserve timer)
-            if display != last_display:
-                _spinner.update_task(display)
-                last_display = display
+            # Build status line
+            parts = ["ODT: Downloading"]
+            if log_pct is not None:
+                parts.append(f"{log_pct}%")
+            if log_status and log_status != "Starting...":
+                # Truncate long status
+                status_short = log_status[:30] + "..." if len(log_status) > 33 else log_status
+                parts.append(status_short)
 
-            stop_event.wait(0.15)  # Check every 150ms for smooth spinner
+            # Add metrics
+            metrics = []
+            if dl_size > 0:
+                metrics.append(size_str)
+            if dl_files > 0:
+                metrics.append(f"{dl_files} files")
+            if cpu > 0:
+                metrics.append(f"CPU {cpu:.0f}%")
+            if mem > 0:
+                metrics.append(f"RAM {mem:.0f}MB")
 
+            if metrics:
+                parts.append(f"[{', '.join(metrics)}]")
+
+            # Update spinner text (non-blocking)
+            _spinner.update_task(" ".join(parts))
+
+            # Short sleep to keep responsive
+            stop_event.wait(0.2)
     finally:
-        # Stop the stats polling thread
-        stats_stop.set()
-        stats_thread.join(timeout=0.5)
+        # Stop the poller thread
+        poller_stop.set()
+        poller.join(timeout=1.0)
 
 
 def run_odt_download(
@@ -2086,10 +2106,12 @@ def run_odt_download(
 
     try:
         # Start the ODT process
+        # Don't capture stdout/stderr - ODT writes to its own logs
+        # Using DEVNULL prevents pipe buffer blocking issues on Windows
         proc = subprocess.Popen(
             command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
 
@@ -2107,24 +2129,31 @@ def run_odt_download(
             )
             monitor_thread.start()
 
-        # Wait for process to complete
-        stdout, stderr = proc.communicate(timeout=timeout)
-        return_code = proc.returncode
+        # Wait for process with polling to keep threads responsive
+        return_code = None
+        deadline = time.monotonic() + timeout if timeout else None
+        while return_code is None:
+            return_code = proc.poll()
+            if return_code is None:
+                if deadline and time.monotonic() > deadline:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                time.sleep(0.1)  # Poll every 100ms
+
+        stdout, stderr = "", ""
         error = None
 
     except subprocess.TimeoutExpired:
         if proc is not None:
             proc.kill()
-            stdout, stderr = proc.communicate()
-        else:
-            stdout, stderr = "", ""
+            proc.wait()  # Wait for process to actually terminate
+        stdout, stderr = "", ""
         return_code = -1
         error = f"Download timed out after {timeout} seconds"
     except Exception as e:
         if proc is not None:
             try:
                 proc.kill()
-                proc.communicate()
+                proc.wait()
             except Exception:
                 pass
         return_code = -1
