@@ -293,6 +293,57 @@ def _kill_process_trees() -> None:
                 pass  # Best effort cleanup
         _active_processes.clear()
 
+    # Also kill any ClickToRun/ODT processes that may have been spawned
+    _kill_clicktorun_processes()
+
+
+# List of ClickToRun and ODT-related process names to kill on interrupt
+_CLICKTORUN_PROCESS_NAMES = [
+    "setup.exe",
+    "OfficeClickToRun.exe",
+    "OfficeC2RClient.exe",
+    "officec2rclient.exe",
+    "officeclicktorun.exe",
+    "AppVShNotify.exe",
+    "appvshnotify.exe",
+    "IntegratedOffice.exe",
+    "integratedoffice.exe",
+    "OfficeServiceManager.exe",
+]
+
+
+def _kill_clicktorun_processes() -> None:
+    """
+    Kill ClickToRun and ODT-related processes that may be running.
+
+    This ensures all Office installation/update processes are terminated
+    when the user presses Ctrl+C during an ODT operation.
+    """
+    import platform
+
+    if platform.system() != "Windows":
+        return
+
+    console = _get_console()
+
+    for proc_name in _CLICKTORUN_PROCESS_NAMES:
+        try:
+            # Use taskkill to kill by name - /F for force, /T for tree
+            result = subprocess.run(
+                ["taskkill", "/F", "/T", "/IM", proc_name],
+                capture_output=True,
+                timeout=5,
+            )
+            # Only report if process was actually found and killed
+            if result.returncode == 0:
+                try:
+                    console.write(f"\033[33m[KILLED]\033[0m {proc_name}\n")
+                    console.flush()
+                except (OSError, ValueError):
+                    pass
+        except Exception:
+            pass  # Best effort - process may not exist
+
 
 def _kill_process_tree(pid: int) -> None:
     """

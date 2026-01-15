@@ -1585,7 +1585,7 @@ def _run_odt_install(args: argparse.Namespace) -> bool:
         _progress(f"  Channel: {config.channel.value}")
         _progress("-" * 60)
 
-        _progress("ODT: Installing Office...", newline=False)
+        # Run installation - spinner handles progress display, don't use incomplete line
         result = odt_build.run_odt_install(config, dry_run=dry_run)
 
         if result.success:
@@ -1641,8 +1641,7 @@ def _run_author_install(
             _progress(f"  Excluded: {', '.join(config.products[0].exclude_apps)}")
         _progress("-" * 60)
 
-        # Run installation with progress tracking
-        _progress(f"ODT: Installing {name}...", newline=False)
+        # Run installation - spinner handles progress display, don't use incomplete line
         result = odt_build.run_odt_install(config, dry_run=dry_run)
 
         if result.success:
