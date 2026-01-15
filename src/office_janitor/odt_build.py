@@ -1628,7 +1628,9 @@ def _install_poller_thread(
                 time.sleep(0)  # Yield GIL
 
                 try:
-                    cached_reg_keys = sum(_count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS)
+                    cached_reg_keys = sum(
+                        _count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS
+                    )
                 except Exception:
                     pass
 
@@ -1643,7 +1645,13 @@ def _install_poller_thread(
 
             # Update shared stats
             stats.update_install(
-                cached_cpu, cached_mem, cached_size, cached_files, cached_reg_keys, log_status, log_pct
+                cached_cpu,
+                cached_mem,
+                cached_size,
+                cached_files,
+                cached_reg_keys,
+                log_status,
+                log_pct,
             )
 
         except Exception:
@@ -1724,7 +1732,9 @@ def _download_poller_thread(
                 pass
 
             # Update shared stats
-            stats.update_download(cached_cpu, cached_mem, cached_dl_size, cached_dl_files, log_status, log_pct)
+            stats.update_download(
+                cached_cpu, cached_mem, cached_dl_size, cached_dl_files, log_status, log_pct
+            )
 
         except Exception:
             pass
@@ -1849,6 +1859,187 @@ def _monitor_odt_progress(
         # Stop the poller thread
         poller_stop.set()
         poller.join(timeout=1.0)
+
+
+def _monitor_clicktorun_progress(
+    stop_event: threading.Event,
+    products: list[str],
+) -> None:
+    """!
+    @brief Background thread to monitor ClickToRun process progress.
+    @details Used when setup.exe exits but C2R processes are still running.
+    Monitors disk usage, file count, registry keys, and C2R process stats.
+    @param stop_event Event to signal when monitoring should stop.
+    @param products List of product names being installed.
+    """
+    if _spinner is None:
+        return
+
+    product_str = ", ".join(products[:2])
+    if len(products) > 2:
+        product_str += f" +{len(products) - 2}"
+
+    # Shared stats object for non-blocking reads
+    stats = _MonitorStats()
+    poller_stop = threading.Event()
+
+    # Start dedicated poller thread - use PID 0 to signal "find C2R processes"
+    poller = threading.Thread(
+        target=_clicktorun_poller_thread,
+        args=(stats, poller_stop),
+        daemon=True,
+        name="c2r-poller",
+    )
+    poller.start()
+
+    try:
+        # Update spinner with stats every 200ms (non-blocking reads only)
+        while not stop_event.is_set():
+            # Check if any C2R processes are still running
+            c2r_procs = _find_running_clicktorun_processes()
+            if not c2r_procs:
+                break
+
+            # Read cached stats (non-blocking, thread-safe)
+            cpu, mem, size_bytes, files, reg_keys, log_status, log_pct = stats.get_install()
+
+            # Format size
+            if size_bytes >= 1_000_000_000:
+                size_str = f"{size_bytes / 1_000_000_000:.1f}GB"
+            elif size_bytes >= 1_000_000:
+                size_str = f"{size_bytes / 1_000_000:.0f}MB"
+            else:
+                size_str = f"{size_bytes / 1_000:.0f}KB"
+
+            # Build status line showing C2R monitoring
+            c2r_names = ", ".join(set(p[1].replace(".exe", "") for p in c2r_procs[:2]))
+            parts = [f"C2R: {c2r_names}"]
+            if log_pct is not None:
+                parts.append(f"{log_pct}%")
+            if log_status and log_status != "Starting...":
+                status_short = log_status[:25] + "..." if len(log_status) > 28 else log_status
+                parts.append(status_short)
+
+            # Add metrics
+            metrics = []
+            if size_bytes > 0:
+                metrics.append(size_str)
+            if files > 0:
+                metrics.append(f"{files} files")
+            if reg_keys > 0:
+                metrics.append(f"{reg_keys} keys")
+            if cpu > 0:
+                metrics.append(f"CPU {cpu:.0f}%")
+            if mem > 0:
+                metrics.append(f"RAM {mem:.0f}MB")
+
+            if metrics:
+                parts.append(f"[{', '.join(metrics)}]")
+
+            # Update spinner text (non-blocking)
+            _spinner.update_task(" ".join(parts))
+
+            # Short sleep to keep responsive
+            stop_event.wait(0.2)
+    finally:
+        # Stop the poller thread
+        poller_stop.set()
+        poller.join(timeout=1.0)
+
+
+def _clicktorun_poller_thread(
+    stats: _MonitorStats,
+    stop_event: threading.Event,
+    interval: float = 0.5,
+) -> None:
+    """!
+    @brief Dedicated thread to poll ClickToRun process metrics.
+    @details Monitors all running C2R processes for CPU/RAM, plus disk and registry.
+    @param stats Shared _MonitorStats object to update.
+    @param stop_event Event to signal when polling should stop.
+    @param interval Polling interval in seconds.
+    """
+    heavy_poll_counter = 0
+    HEAVY_POLL_INTERVAL = 5
+
+    # Cache for heavy operations
+    cached_size = 0
+    cached_files = 0
+    cached_reg_keys = 0
+    cached_cpu = 0.0
+    cached_mem = 0.0
+
+    while not stop_event.is_set():
+        try:
+            time.sleep(0)  # Yield GIL
+
+            heavy_poll_counter += 1
+            if heavy_poll_counter >= HEAVY_POLL_INTERVAL:
+                heavy_poll_counter = 0
+
+                # Get stats from all running C2R processes
+                c2r_procs = _find_running_clicktorun_processes()
+                total_cpu = 0.0
+                total_mem = 0.0
+                for pid, _ in c2r_procs:
+                    try:
+                        total_cpu += _get_process_cpu_percent(pid, interval=0.05)
+                    except Exception:
+                        pass
+                    time.sleep(0)
+                    try:
+                        total_mem += _get_process_memory_mb(pid)
+                    except Exception:
+                        pass
+                cached_cpu = total_cpu
+                cached_mem = total_mem
+
+                time.sleep(0)
+
+                try:
+                    cached_size = _get_office_install_size()
+                except Exception:
+                    pass
+
+                time.sleep(0)
+
+                try:
+                    cached_files = _count_office_files()
+                except Exception:
+                    pass
+
+                time.sleep(0)
+
+                try:
+                    cached_reg_keys = sum(
+                        _count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS
+                    )
+                except Exception:
+                    pass
+
+            # Log status - check every poll
+            log_status, log_pct = "Installing...", None
+            try:
+                log_path = _find_latest_odt_log()
+                if log_path:
+                    log_status, log_pct = _parse_odt_progress(log_path)
+            except Exception:
+                pass
+
+            stats.update_install(
+                cached_cpu,
+                cached_mem,
+                cached_size,
+                cached_files,
+                cached_reg_keys,
+                log_status,
+                log_pct,
+            )
+
+        except Exception:
+            pass
+
+        stop_event.wait(interval)
 
 
 def run_odt_install(
@@ -2018,7 +2209,9 @@ def run_odt_install(
                 if c2r_finished:
                     # C2R processes finished - check if installation succeeded
                     # by looking for Office files/registry
-                    if _check_registry_key_exists(r"SOFTWARE\Microsoft\Office\ClickToRun\Configuration"):
+                    if _check_registry_key_exists(
+                        r"SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
+                    ):
                         log.info("ClickToRun installation appears to have completed successfully")
                         return_code = 0  # Override error code
                         error = None
