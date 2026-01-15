@@ -867,11 +867,17 @@ class TestExtendedCleanupOptions:
             "uninstall_entries": [
                 {
                     "display_name": "Microsoft Office Professional Plus 2016",
-                    "registry_handle": r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{90160000-0011-0000-0000-0000000FF1CE}",
+                    "registry_handle": (
+                        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+                        r"\{90160000-0011-0000-0000-0000000FF1CE}"
+                    ),
                 },
                 {
                     "display_name": "Microsoft Office 365 ProPlus",
-                    "registry_handle": r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\O365ProPlusRetail - en-us",
+                    "registry_handle": (
+                        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+                        r"\O365ProPlusRetail - en-us"
+                    ),
                 },
             ],
             "registry": [

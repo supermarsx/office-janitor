@@ -357,12 +357,9 @@ class StepExecutor:
         if attempt == 1:
             slow_step_warnings: dict[str, str] = {
                 "filesystem-cleanup": (
-                    "Filesystem cleanup may take several minutes "
-                    "depending on data volume"
+                    "Filesystem cleanup may take several minutes " "depending on data volume"
                 ),
-                "registry-cleanup": (
-                    "Registry cleanup may take a minute while exporting backups"
-                ),
+                "registry-cleanup": ("Registry cleanup may take a minute while exporting backups"),
                 "msi-uninstall": "MSI uninstall may take several minutes per product",
                 "c2r-uninstall": "Click-to-Run uninstall may take several minutes",
                 "odt-uninstall": "ODT uninstall may take several minutes",
@@ -903,7 +900,8 @@ def execute_plan(
             )
 
             _scrub_progress(
-                f"Pass {current_pass} complete: {pass_successes} success, {pass_failures} failed, {pass_skipped} skipped ({pass_duration:.2f}s)",
+                f"Pass {current_pass} complete: {pass_successes} success, "
+                f"{pass_failures} failed, {pass_skipped} skipped ({pass_duration:.2f}s)",
                 indent=1,
             )
 
@@ -964,9 +962,8 @@ def execute_plan(
     _scrub_progress("-" * 50)
 
     if final_plan:
-        _scrub_progress(
-            f"Cleanup steps to process: {sum(1 for s in final_plan if s.get('category') in CLEANUP_CATEGORIES)}"
-        )
+        cleanup_count = sum(1 for s in final_plan if s.get("category") in CLEANUP_CATEGORIES)
+        _scrub_progress(f"Cleanup steps to process: {cleanup_count}")
 
         machine_logger.info(
             "scrub_cleanup_start",
@@ -997,7 +994,8 @@ def execute_plan(
         )
 
         _scrub_progress(
-            f"Cleanup complete: {cleanup_successes} success, {cleanup_failures} failed ({cleanup_duration:.2f}s)"
+            f"Cleanup complete: {cleanup_successes} success, "
+            f"{cleanup_failures} failed ({cleanup_duration:.2f}s)"
         )
 
         machine_logger.info(
