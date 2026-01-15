@@ -10,6 +10,8 @@ __all__ = [
     "detect",
     "plan",
     "scrub",
+    "scrub_executor",
+    "scrub_cleanup",
     "msi_uninstall",
     "c2r_uninstall",
     "c2r_odt",
