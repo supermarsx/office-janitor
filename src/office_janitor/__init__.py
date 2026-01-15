@@ -12,6 +12,8 @@ __all__ = [
     "scrub",
     "msi_uninstall",
     "c2r_uninstall",
+    "c2r_odt",
+    "c2r_integrator",
     "licensing",
     "registry_tools",
     "fs_tools",
@@ -31,4 +33,6 @@ __all__ = [
     "msi_components",
     "odt_build",
     "repair",
+    "auto_repair",
+    "cli_help",
 ]

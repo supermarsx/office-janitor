@@ -18,7 +18,14 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import c2r_uninstall, command_runner, logging_ext, msi_uninstall  # noqa: E402
+from office_janitor import (  # noqa: E402
+    c2r_uninstall,
+    c2r_odt,
+    c2r_integrator,
+    command_runner,
+    logging_ext,
+    msi_uninstall,
+)
 
 
 def _command_result(
@@ -550,7 +557,8 @@ class TestFindOrDownloadOdt:
         setup_path = tmp_path / "setup.exe"
         setup_path.write_text("fake")
 
-        monkeypatch.setattr(c2r_uninstall, "C2R_SETUP_CANDIDATES", (setup_path,))
+        # Patch the actual source module (c2r_odt) not the re-export
+        monkeypatch.setattr(c2r_odt, "C2R_SETUP_CANDIDATES", (setup_path,))
 
         result = c2r_uninstall.find_or_download_odt()
         assert result == setup_path
@@ -637,8 +645,9 @@ class TestUnregisterC2rIntegration:
         integrator = tmp_path / "integrator.exe"
         integrator.write_bytes(b"fake")
 
+        # Patch the actual source module (c2r_integrator) not the re-export
         monkeypatch.setattr(
-            c2r_uninstall,
+            c2r_integrator,
             "find_integrator_exe",
             lambda: integrator,
         )

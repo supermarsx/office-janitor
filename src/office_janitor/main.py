@@ -40,6 +40,8 @@ from . import (
     ui,
     version,
 )
+from . import auto_repair as auto_repair_module
+from . import cli_help
 from . import (
     plan as plan_module,
 )
@@ -229,224 +231,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     defined in the specification so later feature work can hook into the parsed
     values without changing the public CLI signature.
     """
-
-    epilog_text = """\
-================================================================================
-
-ODT INSTALLATION PRESETS (use with --odt-install --odt-preset NAME):
-
-  Microsoft 365 (Subscription):
-    365-proplus-x64              Microsoft 365 Apps for enterprise (64-bit)
-    365-proplus-x86              Microsoft 365 Apps for enterprise (32-bit)
-    365-business-x64             Microsoft 365 Apps for business (64-bit)
-    365-proplus-visio-project    M365 Apps + Visio + Project (64-bit)
-    365-shared-computer          M365 Apps with Shared Computer Licensing
-
-  Office LTSC 2024 (Perpetual):
-    office2024-x64               Office LTSC 2024 Professional Plus (64-bit)
-    office2024-x86               Office LTSC 2024 Professional Plus (32-bit)
-    office2024-standard-x64      Office LTSC 2024 Standard (64-bit)
-    ltsc2024-full-x64            Office 2024 + Visio + Project (64-bit)
-    ltsc2024-full-x86            Office 2024 + Visio + Project (32-bit)
-
-  Office LTSC 2021 (Perpetual):
-    office2021-x64               Office LTSC 2021 Professional Plus (64-bit)
-    office2021-x86               Office LTSC 2021 Professional Plus (32-bit)
-    office2021-standard-x64      Office LTSC 2021 Standard (64-bit)
-    ltsc2021-full-x64            Office 2021 + Visio + Project (64-bit)
-
-  Office 2019 (Perpetual):
-    office2019-x64               Office 2019 Professional Plus (64-bit)
-    office2019-x86               Office 2019 Professional Plus (32-bit)
-
-  Standalone Products:
-    visio-pro-x64                Visio Professional 2024 (64-bit)
-    project-pro-x64              Project Professional 2024 (64-bit)
-
-  Clean Presets (No OneDrive/Skype):
-    ltsc2024-full-x64-clean      Office 2024 + Visio + Project - No OneDrive/Skype
-    ltsc2024-full-x86-clean      Office 2024 + Visio + Project (32-bit) - No bloat
-    ltsc2024-x64-clean           Office 2024 ProPlus only - No OneDrive/Skype
-    365-proplus-x64-clean        M365 Apps - No OneDrive/Skype
-    365-proplus-visio-project-clean  M365 + Visio + Project - No OneDrive/Skype
-
-================================================================================
-
-QUICK INSTALL ALIASES (author shortcuts):
-
-  --goobler    LTSC 2024 + Visio + Project (clean) with pt-pt + en-us
-  --pupa       LTSC 2024 ProPlus only (clean) with pt-pt + en-us
-
-================================================================================
-
-QUICK EXAMPLES:
-
-  # Install Office LTSC 2024 + Visio + Project with multiple languages
-  office-janitor --odt-install --odt-preset ltsc2024-full-x64 ^
-    --odt-language en-us --odt-language es-mx --odt-language pt-br
-
-  # Install clean Office 2024 (no OneDrive/Skype)
-  office-janitor --odt-install --odt-preset ltsc2024-full-x64-clean
-
-  # Generate XML config without installing
-  office-janitor --odt-build --odt-preset office2024-x64 --odt-output install.xml
-
-  # Remove all Office installations
-  office-janitor --auto-all --dry-run  # Preview first!
-  office-janitor --auto-all --backup C:\\Backups
-
-  # Diagnose current Office state
-  office-janitor --diagnose --plan report.json
-
-================================================================================
-
-SUPPORTED LANGUAGES (common): en-us, de-de, fr-fr, es-es, es-mx, pt-br, pt-pt,
-  it-it, ja-jp, ko-kr, zh-cn, zh-tw, ru-ru, pl-pl, nl-nl, ar-sa, he-il, tr-tr
-
-Use --odt-list-languages for the complete list of 60+ supported language codes.
-Use --odt-list-products for all available Office product IDs.
-Use --odt-list-channels for update channel options.
-
-For legacy OffScrub compatibility, see --offscrub-* options.
-Full documentation: https://github.com/supermarsx/office-janitor
-"""
-
-    parser = argparse.ArgumentParser(
-        prog="office-janitor",
-        add_help=True,
-        description="Detect, uninstall, and scrub Microsoft Office installations.",
-        epilog=epilog_text,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
     metadata = version.build_info()
-    parser.add_argument(
-        "-V",
-        "--version",
-        action="version",
-        version=f"{metadata['version']} ({metadata['build']})",
-    )
-
-    # -------------------------------------------------------------------------
-    # Mode Selection (mutually exclusive)
-    # -------------------------------------------------------------------------
-    modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("--auto-all", action="store_true", help="Run full detection and scrub.")
-    modes.add_argument(
-        "--target",
-        metavar="VER",
-        help="Target a specific Office version (2003-2024/365).",
-    )
-    modes.add_argument(
-        "--diagnose",
-        action="store_true",
-        help="Emit inventory and plan without changes.",
-    )
-    modes.add_argument(
-        "--cleanup-only",
-        action="store_true",
-        help="Skip uninstalls; clean residue and licensing.",
-    )
-    modes.add_argument(
-        "--repair",
-        choices=["quick", "full"],
-        metavar="TYPE",
-        help="Repair Office C2R (quick|full). Quick runs locally, full uses CDN.",
-    )
-    modes.add_argument(
-        "--repair-config",
-        metavar="XML",
-        help="Repair/reconfigure using a custom XML configuration file.",
-    )
-
-    # -------------------------------------------------------------------------
-    # Core Options
-    # -------------------------------------------------------------------------
-    core_opts = parser.add_argument_group("Core Options")
-    core_opts.add_argument(
-        "--include",
-        metavar="COMPONENTS",
-        help="Additional suites/apps to include (visio,project,onenote).",
-    )
-    core_opts.add_argument(
-        "--force", "-f", action="store_true", help="Relax certain guardrails when safe."
-    )
-    core_opts.add_argument(
-        "--allow-unsupported-windows",
-        action="store_true",
-        help="Permit execution on Windows releases below the supported minimum.",
-    )
-    core_opts.add_argument(
-        "--dry-run",
-        "-n",
-        action="store_true",
-        help="Simulate actions without modifying the system.",
-    )
-    core_opts.add_argument(
-        "--yes",
-        "-y",
-        action="store_true",
-        help="Skip confirmation prompts (assume yes).",
-    )
-    core_opts.add_argument(
-        "--config",
-        "-c",
-        metavar="JSON",
-        help="Load options from a JSON configuration file.",
-    )
-    core_opts.add_argument(
-        "--passes",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Number of uninstall passes (default: 1, use higher for stubborn installs).",
-    )
-
-    # -------------------------------------------------------------------------
-    # Uninstall Method Options
-    # -------------------------------------------------------------------------
-    uninstall_opts = parser.add_argument_group("Uninstall Method Options")
-    uninstall_opts.add_argument(
-        "--uninstall-method",
-        choices=["auto", "msi", "c2r", "odt", "offscrub"],
-        default=None,
-        metavar="METHOD",
-        help=(
-            "Preferred uninstall method: auto (detect best), msi (msiexec), "
-            "c2r (OfficeC2RClient), odt (Office Deployment Tool), "
-            "offscrub (legacy VBS). Default: auto."
-        ),
-    )
-    uninstall_opts.add_argument(
-        "--msi-only",
-        action="store_const",
-        const="msi",
-        dest="uninstall_method",
-        help="Only uninstall MSI-based Office products.",
-    )
-    uninstall_opts.add_argument(
-        "--c2r-only",
-        action="store_const",
-        const="c2r",
-        dest="uninstall_method",
-        help="Only uninstall Click-to-Run Office products.",
-    )
-    uninstall_opts.add_argument(
-        "--use-odt",
-        action="store_const",
-        const="odt",
-        dest="uninstall_method",
-        help="Use Office Deployment Tool (setup.exe) for uninstall.",
-    )
-    uninstall_opts.add_argument(
-        "--force-app-shutdown",
-        action="store_true",
-        help="Force close running Office applications before uninstall.",
-    )
-    uninstall_opts.add_argument(
-        "--no-force-app-shutdown",
-        action="store_true",
-        help="Prompt user to close apps instead of forcing shutdown.",
-    )
+    return cli_help.build_arg_parser(version_info=metadata)
     uninstall_opts.add_argument(
         "--product-code",
         metavar="GUID",
@@ -1262,6 +1048,21 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     app_state = _build_app_state(args, human_log, machine_log)
     _progress_ok()
 
+    # Auto-repair mode handling - intelligent repair of all Office installations
+    if mode == "auto-repair":
+        _progress("Entering auto-repair mode...")
+        return _handle_auto_repair_mode(args, human_log, machine_log)
+
+    # Repair-ODT mode handling - repair via ODT configuration
+    if mode == "repair-odt":
+        _progress("Entering ODT repair mode...")
+        return _handle_repair_odt_mode(args, human_log, machine_log)
+
+    # Repair-C2R mode handling - repair via OfficeClickToRun.exe
+    if mode == "repair-c2r":
+        _progress("Entering C2R repair mode...")
+        return _handle_repair_c2r_mode(args, human_log, machine_log)
+
     # Repair mode handling - separate from standard detection/scrub flow
     if mode.startswith("repair:"):
         _progress("Entering repair mode...")
@@ -1847,6 +1648,325 @@ def _build_odt_download(args: argparse.Namespace) -> bool:
     return True
 
 
+def _handle_auto_repair_mode(
+    args: argparse.Namespace,
+    human_log: logging.Logger,
+    machine_log: logging.Logger,
+) -> int:
+    """!
+    @brief Handle auto-repair mode - intelligent repair of all Office installations.
+    @details Detects all Office installations and repairs them using the most
+    appropriate method for each installation type.
+    @param args Parsed command-line arguments.
+    @param human_log Human-readable logger.
+    @param machine_log Machine-readable (JSONL) logger.
+    @returns Exit code (0 for success, non-zero for failure).
+    """
+    _progress("-" * 60)
+    _progress("Auto-Repair Mode - Intelligent Office Repair")
+    _progress("-" * 60)
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    culture = getattr(args, "repair_culture", None)
+    platform = getattr(args, "repair_platform", None)
+    silent = not getattr(args, "repair_visible", False)
+
+    # Detect Office products
+    _progress("Detecting Office installations...", newline=False)
+    products = auto_repair_module.detect_office_products()
+    if not products:
+        _progress_fail("none found")
+        human_log.warning("No Office installations detected for repair")
+        print("\nNo Office installations detected.")
+        print("If Office is installed, it may not be in a repairable state.")
+        return 1
+    _progress_ok(f"{len(products)} found")
+
+    # Display detected products
+    _progress("Detected products:")
+    for product in products:
+        _progress(
+            f"  • {product.product_name} ({product.version}, {product.install_type})",
+            indent=1,
+        )
+
+    # Create repair plan
+    _progress("Creating repair plan...", newline=False)
+    strategy = auto_repair_module.RepairStrategy.QUICK
+    if getattr(args, "repair", None) == "full":
+        strategy = auto_repair_module.RepairStrategy.FULL
+
+    plan = auto_repair_module.create_repair_plan(
+        products=products,
+        strategy=strategy,
+        dry_run=dry_run,
+    )
+    _progress_ok()
+
+    _progress(f"  Method: {plan.recommended_method.value}", indent=1)
+    _progress(f"  Strategy: {plan.recommended_strategy.value}", indent=1)
+    _progress(f"  Estimated time: {plan.estimated_time_minutes} minutes", indent=1)
+
+    # Show warnings
+    for warning in plan.warnings:
+        _progress(f"  ⚠️  {warning}", indent=1)
+
+    # Confirm with user unless forced
+    if not dry_run and not getattr(args, "force", False):
+        _progress("Confirm repair?", newline=False)
+        proceed = confirm.request_scrub_confirmation(dry_run=dry_run, force=False)
+        if not proceed:
+            _progress_skip("cancelled by user")
+            human_log.info("Auto-repair cancelled by user")
+            return 0
+        _progress_ok()
+
+    # Execute repair
+    _progress("=" * 60)
+    _progress("Executing auto-repair...")
+    _progress("=" * 60)
+
+    result = auto_repair_module.execute_auto_repair(
+        plan=plan,
+        culture=culture,
+        platform=platform,
+        silent=silent,
+        dry_run=dry_run,
+    )
+
+    _progress("=" * 60)
+    if result.success:
+        _progress(f"✓ {result.summary}")
+        _progress("=" * 60)
+        print(f"\n{result.summary}")
+        if result.products_repaired:
+            print("\nRepaired products:")
+            for prod in result.products_repaired:
+                print(f"  ✓ {prod}")
+        print("\nNote: A system restart may be required to complete the repair.")
+        return 0
+    else:
+        _progress(f"✗ {result.summary}")
+        _progress("=" * 60)
+        print(f"\n{result.summary}")
+        if result.products_repaired:
+            print("\nRepaired products:")
+            for prod in result.products_repaired:
+                print(f"  ✓ {prod}")
+        if result.products_failed:
+            print("\nFailed products:")
+            for prod in result.products_failed:
+                print(f"  ✗ {prod}")
+        if result.errors:
+            print("\nErrors:")
+            for error in result.errors:
+                print(f"  - {error}")
+        return 1
+
+
+def _handle_repair_odt_mode(
+    args: argparse.Namespace,
+    human_log: logging.Logger,
+    machine_log: logging.Logger,
+) -> int:
+    """!
+    @brief Handle repair via ODT configuration.
+    @details Uses Office Deployment Tool setup.exe with a configuration file
+    to repair/reconfigure Office installations.
+    @param args Parsed command-line arguments.
+    @param human_log Human-readable logger.
+    @param machine_log Machine-readable (JSONL) logger.
+    @returns Exit code (0 for success, non-zero for failure).
+    """
+    _progress("-" * 60)
+    _progress("ODT Repair Mode")
+    _progress("-" * 60)
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    preset = getattr(args, "repair_preset", None)
+    config_path = getattr(args, "repair_config", None)
+
+    # Determine config to use
+    if config_path:
+        _progress(f"Using custom config: {config_path}")
+        config_file = pathlib.Path(config_path)
+        if not config_file.exists():
+            _progress(f"Configuration file not found: {config_path}", newline=False)
+            _progress_fail()
+            return 1
+    elif preset:
+        _progress(f"Using preset: {preset}")
+        config_file = repair.get_oem_config_path(preset)
+        if config_file is None:
+            _progress(f"Preset not found: {preset}", newline=False)
+            _progress_fail()
+            _progress("\nAvailable presets:")
+            for name, _filename, exists in repair.list_oem_configs():
+                if exists:
+                    _progress(f"  {name}", indent=1)
+            return 1
+    else:
+        # Default to quick-repair preset
+        preset = "quick-repair"
+        _progress(f"Using default preset: {preset}")
+        config_file = repair.get_oem_config_path(preset)
+        if config_file is None:
+            _progress("Default repair preset not found", newline=False)
+            _progress_fail()
+            return 1
+
+    # Check for setup.exe
+    _progress("Locating ODT setup.exe...", newline=False)
+    setup_exe = repair.find_odt_setup_exe()
+    if setup_exe is None:
+        _progress_fail("not found")
+        human_log.error("ODT setup.exe not found")
+        print("\nError: ODT setup.exe not found.")
+        print("Download from: https://www.microsoft.com/en-us/download/details.aspx?id=49117")
+        return 1
+    _progress_ok(str(setup_exe))
+
+    # Confirm with user
+    if not dry_run and not getattr(args, "force", False):
+        _progress("Confirm ODT repair?", newline=False)
+        proceed = confirm.request_scrub_confirmation(dry_run=dry_run, force=False)
+        if not proceed:
+            _progress_skip("cancelled by user")
+            return 0
+        _progress_ok()
+
+    # Execute repair
+    _progress("=" * 60)
+    _progress("Executing ODT repair...")
+    _progress("=" * 60)
+
+    result = repair.reconfigure_office(
+        config_file,
+        dry_run=dry_run,
+        timeout=getattr(args, "repair_timeout", 3600),
+    )
+
+    _progress("=" * 60)
+    if result.returncode == 0 or result.skipped:
+        _progress("ODT repair completed successfully")
+        _progress("=" * 60)
+        if result.skipped:
+            print(f"\n[DRY-RUN] Would execute: setup.exe /configure {config_file}")
+        else:
+            print("\n✓ ODT repair completed successfully.")
+            print("\nNote: A system restart may be required.")
+        return 0
+    else:
+        _progress(f"ODT repair failed: {result.stderr or result.error}")
+        _progress("=" * 60)
+        print(f"\n✗ ODT repair failed.")
+        if result.stderr:
+            print(f"\nError: {result.stderr}")
+        return 1
+
+
+def _handle_repair_c2r_mode(
+    args: argparse.Namespace,
+    human_log: logging.Logger,
+    machine_log: logging.Logger,
+) -> int:
+    """!
+    @brief Handle repair via OfficeClickToRun.exe directly.
+    @details Uses OfficeClickToRun.exe for granular control over C2R repair.
+    @param args Parsed command-line arguments.
+    @param human_log Human-readable logger.
+    @param machine_log Machine-readable (JSONL) logger.
+    @returns Exit code (0 for success, non-zero for failure).
+    """
+    _progress("-" * 60)
+    _progress("C2R Direct Repair Mode")
+    _progress("-" * 60)
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    culture = getattr(args, "repair_culture", "en-us")
+    platform = getattr(args, "repair_platform", None)
+    silent = not getattr(args, "repair_visible", False)
+
+    # Check if C2R Office is installed
+    _progress("Checking for C2R installation...", newline=False)
+    if not repair.is_c2r_office_installed():
+        _progress_fail("not found")
+        human_log.error("No Click-to-Run Office installation detected")
+        print("\nError: No Click-to-Run Office installation found.")
+        print("This repair mode only works with Office C2R installations.")
+        return 1
+    _progress_ok()
+
+    # Get C2R info
+    _progress("Gathering installation details...", newline=False)
+    c2r_info = repair.get_installed_c2r_info()
+    _progress_ok()
+    _progress(f"  Version: {c2r_info.get('version', 'unknown')}", indent=1)
+    _progress(f"  Platform: {c2r_info.get('platform', 'unknown')}", indent=1)
+    _progress(f"  Culture: {c2r_info.get('culture', 'unknown')}", indent=1)
+
+    # Locate OfficeClickToRun.exe
+    _progress("Locating OfficeClickToRun.exe...", newline=False)
+    exe_path = repair.find_officeclicktorun_exe()
+    if exe_path is None:
+        _progress_fail("not found")
+        human_log.error("OfficeClickToRun.exe not found")
+        return 1
+    _progress_ok(str(exe_path))
+
+    # Determine repair type
+    repair_type = getattr(args, "repair", "quick") or "quick"
+    _progress(f"Repair type: {repair_type.upper()}")
+
+    if repair_type == "full":
+        _progress("\n⚠️  WARNING: Full repair may reinstall excluded applications!")
+        config = repair.RepairConfig.full_repair(
+            platform=platform,
+            culture=culture,
+            silent=silent,
+        )
+    else:
+        config = repair.RepairConfig.quick_repair(
+            platform=platform,
+            culture=culture,
+            silent=silent,
+        )
+
+    # Confirm with user
+    if not dry_run and not getattr(args, "force", False):
+        _progress("Confirm C2R repair?", newline=False)
+        proceed = confirm.request_scrub_confirmation(dry_run=dry_run, force=False)
+        if not proceed:
+            _progress_skip("cancelled by user")
+            return 0
+        _progress_ok()
+
+    # Execute repair
+    _progress("=" * 60)
+    _progress(f"Executing {repair_type.upper()} C2R repair...")
+    _progress("=" * 60)
+
+    result = repair.run_repair(config, dry_run=dry_run)
+
+    _progress("=" * 60)
+    if result.success or result.skipped:
+        _progress(f"✓ {result.summary}")
+        _progress("=" * 60)
+        if result.skipped:
+            print(f"\n[DRY-RUN] {result.summary}")
+        else:
+            print(f"\n✓ {result.summary}")
+            print("\nNote: A system restart may be required.")
+        return 0
+    else:
+        _progress(f"✗ {result.summary}")
+        _progress("=" * 60)
+        print(f"\n✗ {result.summary}")
+        if result.stderr:
+            print(f"\nError: {result.stderr}")
+        return 1
+
+
 def _handle_repair_mode(
     args: argparse.Namespace,
     mode: str,
@@ -2098,6 +2218,12 @@ def _determine_mode(args: argparse.Namespace) -> str:
         return "diagnose"
     if getattr(args, "cleanup_only", False):
         return "cleanup-only"
+    if getattr(args, "auto_repair", False):
+        return "auto-repair"
+    if getattr(args, "repair_odt", False):
+        return "repair-odt"
+    if getattr(args, "repair_c2r", False):
+        return "repair-c2r"
     if getattr(args, "repair", None):
         return f"repair:{args.repair}"
     if getattr(args, "repair_config", None):
