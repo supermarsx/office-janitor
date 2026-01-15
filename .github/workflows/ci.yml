@@ -137,8 +137,6 @@ jobs:
         run: |
           Write-Host "=== OEM Files ===" -ForegroundColor Cyan
           Get-ChildItem -Path oem -Recurse | ForEach-Object { Write-Host $_.FullName }
-          Write-Host "=== OfficeScrubber ===" -ForegroundColor Cyan
-          Get-ChildItem -Path OfficeScrubber/bin -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
           Write-Host "=== VERSION ===" -ForegroundColor Cyan
           if (Test-Path src/office_janitor/VERSION) { Get-Content src/office_janitor/VERSION }
 

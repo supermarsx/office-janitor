@@ -11,17 +11,9 @@ if oem_dir.exists():
         if f.is_file():
             oem_files.append((str(f), 'oem'))
 
-# Collect OfficeScrubber VBS scripts
-offscrub_dir = Path('OfficeScrubber/bin')
-offscrub_files = []
-if offscrub_dir.exists():
-    for f in offscrub_dir.iterdir():
-        if f.is_file():
-            offscrub_files.append((str(f), 'OfficeScrubber/bin'))
-
 # Include VERSION file from package
 version_file = Path('src/office_janitor/VERSION')
-datas_list = oem_files + offscrub_files
+datas_list = oem_files
 if version_file.exists():
     datas_list.append((str(version_file), 'office_janitor'))
 
