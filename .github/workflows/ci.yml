@@ -217,7 +217,7 @@ jobs:
         run: |
           # Get the previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          
+
           if [ -n "$PREV_TAG" ]; then
             echo "Generating changelog since $PREV_TAG"
             COMMITS=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD)
@@ -225,7 +225,7 @@ jobs:
             echo "No previous tag, using last 150 commits"
             COMMITS=$(git log --pretty=format:"- %s (%h)" -150)
           fi
-          
+
           # Write to output (handle multiline)
           echo "commits<<EOF" >> $GITHUB_OUTPUT
           echo "$COMMITS" >> $GITHUB_OUTPUT
@@ -282,7 +282,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/office-janitor
     permissions:
-      id-token: write  # Required for trusted publishing
+      id-token: write # Required for trusted publishing
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
