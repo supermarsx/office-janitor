@@ -633,4 +633,3 @@ class TestInstallLtsc2024Full:
             assert "en-us" in p.languages
             assert "es-mx" in p.languages
             assert "pt-br" in p.languages
-

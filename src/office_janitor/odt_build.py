@@ -916,9 +916,7 @@ def get_odt_setup_path() -> Path:
     if alt_path.exists():
         return alt_path
 
-    raise FileNotFoundError(
-        f"ODT setup.exe not found. Checked:\n  {oem_path}\n  {alt_path}"
-    )
+    raise FileNotFoundError(f"ODT setup.exe not found. Checked:\n  {oem_path}\n  {alt_path}")
 
 
 @dataclass

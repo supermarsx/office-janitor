@@ -1571,7 +1571,9 @@ def _run_odt_install(args: argparse.Namespace) -> bool:
             print("No preset or products specified for installation.")
             print("Use --odt-preset or --odt-product to specify what to install.")
             print("Use --odt-list-presets or --odt-list-products to see available options.")
-            print("\nExample: office-janitor --odt-install --odt-preset ltsc2024-full-x64 --odt-language en-us --odt-language es-es")
+            print(
+                "\nExample: office-janitor --odt-install --odt-preset ltsc2024-full-x64 --odt-language en-us --odt-language es-es"
+            )
             return True
 
         # Show what we're about to install
@@ -1579,7 +1581,9 @@ def _run_odt_install(args: argparse.Namespace) -> bool:
         print("ODT Installation")
         print("=" * 70)
         print(f"Products: {', '.join(p.product_id for p in config.products)}")
-        print(f"Languages: {', '.join(config.products[0].languages) if config.products else 'none'}")
+        print(
+            f"Languages: {', '.join(config.products[0].languages) if config.products else 'none'}"
+        )
         print(f"Architecture: {config.architecture.value}-bit")
         print(f"Channel: {config.channel.value}")
         print("=" * 70)
