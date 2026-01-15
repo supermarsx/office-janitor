@@ -645,13 +645,17 @@ class TestProgressMonitoring:
         # Should be TEMP directory or similar
         assert log_path.exists() or log_path.parent.exists()
 
-    def test_find_latest_odt_log_no_logs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_find_latest_odt_log_no_logs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Verify returns None when no logs exist."""
         monkeypatch.setattr(odt_build, "_get_odt_log_path", lambda: tmp_path)
         result = odt_build._find_latest_odt_log()
         assert result is None
 
-    def test_find_latest_odt_log_with_logs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_find_latest_odt_log_with_logs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Verify returns latest log file when logs exist."""
         monkeypatch.setattr(odt_build, "_get_odt_log_path", lambda: tmp_path)
         # Create mock log files
@@ -659,9 +663,10 @@ class TestProgressMonitoring:
         log2 = tmp_path / "Microsoft Office Click-to-Run 2.log"
         log1.write_text("old log")
         import time
+
         time.sleep(0.01)  # Ensure different timestamps
         log2.write_text("new log")
-        
+
         result = odt_build._find_latest_odt_log()
         assert result == log2
 
@@ -675,7 +680,7 @@ class TestProgressMonitoring:
         """Verify parses downloading status."""
         log_file = tmp_path / "test.log"
         log_file.write_text("2024-01-01 downloading files 50%\n")
-        
+
         status, pct = odt_build._parse_odt_progress(log_file)
         assert "Downloading" in status
         assert pct == 50
@@ -684,7 +689,7 @@ class TestProgressMonitoring:
         """Verify parses installing status."""
         log_file = tmp_path / "test.log"
         log_file.write_text("2024-01-01 Installing Office components 75%\n")
-        
+
         status, pct = odt_build._parse_odt_progress(log_file)
         assert "Installing" in status
         assert pct == 75
@@ -693,7 +698,7 @@ class TestProgressMonitoring:
         """Verify parses configuring status."""
         log_file = tmp_path / "test.log"
         log_file.write_text("2024-01-01 Configuring Office settings\n")
-        
+
         status, pct = odt_build._parse_odt_progress(log_file)
         assert "Configuring" in status
         assert pct is None
@@ -702,7 +707,7 @@ class TestProgressMonitoring:
         """Verify parses percentage without specific context."""
         log_file = tmp_path / "test.log"
         log_file.write_text("Progress: 80%\n")
-        
+
         status, pct = odt_build._parse_odt_progress(log_file)
         assert pct == 80
 
@@ -741,7 +746,7 @@ class TestInstallMetrics:
         # Create test files
         (tmp_path / "file1.txt").write_text("hello")
         (tmp_path / "file2.txt").write_text("world!")
-        
+
         size = odt_build._get_folder_size(tmp_path)
         assert size > 0
         assert size >= 11  # At least "hello" + "world!"
@@ -765,3 +770,121 @@ class TestInstallMetrics:
         assert isinstance(metrics.file_count, int)
         assert isinstance(metrics.registry_keys, int)
         assert metrics.log_status  # Should have some status string
+
+
+class TestProcessMetrics:
+    """Tests for CPU and memory monitoring functions."""
+
+    def test_get_process_memory_mb_returns_float(self) -> None:
+        """Verify get_process_memory_mb returns a float."""
+        import os
+
+        pid = os.getpid()
+        mem = odt_build._get_process_memory_mb(pid)
+        assert isinstance(mem, float)
+        # Current process should use some memory
+        assert mem > 0
+
+    def test_get_process_memory_mb_invalid_pid(self) -> None:
+        """Verify returns 0 for invalid PID."""
+        mem = odt_build._get_process_memory_mb(999999999)
+        assert mem == 0.0
+
+    def test_get_process_cpu_percent_returns_float(self) -> None:
+        """Verify get_process_cpu_percent returns a float."""
+        import os
+
+        pid = os.getpid()
+        cpu = odt_build._get_process_cpu_percent(pid, interval=0.05)
+        assert isinstance(cpu, float)
+        assert cpu >= 0.0
+
+    def test_get_process_cpu_percent_invalid_pid(self) -> None:
+        """Verify returns 0 for invalid PID."""
+        cpu = odt_build._get_process_cpu_percent(999999999, interval=0.01)
+        assert cpu == 0.0
+
+    def test_get_process_tree_stats_returns_tuple(self) -> None:
+        """Verify get_process_tree_stats returns tuple of floats."""
+        import os
+
+        pid = os.getpid()
+        cpu, mem = odt_build._get_process_tree_stats(pid)
+        assert isinstance(cpu, float)
+        assert isinstance(mem, float)
+        # Memory should be positive for current process
+        assert mem > 0
+
+    def test_install_metrics_has_cpu_ram_fields(self) -> None:
+        """Verify InstallMetrics has CPU and RAM fields."""
+        metrics = odt_build.InstallMetrics()
+        assert hasattr(metrics, "cpu_percent")
+        assert hasattr(metrics, "memory_mb")
+        assert metrics.cpu_percent == 0.0
+        assert metrics.memory_mb == 0.0
+
+    def test_capture_install_metrics_with_pid(self) -> None:
+        """Verify capture_install_metrics populates CPU/RAM when PID given."""
+        import os
+
+        metrics = odt_build._capture_install_metrics(pid=os.getpid())
+        # Should have populated memory at least
+        assert isinstance(metrics.cpu_percent, float)
+        assert isinstance(metrics.memory_mb, float)
+        # Current process uses some memory
+        assert metrics.memory_mb > 0
+
+    def test_process_stats_update_and_get(self) -> None:
+        """Verify _ProcessStats thread-safe update and get."""
+        stats = odt_build._ProcessStats()
+        # Default values
+        cpu, mem = stats.get()
+        assert cpu == 0.0
+        assert mem == 0.0
+
+        # Update values
+        stats.update(50.5, 123.4)
+        cpu, mem = stats.get()
+        assert cpu == 50.5
+        assert mem == 123.4
+
+    def test_process_stats_concurrent_access(self) -> None:
+        """Verify _ProcessStats is thread-safe with concurrent access."""
+        import threading
+        import time
+
+        stats = odt_build._ProcessStats()
+        results: list[tuple[float, float]] = []
+
+        def reader() -> None:
+            for _ in range(10):
+                results.append(stats.get())
+                time.sleep(0.01)
+
+        def writer() -> None:
+            for i in range(10):
+                stats.update(float(i), float(i * 10))
+                time.sleep(0.01)
+
+        t1 = threading.Thread(target=reader)
+        t2 = threading.Thread(target=writer)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # Should have collected 10 results without crashing
+        assert len(results) == 10
+        # All results should be valid tuples
+        for cpu, mem in results:
+            assert isinstance(cpu, float)
+            assert isinstance(mem, float)
+
+    def test_capture_install_metrics_with_cached_stats(self) -> None:
+        """Verify capture_install_metrics uses cached stats when provided."""
+        stats = odt_build._ProcessStats()
+        stats.update(42.5, 256.0)
+
+        metrics = odt_build._capture_install_metrics(cached_stats=stats)
+        assert metrics.cpu_percent == 42.5
+        assert metrics.memory_mb == 256.0

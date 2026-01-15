@@ -954,7 +954,10 @@ class ODTResult:
 _OFFICE_INSTALL_PATHS = [
     Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Microsoft Office",
     Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")) / "Microsoft Office",
-    Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Common Files" / "microsoft shared" / "ClickToRun",
+    Path(os.environ.get("ProgramFiles", "C:\\Program Files"))
+    / "Common Files"
+    / "microsoft shared"
+    / "ClickToRun",
     Path(os.environ.get("ProgramData", "C:\\ProgramData")) / "Microsoft" / "ClickToRun",
 ]
 
@@ -1046,6 +1049,7 @@ def _check_registry_key_exists(key_path: str) -> bool:
         return False
     try:
         import winreg
+
         winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
         return True
     except (FileNotFoundError, OSError):
@@ -1062,6 +1066,7 @@ def _count_registry_subkeys(key_path: str) -> int:
         return 0
     try:
         import winreg
+
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
         info = winreg.QueryInfoKey(key)
         winreg.CloseKey(key)
@@ -1079,9 +1084,9 @@ def _get_c2r_version() -> str | None:
         return None
     try:
         import winreg
+
         key = winreg.OpenKey(
-            winreg.HKEY_LOCAL_MACHINE,
-            r"SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
+            winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
         )
         version, _ = winreg.QueryValueEx(key, "VersionToReport")
         winreg.CloseKey(key)
@@ -1103,6 +1108,205 @@ def _format_size(size_bytes: int) -> str:
     elif size_bytes >= 1024:
         return f"{size_bytes / 1024:.0f} KB"
     return f"{size_bytes} B"
+
+
+def _get_process_cpu_percent(pid: int, interval: float = 0.1) -> float:
+    """!
+    @brief Get CPU usage percentage for a process using WMI.
+    @param pid Process ID to monitor.
+    @param interval Sampling interval in seconds.
+    @returns CPU percentage (0-100 per core), or 0.0 if unavailable.
+    """
+    if sys.platform != "win32":
+        return 0.0
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        # Get process handle
+        PROCESS_QUERY_INFORMATION = 0x0400
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, pid)
+        if not handle:
+            return 0.0
+
+        try:
+            # FILETIME structure
+            class FILETIME(ctypes.Structure):
+                _fields_ = [("dwLowDateTime", wintypes.DWORD), ("dwHighDateTime", wintypes.DWORD)]
+
+            creation_time = FILETIME()
+            exit_time = FILETIME()
+            kernel_time1 = FILETIME()
+            user_time1 = FILETIME()
+            kernel_time2 = FILETIME()
+            user_time2 = FILETIME()
+
+            # First measurement
+            if not kernel32.GetProcessTimes(
+                handle,
+                ctypes.byref(creation_time),
+                ctypes.byref(exit_time),
+                ctypes.byref(kernel_time1),
+                ctypes.byref(user_time1),
+            ):
+                return 0.0
+
+            time.sleep(interval)
+
+            # Second measurement
+            if not kernel32.GetProcessTimes(
+                handle,
+                ctypes.byref(creation_time),
+                ctypes.byref(exit_time),
+                ctypes.byref(kernel_time2),
+                ctypes.byref(user_time2),
+            ):
+                return 0.0
+
+            # Calculate CPU time delta (100ns units)
+            def filetime_to_int(ft: FILETIME) -> int:
+                return (ft.dwHighDateTime << 32) | ft.dwLowDateTime
+
+            kernel_delta = filetime_to_int(kernel_time2) - filetime_to_int(kernel_time1)
+            user_delta = filetime_to_int(user_time2) - filetime_to_int(user_time1)
+            total_delta = kernel_delta + user_delta
+
+            # Convert to percentage (100ns to seconds, then to percent)
+            # interval is in seconds, FILETIME is 100ns units
+            cpu_percent = (total_delta / (interval * 10_000_000)) * 100
+            return min(cpu_percent, 100.0 * os.cpu_count())  # Cap at max CPU
+
+        finally:
+            kernel32.CloseHandle(handle)
+
+    except Exception:
+        return 0.0
+
+
+def _get_process_memory_mb(pid: int) -> float:
+    """!
+    @brief Get memory usage in MB for a process.
+    @param pid Process ID to monitor.
+    @returns Memory usage in MB, or 0.0 if unavailable.
+    """
+    if sys.platform != "win32":
+        return 0.0
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        # Get process handle
+        PROCESS_QUERY_INFORMATION = 0x0400
+        PROCESS_VM_READ = 0x0010
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not handle:
+            return 0.0
+
+        try:
+            # PROCESS_MEMORY_COUNTERS structure
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            psapi = ctypes.windll.psapi
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+
+            if psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+                return counters.WorkingSetSize / (1024 * 1024)
+            return 0.0
+
+        finally:
+            kernel32.CloseHandle(handle)
+
+    except Exception:
+        return 0.0
+
+
+def _get_process_tree_stats(pid: int) -> tuple[float, float]:
+    """!
+    @brief Get combined CPU and memory for a process and its children.
+    @param pid Root process ID.
+    @returns Tuple of (cpu_percent, memory_mb) for the process tree.
+    """
+    if sys.platform != "win32":
+        return 0.0, 0.0
+
+    try:
+        import ctypes
+
+        # Get all child PIDs using CreateToolhelp32Snapshot
+        TH32CS_SNAPPROCESS = 0x00000002
+        kernel32 = ctypes.windll.kernel32
+
+        class PROCESSENTRY32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", ctypes.c_ulong),
+                ("cntUsage", ctypes.c_ulong),
+                ("th32ProcessID", ctypes.c_ulong),
+                ("th32DefaultHeapID", ctypes.c_void_p),
+                ("th32ModuleID", ctypes.c_ulong),
+                ("cntThreads", ctypes.c_ulong),
+                ("th32ParentProcessID", ctypes.c_ulong),
+                ("pcPriClassBase", ctypes.c_long),
+                ("dwFlags", ctypes.c_ulong),
+                ("szExeFile", ctypes.c_char * 260),
+            ]
+
+        snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if snapshot == -1:
+            return _get_process_cpu_percent(pid, 0.1), _get_process_memory_mb(pid)
+
+        try:
+            # Find all child processes
+            pids_to_check = {pid}
+            all_pids = set()
+
+            pe32 = PROCESSENTRY32()
+            pe32.dwSize = ctypes.sizeof(PROCESSENTRY32)
+
+            if kernel32.Process32First(snapshot, ctypes.byref(pe32)):
+                while True:
+                    all_pids.add((pe32.th32ProcessID, pe32.th32ParentProcessID))
+                    if not kernel32.Process32Next(snapshot, ctypes.byref(pe32)):
+                        break
+
+            # Build tree of child PIDs
+            found_new = True
+            while found_new:
+                found_new = False
+                for child_pid, parent_pid in all_pids:
+                    if parent_pid in pids_to_check and child_pid not in pids_to_check:
+                        pids_to_check.add(child_pid)
+                        found_new = True
+
+        finally:
+            kernel32.CloseHandle(snapshot)
+
+        # Sum up stats for all processes in tree
+        total_memory = 0.0
+        for p in pids_to_check:
+            total_memory += _get_process_memory_mb(p)
+
+        # CPU sampling (just for root process to avoid long delay)
+        cpu = _get_process_cpu_percent(pid, 0.05)
+
+        return cpu, total_memory
+
+    except Exception:
+        return 0.0, 0.0
 
 
 def _parse_odt_progress(log_path: Path) -> tuple[str, int | None]:
@@ -1168,25 +1372,84 @@ class InstallMetrics:
     """!
     @brief Metrics captured during Office installation.
     """
+
     install_size: int = 0
     file_count: int = 0
     registry_keys: int = 0
     c2r_version: str | None = None
     log_status: str = ""
     log_percent: int | None = None
+    cpu_percent: float = 0.0
+    memory_mb: float = 0.0
 
 
-def _capture_install_metrics() -> InstallMetrics:
+@dataclass
+class _ProcessStats:
+    """!
+    @brief Shared container for process CPU/RAM stats updated by polling thread.
+    """
+
+    cpu_percent: float = 0.0
+    memory_mb: float = 0.0
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def update(self, cpu: float, mem: float) -> None:
+        """Thread-safe update of stats."""
+        with self.lock:
+            self.cpu_percent = cpu
+            self.memory_mb = mem
+
+    def get(self) -> tuple[float, float]:
+        """Thread-safe read of stats."""
+        with self.lock:
+            return self.cpu_percent, self.memory_mb
+
+
+def _stats_poller_thread(
+    pid: int,
+    stats: _ProcessStats,
+    stop_event: threading.Event,
+    interval: float = 1.0,
+) -> None:
+    """!
+    @brief Dedicated thread to poll CPU/RAM stats without blocking spinner.
+    @param pid Process ID to monitor.
+    @param stats Shared _ProcessStats object to update.
+    @param stop_event Event to signal when polling should stop.
+    @param interval Polling interval in seconds.
+    """
+    while not stop_event.is_set():
+        try:
+            # Get memory (fast, no blocking)
+            mem = _get_process_memory_mb(pid)
+
+            # Get CPU with short sampling window
+            cpu = _get_process_cpu_percent(pid, interval=0.1)
+
+            # Update shared stats
+            stats.update(cpu, mem)
+
+        except Exception:
+            pass
+
+        # Wait for next poll (but check stop_event frequently)
+        stop_event.wait(interval)
+
+
+def _capture_install_metrics(
+    pid: int | None = None,
+    cached_stats: _ProcessStats | None = None,
+) -> InstallMetrics:
     """!
     @brief Capture current installation metrics.
+    @param pid Process ID to monitor for CPU/RAM (optional, ignored if cached_stats).
+    @param cached_stats Pre-polled process stats (preferred over pid).
     @returns InstallMetrics with current state.
     """
     metrics = InstallMetrics()
     metrics.install_size = _get_office_install_size()
     metrics.file_count = _count_office_files()
-    metrics.registry_keys = sum(
-        _count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS
-    )
+    metrics.registry_keys = sum(_count_registry_subkeys(key) for key in _OFFICE_REGISTRY_KEYS)
     metrics.c2r_version = _get_c2r_version()
 
     log_path = _find_latest_odt_log()
@@ -1194,6 +1457,13 @@ def _capture_install_metrics() -> InstallMetrics:
         metrics.log_status, metrics.log_percent = _parse_odt_progress(log_path)
     else:
         metrics.log_status = "Starting..."
+
+    # Get process stats from cached poller (non-blocking) or direct call
+    if cached_stats is not None:
+        metrics.cpu_percent, metrics.memory_mb = cached_stats.get()
+    elif pid is not None:
+        # Fallback: direct call (may block briefly)
+        metrics.cpu_percent, metrics.memory_mb = _get_process_tree_stats(pid)
 
     return metrics
 
@@ -1210,6 +1480,7 @@ def _monitor_odt_progress(
     - Office installation folder size (disk usage)
     - File count in installation directories
     - Registry key changes
+    - CPU and RAM usage of ODT process tree (via dedicated poller thread)
     @param proc The ODT subprocess being monitored.
     @param stop_event Event to signal when monitoring should stop.
     @param products List of product names being installed.
@@ -1225,56 +1496,81 @@ def _monitor_odt_progress(
     baseline_size = _get_office_install_size()
     baseline_files = _count_office_files()
 
+    # Start dedicated stats polling thread
+    process_stats = _ProcessStats()
+    stats_stop = threading.Event()
+    stats_thread = threading.Thread(
+        target=_stats_poller_thread,
+        args=(proc.pid, process_stats, stats_stop, 1.0),
+        daemon=True,
+        name="odt-stats-poller",
+    )
+    stats_thread.start()
+
     last_display = ""
 
-    while not stop_event.is_set() and proc.poll() is None:
-        # Capture current metrics
-        metrics = _capture_install_metrics()
+    try:
+        while not stop_event.is_set() and proc.poll() is None:
+            # Capture current metrics using cached stats (non-blocking)
+            metrics = _capture_install_metrics(cached_stats=process_stats)
 
-        # Calculate deltas from baseline
-        size_delta = metrics.install_size - baseline_size
-        files_delta = metrics.file_count - baseline_files
+            # Calculate deltas from baseline
+            size_delta = metrics.install_size - baseline_size
+            files_delta = metrics.file_count - baseline_files
 
-        # Build display string with best available info
-        parts: list[str] = []
+            # Build display string with best available info
+            parts: list[str] = []
 
-        # Primary status from log if available
-        if metrics.log_percent is not None:
-            parts.append(f"{metrics.log_status} ({metrics.log_percent}%)")
-        elif metrics.log_status and metrics.log_status != "Starting...":
-            parts.append(metrics.log_status)
-        else:
-            # Infer status from metrics
-            if size_delta > 0:
-                if size_delta < 100 * 1024 * 1024:  # < 100 MB
-                    parts.append("Downloading")
-                elif size_delta < 1024 * 1024 * 1024:  # < 1 GB
-                    parts.append("Installing")
-                else:
-                    parts.append("Installing (finalizing)")
+            # Primary status from log if available
+            if metrics.log_percent is not None:
+                parts.append(f"{metrics.log_status} ({metrics.log_percent}%)")
+            elif metrics.log_status and metrics.log_status != "Starting...":
+                parts.append(metrics.log_status)
             else:
-                parts.append("Starting")
+                # Infer status from metrics
+                if size_delta > 0:
+                    if size_delta < 100 * 1024 * 1024:  # < 100 MB
+                        parts.append("Downloading")
+                    elif size_delta < 1024 * 1024 * 1024:  # < 1 GB
+                        parts.append("Installing")
+                    else:
+                        parts.append("Installing (finalizing)")
+                else:
+                    parts.append("Starting")
 
-        # Add size info if there's meaningful disk activity
-        if size_delta > 1024 * 1024:  # > 1 MB
-            parts.append(_format_size(size_delta))
+            # Add size info if there's meaningful disk activity
+            if size_delta > 1024 * 1024:  # > 1 MB
+                parts.append(_format_size(size_delta))
 
-        # Add file count if meaningful
-        if files_delta > 100:
-            parts.append(f"{files_delta:,} files")
+            # Add file count if meaningful
+            if files_delta > 100:
+                parts.append(f"{files_delta:,} files")
 
-        # Build final display
-        status_part = " | ".join(parts) if parts else "Working"
-        display = f"ODT: {status_part} - {product_str}"
+            # Add CPU/RAM stats if meaningful
+            if metrics.cpu_percent > 1.0 or metrics.memory_mb > 10:
+                stats_parts = []
+                if metrics.cpu_percent > 1.0:
+                    stats_parts.append(f"CPU {metrics.cpu_percent:.0f}%")
+                if metrics.memory_mb > 10:
+                    stats_parts.append(f"RAM {metrics.memory_mb:.0f}MB")
+                if stats_parts:
+                    parts.append(" ".join(stats_parts))
 
-        # Only update spinner if changed
-        if display != last_display:
-            _spinner.set_task(display)
-            last_display = display
+            # Build final display
+            status_part = " | ".join(parts) if parts else "Working"
+            display = f"ODT: {status_part} - {product_str}"
 
-        stop_event.wait(0.5)  # Check every 500ms
+            # Only update spinner if changed
+            if display != last_display:
+                _spinner.set_task(display)
+                last_display = display
 
-        stop_event.wait(0.5)  # Check every 500ms
+            stop_event.wait(0.3)  # Check every 300ms for smoother spinner
+
+    finally:
+        # Stop the stats polling thread
+        stats_stop.set()
+        stats_thread.join(timeout=0.5)
 
 
 def run_odt_install(
@@ -1355,7 +1651,7 @@ def run_odt_install(
         )
 
         # Register for cleanup on Ctrl+C
-        if (_spinner is not None):
+        if _spinner is not None:
             _spinner.register_process(proc)
 
         # Start progress monitoring thread
@@ -1438,6 +1734,7 @@ def _monitor_odt_download_progress(
     """!
     @brief Background thread to monitor ODT download progress.
     @details Monitors download folder size and ODT log files for progress.
+    Uses a dedicated thread to poll CPU/RAM stats to avoid blocking.
     @param proc The ODT subprocess being monitored.
     @param stop_event Event to signal when monitoring should stop.
     @param download_path Path where files are being downloaded.
@@ -1448,48 +1745,76 @@ def _monitor_odt_download_progress(
     last_display = ""
     last_size = 0
 
-    while not stop_event.is_set() and proc.poll() is None:
-        parts: list[str] = []
+    # Start dedicated stats polling thread
+    process_stats = _ProcessStats()
+    stats_stop = threading.Event()
+    stats_thread = threading.Thread(
+        target=_stats_poller_thread,
+        args=(proc.pid, process_stats, stats_stop),
+        daemon=True,
+        name="odt-download-stats-poller",
+    )
+    stats_thread.start()
 
-        # Check ODT log for status
-        log_path = _find_latest_odt_log()
-        if log_path:
-            status, pct = _parse_odt_progress(log_path)
-            if pct is not None:
-                parts.append(f"Downloading ({pct}%)")
-            elif "download" in status.lower():
-                parts.append(status)
+    try:
+        while not stop_event.is_set() and proc.poll() is None:
+            parts: list[str] = []
 
-        # Check download folder size
-        try:
-            total_size = _get_folder_size(download_path)
-            if total_size > 0:
-                parts.append(_format_size(total_size))
-                # Calculate download speed if we have previous measurement
-                if last_size > 0 and total_size > last_size:
-                    speed = (total_size - last_size) * 2  # 0.5s interval
-                    if speed > 1024 * 1024:  # > 1 MB/s
-                        parts.append(f"{_format_size(speed)}/s")
-                last_size = total_size
+            # Check ODT log for status
+            log_path = _find_latest_odt_log()
+            if log_path:
+                status, pct = _parse_odt_progress(log_path)
+                if pct is not None:
+                    parts.append(f"Downloading ({pct}%)")
+                elif "download" in status.lower():
+                    parts.append(status)
 
-            # Count files being downloaded
-            file_count = sum(1 for _ in download_path.rglob("*") if _.is_file())
-            if file_count > 0:
-                parts.append(f"{file_count} files")
-        except Exception:
-            pass
+            # Check download folder size
+            try:
+                total_size = _get_folder_size(download_path)
+                if total_size > 0:
+                    parts.append(_format_size(total_size))
+                    # Calculate download speed if we have previous measurement
+                    if last_size > 0 and total_size > last_size:
+                        speed = (total_size - last_size) * 3  # 0.3s interval
+                        if speed > 1024 * 1024:  # > 1 MB/s
+                            parts.append(f"{_format_size(speed)}/s")
+                    last_size = total_size
 
-        # Build display
-        if parts:
-            display = f"ODT: {' | '.join(parts)}"
-        else:
-            display = "ODT: Downloading..."
+                # Count files being downloaded
+                file_count = sum(1 for _ in download_path.rglob("*") if _.is_file())
+                if file_count > 0:
+                    parts.append(f"{file_count} files")
+            except Exception:
+                pass
 
-        if display != last_display:
-            _spinner.set_task(display)
-            last_display = display
+            # Add CPU/RAM stats from cached values (non-blocking)
+            cpu, mem = process_stats.get()
+            if cpu > 1.0 or mem > 10:
+                stats_parts = []
+                if cpu > 1.0:
+                    stats_parts.append(f"CPU {cpu:.0f}%")
+                if mem > 10:
+                    stats_parts.append(f"RAM {mem:.0f}MB")
+                if stats_parts:
+                    parts.append(" ".join(stats_parts))
 
-        stop_event.wait(0.5)
+            # Build display
+            if parts:
+                display = f"ODT: {' | '.join(parts)}"
+            else:
+                display = "ODT: Downloading..."
+
+            if display != last_display:
+                _spinner.set_task(display)
+                last_display = display
+
+            stop_event.wait(0.3)  # Check every 300ms for smoother spinner
+
+    finally:
+        # Stop the stats polling thread
+        stats_stop.set()
+        stats_thread.join(timeout=0.5)
 
 
 def run_odt_download(
@@ -1580,7 +1905,7 @@ def run_odt_download(
         )
 
         # Register for cleanup on Ctrl+C
-        if (_spinner is not None):
+        if _spinner is not None:
             _spinner.register_process(proc)
 
         # Start progress monitoring thread
@@ -1744,7 +2069,7 @@ def run_odt_remove(
         )
 
         # Register for cleanup on Ctrl+C
-        if (_spinner is not None):
+        if _spinner is not None:
             _spinner.register_process(proc)
 
         # Start progress monitoring thread (reuse install monitor)
