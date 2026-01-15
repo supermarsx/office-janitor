@@ -7,7 +7,7 @@ InstallerType: portable
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/supermarsx/office-janitor/releases/download/26.1/office-janitor.exe
-    InstallerSha256: 2707c2ba5f9fc84afbc1e735708ebda52ef880275a5e0978e45f5944b90fcda5
+    InstallerSha256: 4471a24d462724ddd1dd1b5df9e5eef3953697f94cd731cd182d008cfb257602
     Commands:
       - office-janitor
 ManifestType: installer
