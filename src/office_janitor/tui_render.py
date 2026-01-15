@@ -1,0 +1,302 @@
+"""!
+@file tui_render.py
+@brief Rendering mixins and methods for the Office Janitor TUI.
+
+@details Contains the TUIRendererMixin class that provides all rendering
+methods for panes, navigation, header/footer, and content areas. This mixin
+is designed to be combined with the main OfficeJanitorTUI class.
+"""
+
+from __future__ import annotations
+
+import os
+import platform
+import sys
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
+
+from . import version
+from .tui_helpers import (
+    clear_screen,
+    divider,
+    format_inventory,
+    format_plan,
+    strip_ansi,
+)
+
+if TYPE_CHECKING:
+    from .tui import PaneContext
+
+
+class TUIRendererMixin:
+    """!
+    @brief Mixin providing rendering methods for TUI panes and layout.
+    @details This mixin expects the following attributes on the class:
+    - ansi_supported: bool
+    - compact_layout: bool
+    - progress_message: str
+    - navigation: list[NavigationItem]
+    - nav_index: int
+    - active_tab: str
+    - panes: dict[str, PaneContext]
+    - status_lines: list[str]
+    - log_lines: list[str]
+    - last_inventory: Mapping | None
+    - last_plan: list | None
+    - plan_overrides: dict[str, bool]
+    - target_overrides: dict[str, bool]
+    - settings_overrides: dict[str, bool]
+    - app_state: MutableMapping
+    """
+
+    # Type hints for mixin attributes (defined in OfficeJanitorTUI)
+    ansi_supported: bool
+    compact_layout: bool
+    progress_message: str
+    navigation: list
+    nav_index: int
+    active_tab: str
+    panes: dict
+    status_lines: list[str]
+    log_lines: list[str]
+    last_inventory: Mapping[str, object] | None
+    last_plan: list[dict[str, object]] | None
+    plan_overrides: dict[str, bool]
+    target_overrides: dict[str, bool]
+    settings_overrides: dict[str, bool]
+    app_state: dict
+    list_filters: dict[str, str]
+
+    def _render(self) -> None:
+        """!
+        @brief Render the full TUI screen.
+        """
+        width = 80 if self.compact_layout else 96
+        left_width = 24 if self.compact_layout else 28
+        clear_screen()
+        sys.stdout.write(self._render_header(width) + "\n")
+        sys.stdout.write(divider(width) + "\n")
+
+        nav_lines = self._render_navigation(left_width)
+        content_lines = self._render_content(width - left_width - 1)
+
+        max_lines = max(len(nav_lines), len(content_lines))
+        for index in range(max_lines):
+            left_text = nav_lines[index] if index < len(nav_lines) else ""
+            right_text = content_lines[index] if index < len(content_lines) else ""
+            # Calculate visible length (excluding ANSI codes) for proper padding
+            visible_len = len(strip_ansi(left_text))
+            padding = " " * max(0, left_width - visible_len)
+            sys.stdout.write(f"{left_text}{padding} {right_text[: width - left_width - 1]}\n")
+
+        sys.stdout.write(divider(width) + "\n")
+        sys.stdout.write(self._render_footer() + "\n")
+        sys.stdout.flush()
+
+    def _render_header(self, width: int) -> str:
+        """Render the header line with version and status."""
+        metadata = version.build_info()
+        node = platform.node() or os.environ.get("COMPUTERNAME", "Unknown")
+        header = f"Office Janitor {metadata['version']}"
+        header += f" — {self.progress_message}"
+        header += f" — {node}"
+        return header[:width]
+
+    def _render_navigation(self, width: int) -> list[str]:
+        """Render the navigation column."""
+        lines: list[str] = ["Navigation:"]
+        for index, item in enumerate(self.navigation):
+            prefix = "➤" if index == self.nav_index else " "
+            # Build visible text first, truncate to width, then apply ANSI
+            visible_text = f"{prefix} {item.label}"
+            truncated = visible_text[:width]
+            if self.ansi_supported and index == self.nav_index:
+                # Pad to width so highlight fills the column, then apply reverse video
+                padded = truncated.ljust(width)
+                line = f"\x1b[7m{padded}\x1b[0m"
+            else:
+                line = truncated
+            lines.append(line)
+        lines.append("")
+        lines.append("Status log:")
+        lines.extend(self.status_lines[-(12 if self.compact_layout else 18) :])
+        return lines
+
+    def _render_content(self, width: int) -> list[str]:
+        """Dispatch to the appropriate pane renderer based on active tab."""
+        if self.active_tab == "detect":
+            return self._render_inventory_pane(width)
+        if self.active_tab == "plan":
+            return self._render_plan_pane(width)
+        if self.active_tab == "targeted":
+            return self._render_targeted_pane(width)
+        if self.active_tab == "auto":
+            return self._render_auto_pane(width)
+        if self.active_tab == "cleanup":
+            return self._render_cleanup_pane(width)
+        if self.active_tab == "diagnostics":
+            return self._render_diagnostics_pane(width)
+        if self.active_tab == "run":
+            return self._render_run_pane(width)
+        if self.active_tab == "logs":
+            return self._render_logs_pane(width)
+        if self.active_tab == "settings":
+            return self._render_settings_pane(width)
+        return ["Select an option with Enter"]
+
+    def _render_footer(self) -> str:
+        """Render the footer help text."""
+        help_text = (
+            "Arrows navigate • Tab switches focus • Space toggles • Enter confirms • "
+            "F10 run • / filter • F1 help • Q quits"
+        )
+        return help_text
+
+    def _render_inventory_pane(self, width: int) -> list[str]:
+        """Render the inventory/detect pane."""
+        lines = ["Inventory summary:"]
+        if self.last_inventory is None:
+            lines.append("No inventory collected yet.")
+        else:
+            pane = self.panes["detect"]
+            entries = self._ensure_pane_lines(pane)
+            active_filter = self._get_pane_filter(pane.name)
+            if active_filter:
+                lines.append(f"Filter: {active_filter}")
+            if entries:
+                lines.extend(text for _, text in entries)
+            else:
+                lines.append("No matching entries.")
+        pane = self.panes["detect"]
+        if self.last_inventory is None:
+            pane.lines = []
+        return [line[:width] for line in lines]
+
+    def _render_plan_pane(self, width: int) -> list[str]:
+        """Render the plan options pane."""
+        lines = ["Plan options:"]
+        pane = self.panes["plan"]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "➤" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        else:
+            lines.append("No matching options.")
+        lines.append("")
+        summary = format_plan(self.last_plan)
+        lines.extend(summary)
+        return [line[:width] for line in lines]
+
+    def _render_targeted_pane(self, width: int) -> list[str]:
+        """Render the targeted scrub pane."""
+        lines = ["Targeted scrub targets:"]
+        pane = self.panes["targeted"]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "➤" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        else:
+            lines.append("No matching targets.")
+        lines.append("")
+        lines.append("Select versions with Space, Enter/F10 to run targeted scrub.")
+        if self.last_inventory is None:
+            lines.append("Inventory not captured yet; selecting targets will prompt detection.")
+        return [line[:width] for line in lines]
+
+    def _render_auto_pane(self, width: int) -> list[str]:
+        """Render the auto scrub pane."""
+        lines = [
+            "Auto scrub:",
+            "Run a full detection and removal pass for all detected Office versions.",
+            "Press Enter or F10 to start the auto scrub run.",
+        ]
+        return [line[:width] for line in lines]
+
+    def _render_cleanup_pane(self, width: int) -> list[str]:
+        """Render the cleanup only pane."""
+        lines = [
+            "Cleanup only:",
+            "Removes residue such as licenses and scheduled tasks without uninstalling suites.",
+            "Press Enter or F10 to execute cleanup steps.",
+        ]
+        return [line[:width] for line in lines]
+
+    def _render_diagnostics_pane(self, width: int) -> list[str]:
+        """Render the diagnostics pane."""
+        lines = [
+            "Diagnostics only:",
+            "Exports inventory and action plans without running uninstall steps.",
+            "Press Enter or F10 to generate diagnostics artifacts.",
+        ]
+        return [line[:width] for line in lines]
+
+    def _render_run_pane(self, width: int) -> list[str]:
+        """Render the execution progress pane."""
+        lines = ["Execution progress:"]
+        pane = self.panes["run"]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            lines.extend(text for _, text in entries)
+        else:
+            lines.append("No matching progress messages." if active_filter else "No progress yet.")
+        return [line[:width] for line in lines]
+
+    def _render_logs_pane(self, width: int) -> list[str]:
+        """Render the logs pane."""
+        lines = ["Log tail:"]
+        if not self.log_lines:
+            lines.append("No log entries yet.")
+        else:
+            pane = self.panes["logs"]
+            entries = self._ensure_pane_lines(pane)
+            active_filter = self._get_pane_filter(pane.name)
+            if active_filter:
+                lines.append(f"Filter: {active_filter}")
+            if entries:
+                start = max(0, len(entries) - 10)
+                lines.extend(text for _, text in entries[start:])
+            else:
+                lines.append("No matching log entries.")
+        return [line[:width] for line in lines]
+
+    def _render_settings_pane(self, width: int) -> list[str]:
+        """Render the settings pane."""
+        lines = ["Settings toggles:"]
+        pane = self.panes["settings"]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "➤" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        else:
+            lines.append("No matching settings.")
+        args = self.app_state.get("args")
+        lines.append("")
+        lines.append(f"Log directory: {getattr(args, 'logdir', '(default)')}")
+        lines.append(f"Backup directory: {getattr(args, 'backup', '(disabled)')}")
+        timeout = getattr(args, "timeout", None)
+        lines.append(f"Timeout: {timeout if timeout is not None else '(default)'}")
+        return [line[:width] for line in lines]
+
+    # Abstract methods that must be provided by the main class
+    def _ensure_pane_lines(self, pane: "PaneContext") -> list[tuple[str, str]]:
+        """Ensure pane lines are populated. Must be implemented by main class."""
+        raise NotImplementedError  # pragma: no cover
+
+    def _get_pane_filter(self, pane_name: str) -> str:
+        """Get filter for a pane. Must be implemented by main class."""
+        raise NotImplementedError  # pragma: no cover
