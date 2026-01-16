@@ -19,9 +19,9 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from office_janitor import (  # noqa: E402
-    c2r_uninstall,
-    c2r_odt,
     c2r_integrator,
+    c2r_odt,
+    c2r_uninstall,
     command_runner,
     logging_ext,
     msi_uninstall,
