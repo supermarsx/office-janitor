@@ -18,7 +18,6 @@ from pathlib import Path
 from . import command_runner, constants, logging_ext, registry_tools
 from .exec_utils import CommandResult
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------

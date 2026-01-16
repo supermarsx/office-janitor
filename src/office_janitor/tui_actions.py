@@ -50,16 +50,16 @@ class TUIActionsMixin:
     """
 
     # Type hints for mixin attributes (defined in OfficeJanitorTUI)
-    app_state: MutableMapping
+    app_state: MutableMapping[str, object]
     detector: Callable[[], Mapping[str, object]]
-    planner: Callable
-    executor: Callable
+    planner: Callable[..., object]
+    executor: Callable[..., object]
     _confirm_requestor: Callable[..., bool] | None
     last_inventory: Mapping[str, object] | None
     last_plan: list[dict[str, object]] | None
     last_overrides: dict[str, object] | None
     progress_message: str
-    panes: dict
+    panes: dict[str, object]
     plan_overrides: dict[str, bool]
     target_overrides: dict[str, bool]
     settings_overrides: dict[str, bool]
@@ -68,7 +68,7 @@ class TUIActionsMixin:
     _running: bool
     human_logger: object
     machine_logger: object
-    event_queue: "deque[dict[str, object]]"
+    event_queue: deque[dict[str, object]]
     emit_event: object
 
     # Methods that must be provided by the main class
@@ -81,7 +81,7 @@ class TUIActionsMixin:
     def _notify(self, event: str, message: str, *, level: str = "info", **payload: object) -> None:
         raise NotImplementedError  # pragma: no cover
 
-    def _ensure_pane_lines(self, pane: "PaneContext") -> list[tuple[str, str]]:
+    def _ensure_pane_lines(self, pane: PaneContext) -> list[tuple[str, str]]:
         raise NotImplementedError  # pragma: no cover
 
     def _get_pane_filter(self, pane_name: str) -> str:
@@ -91,7 +91,7 @@ class TUIActionsMixin:
         raise NotImplementedError  # pragma: no cover
 
     def _filter_entries(
-        self, pane: "PaneContext", entries: list[tuple[str, str]]
+        self, pane: PaneContext, entries: list[tuple[str, str]]
     ) -> list[tuple[str, str]]:
         raise NotImplementedError  # pragma: no cover
 
@@ -502,7 +502,7 @@ class TUIActionsMixin:
         """
         raise NotImplementedError  # pragma: no cover - implemented in main class
 
-    def _prompt_filter(self, pane: "PaneContext") -> None:
+    def _prompt_filter(self, pane: PaneContext) -> None:
         """Prompt user for filter text."""
         label = pane.name.replace("_", " ").title()
         previous_filter = self._get_pane_filter(pane.name)

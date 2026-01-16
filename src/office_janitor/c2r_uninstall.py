@@ -16,7 +16,21 @@ from pathlib import Path
 from . import command_runner, constants, logging_ext, registry_tools, tasks_services
 
 # Re-export ODT and integrator functionality for backwards compatibility
-from .c2r_odt import (
+from .c2r_integrator import (  # noqa: F401
+    INTEGRATOR_EXE_CANDIDATES,
+    INTEGRATOR_TIMEOUT,
+    delete_c2r_manifests,
+    find_c2r_package_guids,
+    find_integrator_exe,
+    find_integrator_in_package,
+    get_c2r_install_root,
+    get_c2r_product_release_ids,
+    reinstall_c2r_license,
+    reinstall_c2r_licenses,
+    unregister_all_c2r_integrations,
+    unregister_c2r_integration,
+)
+from .c2r_odt import (  # noqa: F401
     ODT_DOWNLOAD_URLS,
     ODT_REMOVE_XML_TEMPLATE,
     ODT_TIMEOUT,
@@ -24,23 +38,9 @@ from .c2r_odt import (
     download_odt,
     find_local_odt,
     find_or_download_odt,
-    uninstall_via_odt,
-    uninstall_product_via_odt,
     uninstall_all_via_odt,
-)
-from .c2r_integrator import (
-    INTEGRATOR_EXE_CANDIDATES,
-    INTEGRATOR_TIMEOUT,
-    find_integrator_exe,
-    find_integrator_in_package,
-    delete_c2r_manifests,
-    unregister_c2r_integration,
-    find_c2r_package_guids,
-    unregister_all_c2r_integrations,
-    get_c2r_product_release_ids,
-    get_c2r_install_root,
-    reinstall_c2r_license,
-    reinstall_c2r_licenses,
+    uninstall_product_via_odt,
+    uninstall_via_odt,
 )
 
 # ---------------------------------------------------------------------------

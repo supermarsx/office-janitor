@@ -10,10 +10,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
 
 from . import registry_tools
-from .registry_office import is_office_guid
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -19,7 +19,6 @@ from . import version
 from .tui_helpers import (
     clear_screen,
     divider,
-    format_inventory,
     format_plan,
     strip_ansi,
 )
@@ -53,10 +52,10 @@ class TUIRendererMixin:
     ansi_supported: bool
     compact_layout: bool
     progress_message: str
-    navigation: list
+    navigation: list[str]
     nav_index: int
     active_tab: str
-    panes: dict
+    panes: dict[str, object]
     status_lines: list[str]
     log_lines: list[str]
     last_inventory: Mapping[str, object] | None
@@ -64,7 +63,7 @@ class TUIRendererMixin:
     plan_overrides: dict[str, bool]
     target_overrides: dict[str, bool]
     settings_overrides: dict[str, bool]
-    app_state: dict
+    app_state: dict[str, object]
     list_filters: dict[str, str]
 
     def _render(self) -> None:
@@ -293,7 +292,7 @@ class TUIRendererMixin:
         return [line[:width] for line in lines]
 
     # Abstract methods that must be provided by the main class
-    def _ensure_pane_lines(self, pane: "PaneContext") -> list[tuple[str, str]]:
+    def _ensure_pane_lines(self, pane: PaneContext) -> list[tuple[str, str]]:
         """Ensure pane lines are populated. Must be implemented by main class."""
         raise NotImplementedError  # pragma: no cover
 

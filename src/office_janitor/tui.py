@@ -14,7 +14,7 @@ by TUIRendererMixin from tui_render.py, action handlers from TUIActionsMixin
 in tui_actions.py, and helper functions are in tui_helpers.py.
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import time
 from collections import deque
@@ -28,12 +28,11 @@ from .tui_helpers import (
     decode_key,
     default_key_reader,
     format_inventory,
-    read_input_line,
 )
-from .tui_render import TUIRendererMixin
 
 # Re-export for backward compatibility (tests patch these underscore aliases)
-from .tui_helpers import (
+from .tui_helpers import (  # noqa: F401
+    clear_screen as _clear_screen,
     decode_key as _decode_key,
     default_key_reader as _default_key_reader,
     divider as _divider,
@@ -45,8 +44,8 @@ from .tui_helpers import (
     strip_ansi as _strip_ansi,
     summarize_inventory as _summarize_inventory,
     supports_ansi as _supports_ansi,
-    clear_screen as _clear_screen,
 )
+from .tui_render import TUIRendererMixin
 
 try:  # pragma: no cover - Windows specific
     import msvcrt as _msvcrt

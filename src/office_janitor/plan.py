@@ -578,9 +578,7 @@ def summarize_plan(plan_steps: Sequence[Mapping[str, object]]) -> dict[str, obje
         summary["mode"] = str(context_metadata.get("mode", ""))
         summary["dry_run"] = bool(context_metadata.get("dry_run", False))
         summary["target_versions"] = coerce_to_list(context_metadata.get("target_versions"))
-        summary["discovered_versions"] = coerce_to_list(
-            context_metadata.get("discovered_versions")
-        )
+        summary["discovered_versions"] = coerce_to_list(context_metadata.get("discovered_versions"))
         summary["requested_components"] = coerce_to_list(
             context_metadata.get("requested_components")
         )

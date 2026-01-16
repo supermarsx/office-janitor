@@ -13,10 +13,8 @@ from __future__ import annotations
 import datetime
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
 
 from . import constants, fs_tools, logging_ext, registry_tools
-
 
 # ---------------------------------------------------------------------------
 # Progress output helper (imported from parent)

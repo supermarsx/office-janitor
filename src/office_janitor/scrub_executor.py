@@ -15,7 +15,6 @@ from __future__ import annotations
 import dataclasses
 import time
 from collections.abc import Iterable, Mapping, MutableMapping
-from typing import Any
 
 from . import (
     c2r_uninstall,

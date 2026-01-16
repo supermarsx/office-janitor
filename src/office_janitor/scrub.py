@@ -13,32 +13,42 @@ reporting. Step execution mechanics are in scrub_executor.py and cleanup
 implementations are in scrub_cleanup.py.
 """
 
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import time
 from collections.abc import Iterable, Mapping, MutableMapping
 from pathlib import Path
 
 from . import (
+    c2r_uninstall,  # noqa: F401 - re-exported for test patching
     constants,
     detect,
-    fs_tools,
-    licensing,
+    fs_tools,  # noqa: F401 - re-exported for test patching
+    licensing,  # noqa: F401 - re-exported for test patching
     logging_ext,
-    msi_uninstall,
+    msi_uninstall,  # noqa: F401 - re-exported for test patching
     processes,
-    registry_tools,
+    registry_tools,  # noqa: F401 - re-exported for test patching
     restore_point,
     spinner,
     tasks_services,
 )
 from . import (
-    c2r_uninstall,
     plan as plan_module,
 )
 
+# Re-export from scrub_cleanup for backward compatibility
+from .scrub_cleanup import (  # noqa: F401
+    is_user_template_path as _is_user_template_path,
+    normalize_option_path as _normalize_option_path,
+    normalize_string_sequence as _normalize_string_sequence,
+    perform_filesystem_cleanup as _perform_filesystem_cleanup,
+    perform_registry_cleanup as _perform_registry_cleanup,
+    sort_registry_paths_deepest_first as _sort_registry_paths_deepest_first,
+)
+
 # Re-export from scrub_executor for backward compatibility
-from .scrub_executor import (
+from .scrub_executor import (  # noqa: F401
     DEFAULT_RETRY_COUNT,
     DEFAULT_RETRY_DELAY_BASE,
     DEFAULT_RETRY_DELAY_MAX,
@@ -47,16 +57,6 @@ from .scrub_executor import (
     StepExecutor,
     StepResult,
     _merge_reboot_details,
-)
-
-# Re-export from scrub_cleanup for backward compatibility
-from .scrub_cleanup import (
-    is_user_template_path as _is_user_template_path,
-    normalize_option_path as _normalize_option_path,
-    normalize_string_sequence as _normalize_string_sequence,
-    perform_filesystem_cleanup as _perform_filesystem_cleanup,
-    perform_registry_cleanup as _perform_registry_cleanup,
-    sort_registry_paths_deepest_first as _sort_registry_paths_deepest_first,
 )
 
 # ---------------------------------------------------------------------------

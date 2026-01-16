@@ -47,11 +47,11 @@ winreg = _winreg
 
 
 _LOGGER = logging.getLogger(__name__)
-_WINREG_KEY_READ = getattr(winreg, "KEY_READ", 0)
-_WINREG_HKLM = getattr(winreg, "HKEY_LOCAL_MACHINE", 0)
-_WINREG_HKCU = getattr(winreg, "HKEY_CURRENT_USER", 0)
-_WINREG_HKU = getattr(winreg, "HKEY_USERS", 0)
-_WINREG_HKCR = getattr(winreg, "HKEY_CLASSES_ROOT", 0)
+_WINREG_KEY_READ: int = getattr(winreg, "KEY_READ", 0)
+_WINREG_HKLM: int = getattr(winreg, "HKEY_LOCAL_MACHINE", 0)
+_WINREG_HKCU: int = getattr(winreg, "HKEY_CURRENT_USER", 0)
+_WINREG_HKU: int = getattr(winreg, "HKEY_USERS", 0)
+_WINREG_HKCR: int = getattr(winreg, "HKEY_CLASSES_ROOT", 0)
 
 _CANONICAL_PREFIXES: Mapping[str, str] = {
     "HKEY_LOCAL_MACHINE": "HKLM",
@@ -540,6 +540,21 @@ _decode_squished_guid = decode_squished_guid
 # These functions have been moved to registry_wi_cleanup.py but are re-exported
 # here to maintain the existing public API.
 
+# ---------------------------------------------------------------------------
+# Re-exports from registry_user for backwards compatibility
+# ---------------------------------------------------------------------------
+# These functions have been moved to registry_user.py but are re-exported
+# here to maintain the existing public API.
+from .registry_user import (  # noqa: E402
+    cleanup_taskband_registry,
+    cleanup_vnext_identity_registry,
+    delete_registry_value,
+    get_loaded_user_hives,
+    get_user_profile_hive_paths,
+    get_user_profiles_directory,
+    load_user_registry_hives,
+    unload_user_registry_hives,
+)
 from .registry_wi_cleanup import (  # noqa: E402
     WI_METADATA_PATHS,
     cleanup_orphaned_typelibs,
@@ -551,25 +566,6 @@ from .registry_wi_cleanup import (  # noqa: E402
     scan_wi_metadata,
     validate_wi_metadata_key,
 )
-
-
-# ---------------------------------------------------------------------------
-# Re-exports from registry_user for backwards compatibility
-# ---------------------------------------------------------------------------
-# These functions have been moved to registry_user.py but are re-exported
-# here to maintain the existing public API.
-
-from .registry_user import (  # noqa: E402
-    cleanup_taskband_registry,
-    cleanup_vnext_identity_registry,
-    delete_registry_value,
-    get_loaded_user_hives,
-    get_user_profile_hive_paths,
-    get_user_profiles_directory,
-    load_user_registry_hives,
-    unload_user_registry_hives,
-)
-
 
 __all__ = [
     # Core registry operations

@@ -24,7 +24,6 @@ from . import command_runner, constants, logging_ext, processes, registry_tools
 # Import LogTailer for use in run_repair
 from .repair_odt import LogTailer
 
-
 # ---------------------------------------------------------------------------
 # Constants and Enumerations
 # ---------------------------------------------------------------------------
@@ -607,7 +606,6 @@ from .repair_odt import (  # noqa: E402
     reconfigure_office,
     run_oem_config,
 )
-
 
 __all__ = [
     # Core repair types and config
