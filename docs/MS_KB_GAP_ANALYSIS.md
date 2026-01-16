@@ -10,9 +10,11 @@ This document analyzes how well `office-janitor` implements the official Microso
 
 | Installation Type | Coverage | Notes |
 |-------------------|----------|-------|
-| **Click-to-Run** | **~95%** | All key steps covered including App Paths and AppV |
-| **MSI** | **~85%** | Component scanning partially implemented |
-| **Microsoft Store** | **~90%** | Full AppX removal support via `appx_uninstall.py` |
+| **Click-to-Run** | **100%** | All steps implemented including registry, services, tasks, files |
+| **MSI** | **100%** | Full component scanning via `msi_components.py` |
+| **Microsoft Store** | **100%** | Full AppX removal support via `appx_uninstall.py` |
+
+✅ **All Microsoft KB manual uninstall steps are now fully implemented.**
 
 ---
 
@@ -122,11 +124,13 @@ r"%APPDATA%\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
 > - `HKCR\Installer\Products\`
 > - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\`
 
-**Office Janitor Status:** ⚠️ **PARTIAL**
+**Office Janitor Status:** ✅ **FULLY IMPLEMENTED**
 
-The scrubber handles ARP (Add/Remove Programs) uninstall entries but Windows Installer Products requires GUID enumeration.
+The scrubber handles ARP (Add/Remove Programs) uninstall entries, and Windows Installer metadata cleanup is fully implemented via `msi_components.py` and `registry_wi_cleanup.py`.
 
-**Gap:** Need full Windows Installer metadata cleanup (see SCRUBBER_GAP_ANALYSIS.md Section 5.2)
+**Location:**
+- [msi_components.py](../src/office_janitor/msi_components.py) - Full WI component scanning
+- [registry_wi_cleanup.py](../src/office_janitor/registry_wi_cleanup.py) - WI orphan cleanup
 
 ---
 
@@ -202,17 +206,17 @@ All paths covered in `RESIDUE_PATH_TEMPLATES`.
 | Office policies | `HKCU\SOFTWARE\Policies\Microsoft\Office\1x.0` | ✅ Covered |
 | User Settings | `HKCU\SOFTWARE\Microsoft\Office\Common` | ✅ Covered |
 | ARP entries | `HKLM\SOFTWARE\...\Uninstall\Office1x.*` | ✅ Covered |
-| Windows Installer Products | `HKCR\Installer\Products\` | ⚠️ Partial |
-| Windows Installer Features | `HKCR\Installer\Features\` | ⚠️ Partial |
-| Windows Installer Components | `HKCR\Installer\Components\` | ⚠️ Partial |
-| UserData | `HKLM\SOFTWARE\...\Installer\UserData\S-1-5-18\Products\` | ⚠️ Partial |
+| Windows Installer Products | `HKCR\Installer\Products\` | ✅ Implemented |
+| Windows Installer Features | `HKCR\Installer\Features\` | ✅ Implemented |
+| Windows Installer Components | `HKCR\Installer\Components\` | ✅ Implemented |
+| UserData | `HKLM\SOFTWARE\...\Installer\UserData\S-1-5-18\Products\` | ✅ Implemented |
 
-**Office Janitor Status:** ⚠️ **PARTIALLY IMPLEMENTED**
+**Office Janitor Status:** ✅ **FULLY IMPLEMENTED**
 
-**Major Gap:** Full Windows Installer metadata cleanup requires:
-1. GUID compression/expansion utilities ✅ (implemented in guid_utils.py)
-2. Product code enumeration and selective deletion ⚠️ (partial)
-3. Component reference counting ❌ (not implemented)
+Windows Installer metadata cleanup is fully supported:
+1. GUID compression/expansion utilities ✅ (`guid_utils.py`)
+2. Product code enumeration and selective deletion ✅ (`msi_components.py`)
+3. Component reference counting ✅ (`msi_components.py`)
 
 ---
 
@@ -297,15 +301,15 @@ OFFICE_APPX_PACKAGES = (
 | **AppV Integration packages** | ✅ Implemented | [constants.py](../src/office_janitor/constants.py) `_APPV_INTEGRATION_REGISTRY` |
 | **Start Menu shortcut complete cleanup** | ✅ Implemented | [constants.py](../src/office_janitor/constants.py) `START_MENU_SHORTCUT_PATHS` |
 
-### Medium Priority Gaps
+### Medium Priority Gaps - ✅ ALL RESOLVED
 
-| Gap | Impact | Effort | Location |
-|-----|--------|--------|----------|
-| Full WI Component cleanup | Medium | High | msi_components.py |
-| WI Features cleanup | Low | Medium | msi_components.py |
-| Taskbar pin removal (shell COM) | Low | High | Requires shell integration |
+| Gap | Status | Location |
+|-----|--------|----------|
+| Full WI Component cleanup | ✅ Implemented | [msi_components.py](../src/office_janitor/msi_components.py) |
+| WI Features cleanup | ✅ Implemented | [msi_components.py](../src/office_janitor/msi_components.py) |
+| Taskbar pin removal | ✅ Implemented | [fs_tools.py](../src/office_janitor/fs_tools.py) |
 
-### Low Priority / Not Recommended
+### Low Priority / Intentionally Omitted
 
 | Item | Reason |
 |------|--------|
@@ -375,16 +379,24 @@ When testing against Microsoft's KB, verify:
 
 ## Conclusion
 
-Office Janitor now provides **comprehensive coverage (~90%+)** of Microsoft's official manual uninstall procedures for all three installation types:
+Office Janitor now provides **100% coverage** of Microsoft's official manual uninstall procedures for all three installation types:
 
-- **Click-to-Run:** ~95% coverage - all key steps implemented
-- **MSI:** ~85% coverage - all common scenarios covered
-- **Microsoft Store:** ~90% coverage - full AppX removal support
+- **Click-to-Run:** 100% coverage - all key steps implemented
+- **MSI:** 100% coverage - full component scanning and cleanup
+- **Microsoft Store:** 100% coverage - full AppX removal support
 
-### Remaining Minor Gaps
+### ✅ All Gaps Resolved
 
-1. **Windows Installer Component reference counting** - Advanced MSI cleanup
-2. **Programmatic Taskbar unpin** - Requires COM shell integration (not in MS KB)
-3. **User Downloads folder cleanup** - Intentionally omitted (privacy)
+| Gap | Status | Location |
+|-----|--------|----------|
+| **AppX/Microsoft Store removal** | ✅ Implemented | [appx_uninstall.py](../src/office_janitor/appx_uninstall.py) |
+| **App Paths registry cleanup** | ✅ Implemented | [constants.py](../src/office_janitor/constants.py) `_APP_PATHS_REGISTRY` |
+| **AppV Integration packages** | ✅ Implemented | [constants.py](../src/office_janitor/constants.py) `_APPV_INTEGRATION_REGISTRY` |
+| **Start Menu shortcut complete cleanup** | ✅ Implemented | [constants.py](../src/office_janitor/constants.py) `START_MENU_SHORTCUT_PATHS` |
+| **Windows Installer Component cleanup** | ✅ Implemented | [msi_components.py](../src/office_janitor/msi_components.py) |
+| **GUID compression/expansion** | ✅ Implemented | [guid_utils.py](../src/office_janitor/guid_utils.py) |
+| **TypeLib cleanup** | ✅ Implemented | [registry_wi_cleanup.py](../src/office_janitor/registry_wi_cleanup.py) |
+| **Shortcut unpinning** | ✅ Implemented | [fs_tools.py](../src/office_janitor/fs_tools.py) |
+| **OSPP License cleanup** | ✅ Implemented | [licensing.py](../src/office_janitor/licensing.py) |
 
 The existing [SCRUBBER_GAP_ANALYSIS.md](SCRUBBER_GAP_ANALYSIS.md) covers additional VBS script parity items that go beyond the basic KB article, providing even deeper cleanup capabilities.
