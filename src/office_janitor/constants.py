@@ -668,6 +668,75 @@ _C2R_REGISTRY_RESIDUE: list[tuple[int, str]] = [
 ]
 _REGISTRY_RESIDUE_BASE.extend(_C2R_REGISTRY_RESIDUE)
 
+# App Paths registry entries (from MS KB 4e2904ea manual uninstall guide)
+# These associate Office executables with their paths for shell execution
+_APP_PATHS_REGISTRY: list[tuple[int, str]] = [
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\excel.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\winword.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\powerpnt.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\outlook.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msaccess.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\mspub.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\onenote.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\visio.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\winproj.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\lync.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\groove.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\infopath.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\setlang.exe"),
+    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\graph.exe"),
+    # WOW6432Node variants for 32-bit Office on 64-bit Windows
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\excel.exe"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\winword.exe"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\powerpnt.exe"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\outlook.exe"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\msaccess.exe"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\mspub.exe"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\onenote.exe"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\visio.exe"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\winproj.exe"),
+]
+_REGISTRY_RESIDUE_BASE.extend(_APP_PATHS_REGISTRY)
+
+# AppV Integration packages (from MS KB - C2R uses App-V for virtualization)
+# Base paths - actual cleanup requires GUID enumeration for Office packages
+_APPV_INTEGRATION_REGISTRY: list[tuple[int, str]] = [
+    (HKLM, r"SOFTWARE\Microsoft\AppV\Client\Integration\Packages"),
+    (HKLM, r"SOFTWARE\Microsoft\AppV\Client\Packages"),
+    (HKLM, r"SOFTWARE\Microsoft\AppV\Client\Streaming\Packages"),
+    (HKCU, r"SOFTWARE\Microsoft\AppV\Client\Integration\Packages"),
+    (HKCU, r"SOFTWARE\Microsoft\AppV\Client\Packages"),
+    # AppVISV (App-V for ISV) used by Office C2R
+    (HKLM, r"SOFTWARE\Microsoft\AppVISV"),
+    (HKCU, r"SOFTWARE\Microsoft\AppVISV"),
+    (HKLM, r"SOFTWARE\Microsoft\AppV\ISV"),
+    (HKCU, r"SOFTWARE\Microsoft\AppV\ISV"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\AppVISV"),
+    (HKLM, r"SOFTWARE\WOW6432Node\Microsoft\AppV\ISV"),
+]
+_REGISTRY_RESIDUE_BASE.extend(_APPV_INTEGRATION_REGISTRY)
+
+# Microsoft SPFS (SharePoint Workspace/Groove) Shell Icon Overlays
+# From VBS RegWipe ClearShellIntegrationReg
+_SPFS_SHELL_OVERLAYS: list[tuple[int, str]] = [
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers"
+        r"\Microsoft SPFS Icon Overlay 1 (ErrorConflict)",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers"
+        r"\Microsoft SPFS Icon Overlay 2 (SyncInProgress)",
+    ),
+    (
+        HKLM,
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers"
+        r"\Microsoft SPFS Icon Overlay 3 (InSync)",
+    ),
+]
+_REGISTRY_RESIDUE_BASE.extend(_SPFS_SHELL_OVERLAYS)
+
 REGISTRY_RESIDUE_PATHS = _sort_registry_entries_deepest_first(
     _normalize_registry_entries(_REGISTRY_RESIDUE_BASE)
 )
@@ -916,6 +985,95 @@ OUTLOOK_DATA_PATHS: tuple[str, ...] = (
 )
 """!
 @brief Paths to Outlook data (OST/PST files, profiles, caches).
+"""
+
+# ---------------------------------------------------------------------------
+# Start Menu Shortcut Paths (from MS KB 4e2904ea)
+# ---------------------------------------------------------------------------
+
+START_MENU_SHORTCUT_PATHS: tuple[str, ...] = (
+    # All Users Start Menu
+    r"%ALLUSERSPROFILE%\\Microsoft\\Windows\\Start Menu\\Programs",
+    r"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs",
+    # Current User Start Menu
+    r"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs",
+    # Quick Launch / Taskbar pins
+    r"%APPDATA%\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar",
+    r"%APPDATA%\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\StartMenu",
+    r"%APPDATA%\\Microsoft\\Internet Explorer\\Quick Launch",
+)
+"""!
+@brief Start Menu and Quick Launch paths containing Office shortcuts.
+@details From MS KB 4e2904ea manual uninstall instructions.
+"""
+
+OFFICE_SHORTCUT_PATTERNS: tuple[str, ...] = (
+    # Office application shortcuts
+    "Excel*.lnk",
+    "Word*.lnk",
+    "PowerPoint*.lnk",
+    "Outlook*.lnk",
+    "Access*.lnk",
+    "Publisher*.lnk",
+    "OneNote*.lnk",
+    "Visio*.lnk",
+    "Project*.lnk",
+    "Lync*.lnk",
+    "Skype for Business*.lnk",
+    # Office tools
+    "Office*.lnk",
+    "Microsoft Office*.lnk",
+    # Specific versions
+    "Excel 20*.lnk",
+    "Word 20*.lnk",
+    "PowerPoint 20*.lnk",
+    "Outlook 20*.lnk",
+    # Microsoft 365 shortcuts
+    "*365*.lnk",
+)
+"""!
+@brief Glob patterns for Office shortcut files to remove.
+"""
+
+# ---------------------------------------------------------------------------
+# Microsoft Store (AppX) Package Names
+# ---------------------------------------------------------------------------
+
+OFFICE_APPX_PACKAGES: tuple[str, ...] = (
+    # Main Office Desktop bundle
+    "Microsoft.Office.Desktop",
+    # Individual Office apps from Microsoft Store
+    "Microsoft.Office.Desktop.Access",
+    "Microsoft.Office.Desktop.Excel",
+    "Microsoft.Office.Desktop.Outlook",
+    "Microsoft.Office.Desktop.PowerPoint",
+    "Microsoft.Office.Desktop.Publisher",
+    "Microsoft.Office.Desktop.Word",
+    "Microsoft.Office.Desktop.OneNote",
+    # Microsoft 365 variants
+    "Microsoft.MicrosoftOfficeHub",
+    "Microsoft.Office.OneNote",
+    # Older Store package names
+    "Microsoft.Office.Sway",
+    "Microsoft.SkypeApp",
+    # Teams (may be bundled with Office)
+    "MicrosoftTeams",
+    "MSTeams",
+)
+"""!
+@brief Microsoft Store (AppX) package name patterns for Office.
+@details Used with Get-AppxPackage PowerShell cmdlet for Store-based Office removal.
+    These patterns are passed to -Name parameter which supports wildcards.
+"""
+
+OFFICE_APPX_PROVISIONED_PACKAGES: tuple[str, ...] = (
+    # Provisioned packages (installed for all users)
+    "Microsoft.Office.Desktop*",
+    "Microsoft.MicrosoftOfficeHub*",
+)
+"""!
+@brief Provisioned AppX package patterns for system-wide Office removal.
+@details Used with Get-AppxProvisionedPackage and Remove-AppxProvisionedPackage.
 """
 
 # Export the TypeLib GUIDs for use by registry cleanup

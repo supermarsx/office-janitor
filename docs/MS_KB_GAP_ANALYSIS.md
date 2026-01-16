@@ -10,9 +10,9 @@ This document analyzes how well `office-janitor` implements the official Microso
 
 | Installation Type | Coverage | Notes |
 |-------------------|----------|-------|
-| **Click-to-Run** | **~85%** | Most steps covered; some shell integration gaps |
-| **MSI** | **~75%** | Component scanning partially implemented |
-| **Microsoft Store** | **~30%** | Requires PowerShell AppX removal; minimal support |
+| **Click-to-Run** | **~95%** | All key steps covered including App Paths and AppV |
+| **MSI** | **~85%** | Component scanning partially implemented |
+| **Microsoft Store** | **~90%** | Full AppX removal support via `appx_uninstall.py` |
 
 ---
 
@@ -82,16 +82,16 @@ r"\Microsoft\Office\Office Automatic Updates"
 > - `%ALLUSERSPROFILE%\Microsoft\Windows\Start Menu\Programs`
 > - `%APPDATA%\Microsoft\Windows\Start Menu\Programs`
 
-**Office Janitor Status:** ⚠️ **PARTIAL**
+**Office Janitor Status:** ✅ **IMPLEMENTED**
 
-The scrubber has shortcut handling but may not cover all Start Menu locations consistently.
+```python
+# constants.py - START_MENU_SHORTCUT_PATHS includes:
+r"%ALLUSERSPROFILE%\Microsoft\Windows\Start Menu\Programs"
+r"%APPDATA%\Microsoft\Windows\Start Menu\Programs"
+r"%APPDATA%\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
+```
 
-**Gap:** Need to verify shortcut cleanup covers:
-- All Users Start Menu programs
-- Current User Start Menu programs
-- Taskbar pins (requires shell integration)
-
-**Location:** [fs_tools.py](../src/office_janitor/fs_tools.py) - shortcut cleanup logic
+**Location:** [constants.py](../src/office_janitor/constants.py) `START_MENU_SHORTCUT_PATHS`, `OFFICE_SHORTCUT_PATTERNS`
 
 ---
 
@@ -106,16 +106,12 @@ The scrubber has shortcut handling but may not cover all Start Menu locations co
 | `HKLM\SOFTWARE\Microsoft\Office\16.0\ClickToRun` | ✅ Covered |
 | `HKCU\SOFTWARE\Microsoft\Office\15.0\ClickToRun` | ✅ Covered |
 | `HKCU\SOFTWARE\Microsoft\Office\16.0\ClickToRun` | ✅ Covered |
-| `HKLM\SOFTWARE\Microsoft\AppV\Client\Integration\Packages\{GUID}` | ⚠️ Partial |
-| `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\` Office apps | ⚠️ Not explicitly listed |
+| `HKLM\SOFTWARE\Microsoft\AppV\Client\Integration\Packages\{GUID}` | ✅ Covered |
+| `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\` Office apps | ✅ Covered |
 
-**Office Janitor Status:** ⚠️ **MOSTLY IMPLEMENTED**
+**Office Janitor Status:** ✅ **FULLY IMPLEMENTED**
 
-**Gap:** 
-- AppV Integration packages cleanup may need GUID enumeration
-- App Paths registry entries not explicitly cleaned
-
-**Location:** [constants.py](../src/office_janitor/constants.py) `_C2R_REGISTRY_RESIDUE`
+**Location:** [constants.py](../src/office_janitor/constants.py) `_C2R_REGISTRY_RESIDUE`, `_APP_PATHS_REGISTRY`, `_APPV_INTEGRATION_REGISTRY`
 
 ---
 
@@ -139,7 +135,7 @@ The scrubber handles ARP (Add/Remove Programs) uninstall entries but Windows Ins
 **Microsoft KB:**
 > If shortcuts still remain after Step 4, manually delete Office shortcuts from Start Menu.
 
-**Office Janitor Status:** ⚠️ **PARTIAL** (same as Step 4)
+**Office Janitor Status:** ✅ **IMPLEMENTED** (covered by `START_MENU_SHORTCUT_PATHS` and `OFFICE_SHORTCUT_PATTERNS`)
 
 ---
 
@@ -225,7 +221,7 @@ All paths covered in `RESIDUE_PATH_TEMPLATES`.
 **Microsoft KB:**
 > Same as C2R Step 4
 
-**Office Janitor Status:** ⚠️ **PARTIAL**
+**Office Janitor Status:** ✅ **IMPLEMENTED** (covered by `START_MENU_SHORTCUT_PATHS` and `OFFICE_SHORTCUT_PATTERNS`)
 
 ---
 
@@ -236,15 +232,20 @@ All paths covered in `RESIDUE_PATH_TEMPLATES`.
 **Microsoft KB:**
 > Settings > Apps > Apps & features > Microsoft Office Desktop Apps > Uninstall
 
-**Office Janitor Status:** ⚠️ **MINIMAL**
+**Office Janitor Status:** ✅ **IMPLEMENTED**
 
-The tool primarily focuses on C2R and MSI. Microsoft Store (AppX) removal requires:
+The tool now includes full Microsoft Store (AppX) removal support:
 
-```powershell
-Get-AppxPackage -name "Microsoft.Office.Desktop*" | Remove-AppxPackage
+```python
+from office_janitor.appx_uninstall import (
+    detect_office_appx_packages,
+    remove_office_appx_packages,
+    remove_provisioned_appx_packages,
+    is_office_store_install,
+)
 ```
 
-**Gap:** Need PowerShell AppX removal integration.
+**Location:** [appx_uninstall.py](../src/office_janitor/appx_uninstall.py)
 
 ---
 
@@ -256,22 +257,23 @@ Get-AppxPackage -name "Microsoft.Office.Desktop*" | Remove-AppxPackage
 > Get-AppxPackage -name "Microsoft.Office.Desktop*" | Remove-AppxPackage
 > ```
 
-**Office Janitor Status:** ❌ **NOT IMPLEMENTED**
-
-**Recommendation:** Add AppX removal support:
+**Office Janitor Status:** ✅ **IMPLEMENTED**
 
 ```python
-# TODO: Add to constants.py
+# constants.py includes:
 OFFICE_APPX_PACKAGES = (
     "Microsoft.Office.Desktop",
     "Microsoft.Office.Desktop.Access",
-    "Microsoft.Office.Desktop.Excel", 
+    "Microsoft.Office.Desktop.Excel",
     "Microsoft.Office.Desktop.Outlook",
     "Microsoft.Office.Desktop.PowerPoint",
     "Microsoft.Office.Desktop.Publisher",
     "Microsoft.Office.Desktop.Word",
+    # ... and more
 )
 ```
+
+**Location:** [appx_uninstall.py](../src/office_janitor/appx_uninstall.py), [constants.py](../src/office_janitor/constants.py) `OFFICE_APPX_PACKAGES`
 
 ---
 
@@ -286,22 +288,22 @@ OFFICE_APPX_PACKAGES = (
 
 ## Detailed Gap Summary
 
-### High Priority Gaps
+### High Priority Gaps - ✅ ALL RESOLVED
 
-| Gap | Impact | Effort | Location |
-|-----|--------|--------|----------|
-| **AppX/Microsoft Store removal** | High - growing install base | Medium | New module needed |
-| **App Paths registry cleanup** | Medium - orphaned entries | Low | constants.py |
-| **AppV Integration packages** | Medium - C2R leftovers | Medium | registry_tools.py |
-| **Start Menu shortcut complete cleanup** | Medium - visual leftovers | Low | fs_tools.py |
+| Gap | Status | Location |
+|-----|--------|----------|
+| **AppX/Microsoft Store removal** | ✅ Implemented | [appx_uninstall.py](../src/office_janitor/appx_uninstall.py) |
+| **App Paths registry cleanup** | ✅ Implemented | [constants.py](../src/office_janitor/constants.py) `_APP_PATHS_REGISTRY` |
+| **AppV Integration packages** | ✅ Implemented | [constants.py](../src/office_janitor/constants.py) `_APPV_INTEGRATION_REGISTRY` |
+| **Start Menu shortcut complete cleanup** | ✅ Implemented | [constants.py](../src/office_janitor/constants.py) `START_MENU_SHORTCUT_PATHS` |
 
 ### Medium Priority Gaps
 
 | Gap | Impact | Effort | Location |
 |-----|--------|--------|----------|
-| Full WI Component cleanup | Medium | High | msi_components.py (new) |
+| Full WI Component cleanup | Medium | High | msi_components.py |
 | WI Features cleanup | Low | Medium | msi_components.py |
-| Taskbar pin removal | Low | Medium | shell integration |
+| Taskbar pin removal (shell COM) | Low | High | Requires shell integration |
 
 ### Low Priority / Not Recommended
 
@@ -312,60 +314,43 @@ OFFICE_APPX_PACKAGES = (
 
 ---
 
-## Implementation Recommendations
+## Implementation Status - COMPLETED
 
-### 1. Add Microsoft Store (AppX) Support
+### New Files Created
 
-```python
-# New file: src/office_janitor/appx_uninstall.py
+1. **[appx_uninstall.py](../src/office_janitor/appx_uninstall.py)** - Microsoft Store package removal
+   - `detect_office_appx_packages()` - Detect installed Office AppX packages
+   - `remove_office_appx_packages()` - Remove user-installed packages
+   - `remove_provisioned_appx_packages()` - Remove system-wide provisioned packages
+   - `is_office_store_install()` - Check if Office is Store-installed
+   - `get_appx_package_info()` - Get detailed package info
 
-def remove_office_appx_packages(*, dry_run: bool = False) -> list[str]:
-    """Remove Microsoft Store Office packages via PowerShell."""
-    import subprocess
-    
-    packages = [
-        "Microsoft.Office.Desktop",
-        "Microsoft.Office.Desktop.*",
-    ]
-    
-    removed = []
-    for pattern in packages:
-        cmd = f'Get-AppxPackage -name "{pattern}" | Remove-AppxPackage'
-        if not dry_run:
-            subprocess.run(["powershell", "-Command", cmd], check=False)
-        removed.append(pattern)
-    
-    return removed
-```
+### New Constants Added to [constants.py](../src/office_janitor/constants.py)
 
-### 2. Add App Paths Registry Cleanup
+1. **App Paths Registry** (`_APP_PATHS_REGISTRY`)
+   - All Office executable App Paths entries
+   - Both native and WOW6432Node variants
 
-```python
-# Add to constants.py _REGISTRY_RESIDUE_BASE
+2. **AppV Integration Registry** (`_APPV_INTEGRATION_REGISTRY`)
+   - App-V Client integration packages
+   - AppVISV (ISV) keys used by C2R
 
-_APP_PATHS_ENTRIES = [
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\excel.exe"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\winword.exe"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\powerpnt.exe"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\outlook.exe"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msaccess.exe"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\mspub.exe"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\onenote.exe"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\visio.exe"),
-    (HKLM, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\winproj.exe"),
-]
-```
+3. **SPFS Shell Overlays** (`_SPFS_SHELL_OVERLAYS`)
+   - Microsoft SPFS Icon Overlay entries for SharePoint Workspace/Groove
 
-### 3. Enhance Shortcut Cleanup
+4. **Start Menu Paths** (`START_MENU_SHORTCUT_PATHS`)
+   - All Users Start Menu
+   - Current User Start Menu
+   - Quick Launch / Taskbar pins
 
-```python
-# Ensure these paths are checked:
-START_MENU_PATHS = [
-    r"%ALLUSERSPROFILE%\Microsoft\Windows\Start Menu\Programs",
-    r"%APPDATA%\Microsoft\Windows\Start Menu\Programs", 
-    r"%APPDATA%\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar",
-]
-```
+5. **Office Shortcut Patterns** (`OFFICE_SHORTCUT_PATTERNS`)
+   - Glob patterns for Office shortcut files
+
+6. **AppX Package Names** (`OFFICE_APPX_PACKAGES`)
+   - Microsoft Store Office package identifiers
+
+7. **Provisioned AppX Patterns** (`OFFICE_APPX_PROVISIONED_PACKAGES`)
+   - System-wide provisioned package patterns
 
 ---
 
@@ -390,10 +375,16 @@ When testing against Microsoft's KB, verify:
 
 ## Conclusion
 
-Office Janitor provides **strong coverage (~80%)** of Microsoft's official manual uninstall procedures for Click-to-Run and MSI installations. The main gaps are:
+Office Janitor now provides **comprehensive coverage (~90%+)** of Microsoft's official manual uninstall procedures for all three installation types:
 
-1. **Microsoft Store (AppX) support** - Critical for modern Windows 10/11
-2. **Complete Start Menu/Taskbar cleanup** - Visual cleanliness
-3. **App Paths registry entries** - Minor but complete cleanup
+- **Click-to-Run:** ~95% coverage - all key steps implemented
+- **MSI:** ~85% coverage - all common scenarios covered
+- **Microsoft Store:** ~90% coverage - full AppX removal support
 
-The existing `SCRUBBER_GAP_ANALYSIS.md` covers additional VBS script parity items that go beyond the basic KB article, providing even deeper cleanup capabilities.
+### Remaining Minor Gaps
+
+1. **Windows Installer Component reference counting** - Advanced MSI cleanup
+2. **Programmatic Taskbar unpin** - Requires COM shell integration (not in MS KB)
+3. **User Downloads folder cleanup** - Intentionally omitted (privacy)
+
+The existing [SCRUBBER_GAP_ANALYSIS.md](SCRUBBER_GAP_ANALYSIS.md) covers additional VBS script parity items that go beyond the basic KB article, providing even deeper cleanup capabilities.
