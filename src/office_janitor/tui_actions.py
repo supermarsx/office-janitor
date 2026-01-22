@@ -44,6 +44,9 @@ class TUIActionsMixin:
     - plan_overrides: dict[str, bool]
     - target_overrides: dict[str, bool]
     - settings_overrides: dict[str, bool]
+    - odt_install_presets: dict[str, tuple[str, bool]]
+    - odt_repair_presets: dict[str, tuple[str, bool]]
+    - selected_odt_preset: str | None
     - status_lines: list[str]
     - compact_layout: bool
     - _running: bool
@@ -63,6 +66,9 @@ class TUIActionsMixin:
     plan_overrides: dict[str, bool]
     target_overrides: dict[str, bool]
     settings_overrides: dict[str, bool]
+    odt_install_presets: dict[str, tuple[str, bool]]
+    odt_repair_presets: dict[str, tuple[str, bool]]
+    selected_odt_preset: str | None
     status_lines: list[str]
     compact_layout: bool
     _running: bool
@@ -449,6 +455,242 @@ class TUIActionsMixin:
             label="targeted scrub",
             execute=execute,
         )
+
+    # -----------------------------------------------------------------------
+    # ODT Install/Repair Handlers
+    # -----------------------------------------------------------------------
+
+    def _prepare_odt_install(self) -> None:
+        """Prepare ODT install submenu."""
+        self.progress_message = "Select ODT installation preset"
+        self._append_status("ODT Install: Select preset with Space, Enter/F10 to execute.")
+
+    def _prepare_odt_repair(self) -> None:
+        """Prepare ODT repair submenu."""
+        self.progress_message = "Select ODT repair preset"
+        self._append_status("ODT Repair: Select preset with Space, Enter/F10 to execute.")
+
+    def _select_odt_install_preset(self, index: int) -> None:
+        """Select an ODT install preset (radio-button style)."""
+        pane = self.panes.get("odt_install")
+        if pane is None:
+            return
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
+        if not keys:
+            self._append_status("No ODT install presets available.")
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        selected_key = keys[safe_index]
+        if selected_key not in self.odt_install_presets:
+            self._append_status(f"Unknown preset: {selected_key}")
+            return
+        # Radio button behavior - deselect all others
+        for key in self.odt_install_presets:
+            desc, _ = self.odt_install_presets[key]
+            self.odt_install_presets[key] = (desc, key == selected_key)
+        self.selected_odt_preset = selected_key
+        desc, _ = self.odt_install_presets[selected_key]
+        self._append_status(f"Selected: {desc}")
+
+    def _select_odt_repair_preset(self, index: int) -> None:
+        """Select an ODT repair preset (radio-button style)."""
+        pane = self.panes.get("odt_repair")
+        if pane is None:
+            return
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
+        if not keys:
+            self._append_status("No ODT repair presets available.")
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        selected_key = keys[safe_index]
+        if selected_key not in self.odt_repair_presets:
+            self._append_status(f"Unknown preset: {selected_key}")
+            return
+        # Radio button behavior - deselect all others
+        for key in self.odt_repair_presets:
+            desc, _ = self.odt_repair_presets[key]
+            self.odt_repair_presets[key] = (desc, key == selected_key)
+        self.selected_odt_preset = selected_key
+        desc, _ = self.odt_repair_presets[selected_key]
+        self._append_status(f"Selected: {desc}")
+
+    def _get_selected_odt_install_preset(self) -> str | None:
+        """Get the currently selected ODT install preset."""
+        for key, (_, selected) in self.odt_install_presets.items():
+            if selected:
+                return key
+        return None
+
+    def _get_selected_odt_repair_preset(self) -> str | None:
+        """Get the currently selected ODT repair preset."""
+        for key, (_, selected) in self.odt_repair_presets.items():
+            if selected:
+                return key
+        return None
+
+    def _handle_odt_install(self, *, execute: bool) -> None:
+        """Handle ODT install action."""
+        from . import repair
+
+        preset = self._get_selected_odt_install_preset()
+        if not preset:
+            self._append_status("Select an ODT installation preset first.")
+            self.progress_message = "Preset selection required"
+            return
+
+        desc, _ = self.odt_install_presets[preset]
+        if not execute:
+            self._append_status(f"ODT install ready: {desc}")
+            self.progress_message = f"Ready: {desc}"
+            return
+
+        args = self.app_state.get("args")
+        dry_run = bool(getattr(args, "dry_run", False))
+        if "dry_run" in self.settings_overrides:
+            dry_run = self.settings_overrides["dry_run"]
+
+        # Request confirmation
+        if not self._confirm_odt_execution(f"ODT Install: {desc}", dry_run):
+            return
+
+        self.progress_message = f"Executing ODT Install: {desc}..."
+        self._notify(
+            "odt_install.start",
+            f"Starting ODT installation: {desc}",
+            preset=preset,
+            dry_run=dry_run,
+        )
+        self._render()
+
+        try:
+            spinner(0.2, "Preparing ODT...")
+            result = repair.run_oem_config(preset, dry_run=dry_run)
+
+            if result.returncode == 0:
+                self._notify(
+                    "odt_install.complete",
+                    f"ODT installation completed: {desc}",
+                    preset=preset,
+                )
+                self._append_status(f"✓ ODT Install complete: {desc}")
+                self.progress_message = "ODT Install complete"
+            else:
+                error_msg = result.stderr or result.error or f"Exit code {result.returncode}"
+                self._notify(
+                    "odt_install.error",
+                    f"ODT installation failed: {error_msg}",
+                    level="error",
+                    preset=preset,
+                    exit_code=result.returncode,
+                )
+                self._append_status(f"✗ ODT Install failed: {error_msg}")
+                self.progress_message = "ODT Install failed"
+
+        except Exception as exc:
+            self._notify(
+                "odt_install.error",
+                f"ODT installation error: {exc}",
+                level="error",
+            )
+            self._append_status(f"✗ ODT Install error: {exc}")
+            self.progress_message = "ODT Install failed"
+
+    def _handle_odt_repair(self, *, execute: bool) -> None:
+        """Handle ODT repair action."""
+        from . import repair
+
+        preset = self._get_selected_odt_repair_preset()
+        if not preset:
+            self._append_status("Select an ODT repair preset first.")
+            self.progress_message = "Preset selection required"
+            return
+
+        desc, _ = self.odt_repair_presets[preset]
+        if not execute:
+            self._append_status(f"ODT repair ready: {desc}")
+            self.progress_message = f"Ready: {desc}"
+            return
+
+        args = self.app_state.get("args")
+        dry_run = bool(getattr(args, "dry_run", False))
+        if "dry_run" in self.settings_overrides:
+            dry_run = self.settings_overrides["dry_run"]
+
+        # Request confirmation
+        if not self._confirm_odt_execution(f"ODT Repair: {desc}", dry_run):
+            return
+
+        self.progress_message = f"Executing ODT Repair: {desc}..."
+        self._notify(
+            "odt_repair.start",
+            f"Starting ODT repair: {desc}",
+            preset=preset,
+            dry_run=dry_run,
+        )
+        self._render()
+
+        try:
+            spinner(0.2, "Preparing ODT...")
+            result = repair.run_oem_config(preset, dry_run=dry_run)
+
+            if result.returncode == 0:
+                self._notify(
+                    "odt_repair.complete",
+                    f"ODT repair completed: {desc}",
+                    preset=preset,
+                )
+                self._append_status(f"✓ ODT Repair complete: {desc}")
+                self.progress_message = "ODT Repair complete"
+            else:
+                error_msg = result.stderr or result.error or f"Exit code {result.returncode}"
+                self._notify(
+                    "odt_repair.error",
+                    f"ODT repair failed: {error_msg}",
+                    level="error",
+                    preset=preset,
+                    exit_code=result.returncode,
+                )
+                self._append_status(f"✗ ODT Repair failed: {error_msg}")
+                self.progress_message = "ODT Repair failed"
+
+        except Exception as exc:
+            self._notify(
+                "odt_repair.error",
+                f"ODT repair error: {exc}",
+                level="error",
+            )
+            self._append_status(f"✗ ODT Repair error: {exc}")
+            self.progress_message = "ODT Repair failed"
+
+    def _confirm_odt_execution(self, label: str, dry_run: bool) -> bool:
+        """Request confirmation for ODT execution."""
+        request_confirmation = self._confirm_requestor
+        if request_confirmation is None:
+            return True
+
+        args = self.app_state.get("args")
+        force_override = bool(getattr(args, "force", False))
+
+        proceed = request_confirmation(
+            dry_run=dry_run,
+            force=force_override,
+            input_func=lambda prompt: self._prompt_confirmation_input(label, prompt),
+            interactive=True,
+        )
+
+        if not proceed:
+            self._notify(
+                "odt.cancelled",
+                f"{label} cancelled by user",
+                level="warning",
+                reason="user_declined",
+            )
+            self.progress_message = f"{label} cancelled"
+            return False
+
+        return True
 
     # -----------------------------------------------------------------------
     # Confirmation

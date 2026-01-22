@@ -141,6 +141,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             NavigationItem("targeted", "Targeted scrub", action=self._prepare_targeted),
             NavigationItem("cleanup", "Cleanup only", action=self._handle_cleanup_only),
             NavigationItem("diagnostics", "Diagnostics only", action=self._handle_diagnostics),
+            NavigationItem("odt_install", "ODT Install", action=self._prepare_odt_install),
+            NavigationItem("odt_repair", "ODT Repair", action=self._prepare_odt_repair),
             NavigationItem("plan", "Build plan", action=None),
             NavigationItem("run", "Run plan", action=self._handle_run),
             NavigationItem("logs", "Live logs", action=self._handle_logs),
@@ -170,6 +172,27 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         }
         self.settings_overrides: dict[str, bool] = dict(args_defaults)
         self.last_overrides: dict[str, object] | None = None
+        # ODT Install presets with descriptions
+        self.odt_install_presets: dict[str, tuple[str, bool]] = {
+            "proplus-x64": ("Microsoft 365 ProPlus (64-bit)", False),
+            "proplus-x86": ("Microsoft 365 ProPlus (32-bit)", False),
+            "proplus-visio-project": ("ProPlus + Visio + Project", False),
+            "business-x64": ("Microsoft 365 Business (64-bit)", False),
+            "office2019-x64": ("Office 2019 Professional Plus (64-bit)", False),
+            "office2021-x64": ("Office LTSC 2021 (64-bit)", False),
+            "office2024-x64": ("Office LTSC 2024 (64-bit)", False),
+            "multilang": ("Multi-language Installation", False),
+            "shared-computer": ("Shared Computer Activation", False),
+            "interactive": ("Interactive Setup (Full UI)", False),
+        }
+        # ODT Repair presets with descriptions
+        self.odt_repair_presets: dict[str, tuple[str, bool]] = {
+            "quick-repair": ("Quick Repair (Local)", False),
+            "full-repair": ("Full Online Repair", False),
+            "full-removal": ("Complete Office Removal", False),
+        }
+        # Currently selected ODT preset
+        self.selected_odt_preset: str | None = None
 
     # -----------------------------------------------------------------------
     # Confirmation input (overrides stub in TUIActionsMixin)
@@ -332,6 +355,10 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._handle_cleanup_only()
             elif self.active_tab == "diagnostics":
                 self._handle_diagnostics()
+            elif self.active_tab == "odt_install":
+                self._handle_odt_install(execute=True)
+            elif self.active_tab == "odt_repair":
+                self._handle_odt_repair(execute=True)
             else:
                 self._handle_run()
             return
@@ -355,6 +382,10 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._handle_cleanup_only()
             elif self.active_tab == "diagnostics":
                 self._handle_diagnostics()
+            elif self.active_tab == "odt_install":
+                self._handle_odt_install(execute=True)
+            elif self.active_tab == "odt_repair":
+                self._handle_odt_repair(execute=True)
             return
         if command == "space":
             if self.active_tab == "plan":
@@ -363,6 +394,10 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._toggle_setting(pane.cursor)
             elif self.active_tab == "targeted":
                 self._toggle_target(pane.cursor)
+            elif self.active_tab == "odt_install":
+                self._select_odt_install_preset(pane.cursor)
+            elif self.active_tab == "odt_repair":
+                self._select_odt_repair_preset(pane.cursor)
             return
         if command == "/":
             self._prompt_filter(pane)
@@ -407,6 +442,22 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             entries = [(line, line) for line in recent]
         elif pane.name == "detect" and self.last_inventory is not None:
             entries = [(line, line) for line in format_inventory(self.last_inventory)]
+        elif pane.name == "odt_install":
+            entries = [
+                (
+                    key,
+                    f"{'[●]' if selected else '[ ]'} {desc}",
+                )
+                for key, (desc, selected) in self.odt_install_presets.items()
+            ]
+        elif pane.name == "odt_repair":
+            entries = [
+                (
+                    key,
+                    f"{'[●]' if selected else '[ ]'} {desc}",
+                )
+                for key, (desc, selected) in self.odt_repair_presets.items()
+            ]
         elif pane.name in {"auto", "cleanup", "diagnostics"}:
             entries = []
         else:

@@ -45,6 +45,8 @@ class TUIRendererMixin:
     - plan_overrides: dict[str, bool]
     - target_overrides: dict[str, bool]
     - settings_overrides: dict[str, bool]
+    - odt_install_presets: dict[str, tuple[str, bool]]
+    - odt_repair_presets: dict[str, tuple[str, bool]]
     - app_state: MutableMapping
     """
 
@@ -63,6 +65,8 @@ class TUIRendererMixin:
     plan_overrides: dict[str, bool]
     target_overrides: dict[str, bool]
     settings_overrides: dict[str, bool]
+    odt_install_presets: dict[str, tuple[str, bool]]
+    odt_repair_presets: dict[str, tuple[str, bool]]
     app_state: dict[str, object]
     list_filters: dict[str, str]
 
@@ -135,6 +139,10 @@ class TUIRendererMixin:
             return self._render_cleanup_pane(width)
         if self.active_tab == "diagnostics":
             return self._render_diagnostics_pane(width)
+        if self.active_tab == "odt_install":
+            return self._render_odt_install_pane(width)
+        if self.active_tab == "odt_repair":
+            return self._render_odt_repair_pane(width)
         if self.active_tab == "run":
             return self._render_run_pane(width)
         if self.active_tab == "logs":
@@ -235,6 +243,55 @@ class TUIRendererMixin:
             "Exports inventory and action plans without running uninstall steps.",
             "Press Enter or F10 to generate diagnostics artifacts.",
         ]
+        return [line[:width] for line in lines]
+
+    def _render_odt_install_pane(self, width: int) -> list[str]:
+        """Render the ODT installation presets pane."""
+        lines = ["ODT Installation Presets:"]
+        lines.append("")
+        pane = self.panes["odt_install"]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "➤" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        else:
+            lines.append("No matching presets.")
+        lines.append("")
+        lines.append("─" * min(width - 2, 50))
+        lines.append("Select a preset with Space, Enter/F10 to install.")
+        lines.append("")
+        lines.append("Available presets use bundled ODT configurations")
+        lines.append("to deploy Microsoft 365 / Office installations.")
+        lines.append("")
+        lines.append("Note: Requires internet connectivity for download.")
+        return [line[:width] for line in lines]
+
+    def _render_odt_repair_pane(self, width: int) -> list[str]:
+        """Render the ODT repair presets pane."""
+        lines = ["ODT Repair Presets:"]
+        lines.append("")
+        pane = self.panes["odt_repair"]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "➤" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        else:
+            lines.append("No matching presets.")
+        lines.append("")
+        lines.append("─" * min(width - 2, 50))
+        lines.append("Select a preset with Space, Enter/F10 to execute.")
+        lines.append("")
+        lines.append("• Quick Repair: Fast local repair (no internet)")
+        lines.append("• Full Repair: Complete online repair (needs internet)")
+        lines.append("• Full Removal: Complete uninstall of Office")
         return [line[:width] for line in lines]
 
     def _render_run_pane(self, width: int) -> list[str]:
