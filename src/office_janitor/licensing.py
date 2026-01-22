@@ -46,8 +46,7 @@ OSPP_VBS_SEARCH_PATHS: tuple[str, ...] = (
 @brief Candidate paths to locate OSPP.VBS for license management fallback.
 """
 
-LICENSE_SCRIPT_TEMPLATE = Template(
-    r"""
+LICENSE_SCRIPT_TEMPLATE = Template(r"""
 function UninstallLicenses($$DllPath, $$FilterGuid) {
     $$assembly = [AppDomain]::CurrentDomain.DefineDynamicAssembly(4, 1)
     $$module = $$assembly.DefineDynamicModule(2)
@@ -111,8 +110,7 @@ if ($$osppRoot) {
 $$sppRemoved = UninstallLicenses "${spp_dll}" $$filterGuid
 Write-Output ("OSPP:{0}" -f $$osppRemoved)
 Write-Output ("SPP:{0}" -f $$sppRemoved)
-"""
-)
+""")
 """!
 @brief PowerShell template mirroring ``CleanOffice.txt`` with parameterised inputs.
 """
