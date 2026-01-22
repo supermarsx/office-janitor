@@ -69,8 +69,9 @@ def test_navigation_state_changes(monkeypatch):
     monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
     interface = tui.OfficeJanitorTUI(state)
 
-    # Navigate to the plan item (7 items down: detect, auto, targeted, cleanup, diagnostics, odt_install, odt_repair, plan)
-    for _ in range(7):
+    # Navigate to the plan item (8 items down: detect, auto, targeted, cleanup, diagnostics,
+    # odt_install, odt_locales, odt_repair, plan)
+    for _ in range(8):
         interface._handle_key("down")
     assert interface.active_tab == "plan"
     interface._handle_key("enter")
@@ -386,3 +387,137 @@ def test_odt_key_handling_space(monkeypatch):
     desc, selected = interface.odt_install_presets[first_key]
     assert selected is True
 
+
+# ---------------------------------------------------------------------------
+# ODT Locale Selection Tests
+# ---------------------------------------------------------------------------
+
+
+def test_odt_locales_initialized(monkeypatch):
+    """Test ODT locales dictionary is properly initialized."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    assert hasattr(interface, "odt_locales")
+    assert len(interface.odt_locales) > 0
+    assert "en-us" in interface.odt_locales
+    assert "de-de" in interface.odt_locales
+    assert "fr-fr" in interface.odt_locales
+    # Check en-us is selected by default
+    desc, selected = interface.odt_locales["en-us"]
+    assert selected is True
+
+
+def test_odt_locale_toggle(monkeypatch):
+    """Test toggling ODT locale selections (checkbox style)."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "odt_locales"
+    pane = interface.panes["odt_locales"]
+    interface._ensure_pane_lines(pane)
+
+    # Get index of de-de
+    keys = list(interface.odt_locales.keys())
+    de_index = keys.index("de-de")
+
+    # Toggle de-de on
+    interface._toggle_odt_locale(de_index)
+    desc, selected = interface.odt_locales["de-de"]
+    assert selected is True
+
+    # Toggle de-de off
+    interface._toggle_odt_locale(de_index)
+    desc, selected = interface.odt_locales["de-de"]
+    assert selected is False
+
+    # en-us should still be selected (multiple allowed)
+    desc, selected = interface.odt_locales["en-us"]
+    assert selected is True
+
+
+def test_odt_locale_multiple_selection(monkeypatch):
+    """Test multiple locales can be selected simultaneously."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "odt_locales"
+    pane = interface.panes["odt_locales"]
+    interface._ensure_pane_lines(pane)
+
+    keys = list(interface.odt_locales.keys())
+
+    # Select German and French in addition to default English
+    interface._toggle_odt_locale(keys.index("de-de"))
+    interface._toggle_odt_locale(keys.index("fr-fr"))
+
+    selected = interface._get_selected_odt_locales()
+    assert "en-us" in selected
+    assert "de-de" in selected
+    assert "fr-fr" in selected
+    assert len(selected) == 3
+
+
+def test_odt_install_requires_locale(monkeypatch):
+    """Test ODT install requires at least one locale selected."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    # Select a preset
+    interface._select_odt_install_preset(0)
+
+    # Deselect all locales
+    for key in interface.odt_locales:
+        desc, _ = interface.odt_locales[key]
+        interface.odt_locales[key] = (desc, False)
+
+    # Try to execute
+    interface._handle_odt_install(execute=True)
+    assert "Select at least one language" in interface.status_lines[-1]
+
+
+def test_navigation_includes_odt_locales(monkeypatch):
+    """Test navigation includes ODT Locales item."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    nav_names = [item.name for item in interface.navigation]
+    assert "odt_locales" in nav_names
+
+
+def test_odt_locales_pane_lines_populated(monkeypatch):
+    """Test ODT locales pane lines are populated correctly."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "odt_locales"
+    pane = interface.panes["odt_locales"]
+    entries = interface._ensure_pane_lines(pane)
+    assert len(entries) == len(interface.odt_locales)
+
+
+def test_odt_locales_filter(monkeypatch):
+    """Test filtering locales by name."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "odt_locales"
+    pane = interface.panes["odt_locales"]
+
+    # Filter for "German"
+    interface._set_pane_filter("odt_locales", "German")
+    entries = interface._ensure_pane_lines(pane)
+    assert len(entries) == 1
+    assert entries[0][0] == "de-de"
+
+    # Clear filter
+    interface._set_pane_filter("odt_locales", "")
+    entries = interface._ensure_pane_lines(pane)
+    assert len(entries) == len(interface.odt_locales)

@@ -47,6 +47,7 @@ class TUIRendererMixin:
     - settings_overrides: dict[str, bool]
     - odt_install_presets: dict[str, tuple[str, bool]]
     - odt_repair_presets: dict[str, tuple[str, bool]]
+    - odt_locales: dict[str, tuple[str, bool]]
     - app_state: MutableMapping
     """
 
@@ -67,6 +68,7 @@ class TUIRendererMixin:
     settings_overrides: dict[str, bool]
     odt_install_presets: dict[str, tuple[str, bool]]
     odt_repair_presets: dict[str, tuple[str, bool]]
+    odt_locales: dict[str, tuple[str, bool]]
     app_state: dict[str, object]
     list_filters: dict[str, str]
 
@@ -141,6 +143,8 @@ class TUIRendererMixin:
             return self._render_diagnostics_pane(width)
         if self.active_tab == "odt_install":
             return self._render_odt_install_pane(width)
+        if self.active_tab == "odt_locales":
+            return self._render_odt_locales_pane(width)
         if self.active_tab == "odt_repair":
             return self._render_odt_repair_pane(width)
         if self.active_tab == "run":
@@ -264,10 +268,43 @@ class TUIRendererMixin:
         lines.append("─" * min(width - 2, 50))
         lines.append("Select a preset with Space, Enter/F10 to install.")
         lines.append("")
-        lines.append("Available presets use bundled ODT configurations")
-        lines.append("to deploy Microsoft 365 / Office installations.")
+        # Show selected locales summary
+        selected_locales = [k for k, (_, sel) in self.odt_locales.items() if sel]
+        if selected_locales:
+            locale_str = ", ".join(selected_locales[:5])
+            if len(selected_locales) > 5:
+                locale_str += f" +{len(selected_locales) - 5} more"
+            lines.append(f"Languages: {locale_str}")
+        else:
+            lines.append("Languages: None selected (configure in ODT Locales)")
         lines.append("")
-        lines.append("Note: Requires internet connectivity for download.")
+        lines.append("Note: Configure languages in 'ODT Locales' menu.")
+        return [line[:width] for line in lines]
+
+    def _render_odt_locales_pane(self, width: int) -> list[str]:
+        """Render the ODT locale selection pane."""
+        lines = ["ODT Language Selection:"]
+        lines.append("")
+        # Show selection summary
+        selected_count = sum(1 for _, (_, sel) in self.odt_locales.items() if sel)
+        lines.append(f"Selected: {selected_count} language(s)")
+        lines.append("")
+        pane = self.panes["odt_locales"]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "➤" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        else:
+            lines.append("No matching locales.")
+        lines.append("")
+        lines.append("─" * min(width - 2, 50))
+        lines.append("Toggle languages with Space. Use / to filter.")
+        lines.append("Multiple languages can be selected for Office install.")
+        return [line[:width] for line in lines]
         return [line[:width] for line in lines]
 
     def _render_odt_repair_pane(self, width: int) -> list[str]:

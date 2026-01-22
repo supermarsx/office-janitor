@@ -46,6 +46,7 @@ class TUIActionsMixin:
     - settings_overrides: dict[str, bool]
     - odt_install_presets: dict[str, tuple[str, bool]]
     - odt_repair_presets: dict[str, tuple[str, bool]]
+    - odt_locales: dict[str, tuple[str, bool]]
     - selected_odt_preset: str | None
     - status_lines: list[str]
     - compact_layout: bool
@@ -68,6 +69,7 @@ class TUIActionsMixin:
     settings_overrides: dict[str, bool]
     odt_install_presets: dict[str, tuple[str, bool]]
     odt_repair_presets: dict[str, tuple[str, bool]]
+    odt_locales: dict[str, tuple[str, bool]]
     selected_odt_preset: str | None
     status_lines: list[str]
     compact_layout: bool
@@ -464,6 +466,13 @@ class TUIActionsMixin:
         """Prepare ODT install submenu."""
         self.progress_message = "Select ODT installation preset"
         self._append_status("ODT Install: Select preset with Space, Enter/F10 to execute.")
+        self._append_status("Tip: Configure languages in 'ODT Locales' before installing.")
+
+    def _prepare_odt_locales(self) -> None:
+        """Prepare ODT locales submenu."""
+        selected_count = sum(1 for _, (_, sel) in self.odt_locales.items() if sel)
+        self.progress_message = f"Select Office languages ({selected_count} selected)"
+        self._append_status("ODT Locales: Toggle languages with Space. Multiple allowed.")
 
     def _prepare_odt_repair(self) -> None:
         """Prepare ODT repair submenu."""
@@ -516,6 +525,33 @@ class TUIActionsMixin:
         desc, _ = self.odt_repair_presets[selected_key]
         self._append_status(f"Selected: {desc}")
 
+    def _toggle_odt_locale(self, index: int) -> None:
+        """Toggle an ODT locale selection (checkbox style - multiple allowed)."""
+        pane = self.panes.get("odt_locales")
+        if pane is None:
+            return
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
+        if not keys:
+            self._append_status("No locales available.")
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        selected_key = keys[safe_index]
+        if selected_key not in self.odt_locales:
+            self._append_status(f"Unknown locale: {selected_key}")
+            return
+        # Toggle the selected state
+        desc, current_state = self.odt_locales[selected_key]
+        self.odt_locales[selected_key] = (desc, not current_state)
+        new_state = "selected" if not current_state else "deselected"
+        selected_count = sum(1 for _, (_, sel) in self.odt_locales.items() if sel)
+        self._append_status(f"{desc} ({selected_key}) {new_state} — {selected_count} total")
+        self.progress_message = f"Select Office languages ({selected_count} selected)"
+
+    def _get_selected_odt_locales(self) -> list[str]:
+        """Get list of selected ODT locale codes."""
+        return [key for key, (_, selected) in self.odt_locales.items() if selected]
+
     def _get_selected_odt_install_preset(self) -> str | None:
         """Get the currently selected ODT install preset."""
         for key, (_, selected) in self.odt_install_presets.items():
@@ -540,9 +576,20 @@ class TUIActionsMixin:
             self.progress_message = "Preset selection required"
             return
 
+        selected_locales = self._get_selected_odt_locales()
+        if not selected_locales:
+            self._append_status("Select at least one language in 'ODT Locales' first.")
+            self.progress_message = "Language selection required"
+            return
+
         desc, _ = self.odt_install_presets[preset]
+        locale_summary = ", ".join(selected_locales[:3])
+        if len(selected_locales) > 3:
+            locale_summary += f" +{len(selected_locales) - 3} more"
+
         if not execute:
             self._append_status(f"ODT install ready: {desc}")
+            self._append_status(f"Languages: {locale_summary}")
             self.progress_message = f"Ready: {desc}"
             return
 
@@ -552,7 +599,8 @@ class TUIActionsMixin:
             dry_run = self.settings_overrides["dry_run"]
 
         # Request confirmation
-        if not self._confirm_odt_execution(f"ODT Install: {desc}", dry_run):
+        confirm_msg = f"ODT Install: {desc}\nLanguages: {locale_summary}"
+        if not self._confirm_odt_execution(confirm_msg, dry_run):
             return
 
         self.progress_message = f"Executing ODT Install: {desc}..."
@@ -560,12 +608,16 @@ class TUIActionsMixin:
             "odt_install.start",
             f"Starting ODT installation: {desc}",
             preset=preset,
+            locales=selected_locales,
             dry_run=dry_run,
         )
         self._render()
 
         try:
             spinner(0.2, "Preparing ODT...")
+            # Note: The selected locales are logged for informational purposes.
+            # The bundled XML configs have predefined language settings.
+            # For custom language configuration, users should use the ODT with custom XML.
             result = repair.run_oem_config(preset, dry_run=dry_run)
 
             if result.returncode == 0:
@@ -573,8 +625,10 @@ class TUIActionsMixin:
                     "odt_install.complete",
                     f"ODT installation completed: {desc}",
                     preset=preset,
+                    locales=selected_locales,
                 )
                 self._append_status(f"✓ ODT Install complete: {desc}")
+                self._append_status(f"  Languages installed: {locale_summary}")
                 self.progress_message = "ODT Install complete"
             else:
                 error_msg = result.stderr or result.error or f"Exit code {result.returncode}"

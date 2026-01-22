@@ -142,6 +142,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             NavigationItem("cleanup", "Cleanup only", action=self._handle_cleanup_only),
             NavigationItem("diagnostics", "Diagnostics only", action=self._handle_diagnostics),
             NavigationItem("odt_install", "ODT Install", action=self._prepare_odt_install),
+            NavigationItem("odt_locales", "ODT Locales", action=self._prepare_odt_locales),
             NavigationItem("odt_repair", "ODT Repair", action=self._prepare_odt_repair),
             NavigationItem("plan", "Build plan", action=None),
             NavigationItem("run", "Run plan", action=self._handle_run),
@@ -193,6 +194,52 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         }
         # Currently selected ODT preset
         self.selected_odt_preset: str | None = None
+        # Locale selection for ODT install (code -> (display_name, selected))
+        self.odt_locales: dict[str, tuple[str, bool]] = {
+            "en-us": ("English (US)", True),  # Default selected
+            "en-gb": ("English (UK)", False),
+            "de-de": ("German", False),
+            "fr-fr": ("French", False),
+            "es-es": ("Spanish (Spain)", False),
+            "it-it": ("Italian", False),
+            "pt-br": ("Portuguese (Brazil)", False),
+            "pt-pt": ("Portuguese (Portugal)", False),
+            "nl-nl": ("Dutch", False),
+            "pl-pl": ("Polish", False),
+            "ru-ru": ("Russian", False),
+            "ja-jp": ("Japanese", False),
+            "zh-cn": ("Chinese (Simplified)", False),
+            "zh-tw": ("Chinese (Traditional)", False),
+            "ko-kr": ("Korean", False),
+            "ar-sa": ("Arabic (Saudi Arabia)", False),
+            "he-il": ("Hebrew", False),
+            "hi-in": ("Hindi", False),
+            "th-th": ("Thai", False),
+            "tr-tr": ("Turkish", False),
+            "cs-cz": ("Czech", False),
+            "da-dk": ("Danish", False),
+            "fi-fi": ("Finnish", False),
+            "el-gr": ("Greek", False),
+            "hu-hu": ("Hungarian", False),
+            "nb-no": ("Norwegian (Bokmål)", False),
+            "sv-se": ("Swedish", False),
+            "uk-ua": ("Ukrainian", False),
+            "vi-vn": ("Vietnamese", False),
+            "bg-bg": ("Bulgarian", False),
+            "hr-hr": ("Croatian", False),
+            "et-ee": ("Estonian", False),
+            "id-id": ("Indonesian", False),
+            "kk-kz": ("Kazakh", False),
+            "lv-lv": ("Latvian", False),
+            "lt-lt": ("Lithuanian", False),
+            "ms-my": ("Malay", False),
+            "ro-ro": ("Romanian", False),
+            "sr-latn-rs": ("Serbian (Latin)", False),
+            "sk-sk": ("Slovak", False),
+            "sl-si": ("Slovenian", False),
+        }
+        # Add locale pane
+        self.panes["odt_locales"] = PaneContext("odt_locales")
 
     # -----------------------------------------------------------------------
     # Confirmation input (overrides stub in TUIActionsMixin)
@@ -398,6 +445,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._select_odt_install_preset(pane.cursor)
             elif self.active_tab == "odt_repair":
                 self._select_odt_repair_preset(pane.cursor)
+            elif self.active_tab == "odt_locales":
+                self._toggle_odt_locale(pane.cursor)
             return
         if command == "/":
             self._prompt_filter(pane)
@@ -457,6 +506,14 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                     f"{'[●]' if selected else '[ ]'} {desc}",
                 )
                 for key, (desc, selected) in self.odt_repair_presets.items()
+            ]
+        elif pane.name == "odt_locales":
+            entries = [
+                (
+                    key,
+                    f"{'[x]' if selected else '[ ]'} {desc} ({key})",
+                )
+                for key, (desc, selected) in self.odt_locales.items()
             ]
         elif pane.name in {"auto", "cleanup", "diagnostics"}:
             entries = []
