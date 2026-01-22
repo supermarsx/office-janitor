@@ -130,21 +130,16 @@ def test_event_queue_updates_state(monkeypatch):
     assert interface.last_inventory == {"c2r": []}
 
 
-def test_fallback_to_cli(monkeypatch):
+def test_fallback_to_cli(monkeypatch, capsys):
     state, _ = _make_app_state()
 
     monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: False)
-    called = {}
-
-    def fake_run_cli(app_state):
-        called["cli"] = True
-
-    monkeypatch.setattr("src.office_janitor.ui.run_cli", fake_run_cli)
 
     interface = tui.OfficeJanitorTUI(state)
     interface.run()
 
-    assert called.get("cli") is True
+    captured = capsys.readouterr()
+    assert "ANSI terminal support" in captured.out or "ANSI" in captured.out
 
 
 def test_format_inventory_flattens_entries():

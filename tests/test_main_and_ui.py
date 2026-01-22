@@ -681,19 +681,12 @@ def test_ui_run_cli_respects_json_flag() -> None:
     assert events == []
 
 
-def test_tui_falls_back_without_ansi(monkeypatch) -> None:
+def test_tui_falls_back_without_ansi(monkeypatch, capsys) -> None:
     """!
-    @brief When ANSI support is missing the TUI should delegate to the CLI.
+    @brief When ANSI support is missing the TUI should print an error and return.
     """
 
     monkeypatch.setattr(tui_module, "_supports_ansi", lambda stream=None: False)
-
-    invoked: list[str] = []
-
-    def fake_run_cli(app_state):  # type: ignore[no-untyped-def]
-        invoked.append("cli")
-
-    monkeypatch.setattr(ui, "run_cli", fake_run_cli)
 
     tui_module.run_tui(
         {
@@ -705,7 +698,8 @@ def test_tui_falls_back_without_ansi(monkeypatch) -> None:
         }
     )
 
-    assert invoked == ["cli"]
+    captured = capsys.readouterr()
+    assert "ANSI terminal support" in captured.out
 
 
 def test_tui_commands_drive_backends(monkeypatch) -> None:

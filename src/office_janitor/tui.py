@@ -311,10 +311,13 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             return
 
         if not self.ansi_supported and not _supports_ansi():
-            from . import ui
-
-            self._notify("tui.fallback", "Falling back to CLI menu (ANSI unavailable).")
-            ui.run_cli(self.app_state)
+            self._notify("tui.fallback", "TUI unavailable (ANSI not supported).")
+            print(
+                "\nTUI requires ANSI terminal support. Your terminal does not appear "
+                "to support ANSI escape sequences.\n"
+                "Try running from Windows Terminal, VS Code terminal, or set "
+                "WT_SESSION/ANSICON environment variable.\n"
+            )
             return
 
         self._notify("tui.start", "Interactive TUI started.")
