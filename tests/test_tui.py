@@ -939,7 +939,12 @@ def test_odt_install_displays_selection_state(monkeypatch):
 
     # First entry should show selected indicator
     first_key, first_label = entries[0]
-    assert "●" in first_label or "[x]" in first_label.lower() or "(selected)" in first_label.lower() or "●" in first_label
+    assert (
+        "●" in first_label
+        or "[x]" in first_label.lower()
+        or "(selected)" in first_label.lower()
+        or "●" in first_label
+    )
 
 
 def test_odt_locales_displays_checkbox_state(monkeypatch):
