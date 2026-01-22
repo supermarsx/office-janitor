@@ -15,6 +15,7 @@ from typing import Any, Callable, Union, cast
 from . import confirm, version
 from . import plan as plan_module
 from . import repair
+from . import tui as tui_module
 from .app_state import AppState
 from .repair_odt import OEM_CONFIG_PRESETS
 
@@ -27,6 +28,7 @@ _DEFAULT_MENU_LABELS = [
     "ODT Install (Office Deployment Tool)",
     "ODT Repair (repair/remove via ODT)",
     "Settings (restore point, logging, backups)",
+    "Switch to TUI (interactive interface)",
     "Exit",
 ]
 
@@ -77,7 +79,8 @@ def run_cli(app_state: AppState) -> None:
         (_DEFAULT_MENU_LABELS[5], _menu_odt_install),
         (_DEFAULT_MENU_LABELS[6], _menu_odt_repair),
         (_DEFAULT_MENU_LABELS[7], _menu_settings),
-        (_DEFAULT_MENU_LABELS[8], _menu_exit),
+        (_DEFAULT_MENU_LABELS[8], _menu_switch_tui),
+        (_DEFAULT_MENU_LABELS[9], _menu_exit),
     ]
 
     context: MutableMapping[str, object] = {
@@ -94,13 +97,14 @@ def run_cli(app_state: AppState) -> None:
         "inventory": None,
         "plan": None,
         "running": True,
+        "switch_to_tui": False,
     }
 
     _notify(context, "ui.start", "Interactive CLI started.")
 
     while context.get("running", True):
         _print_menu(menu)
-        selection = input_func("Select an option (1-9): ").strip()
+        selection = input_func("Select an option (1-10): ").strip()
         if not selection.isdigit():
             _notify(
                 context,
@@ -108,7 +112,7 @@ def run_cli(app_state: AppState) -> None:
                 f"Menu selection {selection!r} is not a number.",
                 level="warning",
             )
-            print("Please enter a number between 1 and 9.")
+            print("Please enter a number between 1 and 10.")
             continue
         index = int(selection) - 1
         if index < 0 or index >= len(menu):
@@ -130,6 +134,11 @@ def run_cli(app_state: AppState) -> None:
                 human_logger.exception("Menu action failure", exc_info=exc)
             else:
                 print(f"Error: {exc}")
+
+    # Check if we should switch to TUI
+    if context.get("switch_to_tui"):
+        _notify(context, "ui.tui_launch", "Launching TUI interface.")
+        tui_module.run_tui(app_state)
 
 
 def _print_menu(menu: list[tuple[str, MenuHandler]]) -> None:
@@ -159,6 +168,7 @@ def _print_menu(menu: list[tuple[str, MenuHandler]]) -> None:
         7. {labels[6]}
         8. {labels[7]}
         9. {labels[8]}
+        10. {labels[9]}
         --------------------------------------------------
         """).strip("\n")
     print(header)
@@ -355,6 +365,15 @@ def _menu_odt_repair(context: MutableMapping[str, object]) -> None:
             level="error",
         )
         print(f"ODT operation failed: {result.error or result.stderr}")
+
+
+def _menu_switch_tui(context: MutableMapping[str, object]) -> None:
+    """!
+    @brief Switch from CLI menu to interactive TUI.
+    """
+    _notify(context, "ui.switch_tui", "Switching to TUI interface.")
+    context["running"] = False
+    context["switch_to_tui"] = True
 
 
 def _menu_settings(context: MutableMapping[str, object]) -> None:
