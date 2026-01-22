@@ -12,12 +12,10 @@ import textwrap
 from collections.abc import Iterable, Mapping, MutableMapping
 from typing import Any, Callable, Union, cast
 
-from . import confirm, version
+from . import confirm, repair, version
 from . import plan as plan_module
-from . import repair
 from . import tui as tui_module
 from .app_state import AppState
-from .repair_odt import OEM_CONFIG_PRESETS
 
 _DEFAULT_MENU_LABELS = [
     "Detect & show installed Office",
@@ -270,7 +268,7 @@ def _menu_odt_install(context: MutableMapping[str, object]) -> None:
 
     print("\nODT Installation Presets:")
     print("-" * 40)
-    for idx, (key, desc) in enumerate(install_presets, 1):
+    for idx, (_key, desc) in enumerate(install_presets, 1):
         print(f"  {idx}. {desc}")
     print(f"  {len(install_presets) + 1}. Return to main menu")
     print("-" * 40)
@@ -300,7 +298,7 @@ def _menu_odt_install(context: MutableMapping[str, object]) -> None:
     result = repair.run_oem_config(preset_key, dry_run=dry_run)
     if result.returncode == 0:
         _notify(context, "odt_install.complete", f"ODT install completed: {preset_desc}")
-        print(f"ODT install completed successfully.")
+        print("ODT install completed successfully.")
     else:
         _notify(
             context,
@@ -328,7 +326,7 @@ def _menu_odt_repair(context: MutableMapping[str, object]) -> None:
 
     print("\nODT Repair/Removal Presets:")
     print("-" * 40)
-    for idx, (key, desc) in enumerate(repair_presets, 1):
+    for idx, (_key, desc) in enumerate(repair_presets, 1):
         print(f"  {idx}. {desc}")
     print(f"  {len(repair_presets) + 1}. Return to main menu")
     print("-" * 40)
@@ -356,7 +354,7 @@ def _menu_odt_repair(context: MutableMapping[str, object]) -> None:
     result = repair.run_oem_config(preset_key, dry_run=dry_run)
     if result.returncode == 0:
         _notify(context, "odt_repair.complete", f"ODT repair completed: {preset_desc}")
-        print(f"ODT operation completed successfully.")
+        print("ODT operation completed successfully.")
     else:
         _notify(
             context,
