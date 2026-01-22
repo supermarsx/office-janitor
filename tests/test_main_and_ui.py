@@ -722,11 +722,14 @@ def test_tui_commands_drive_backends(monkeypatch) -> None:
         [
             "enter",  # detect
             "tab",
-            "down",
-            "down",
-            "down",
-            "down",
-            "down",
+            "down",  # auto
+            "down",  # targeted
+            "down",  # cleanup
+            "down",  # diagnostics
+            "down",  # odt_install
+            "down",  # odt_locales
+            "down",  # odt_repair
+            "down",  # plan
             "enter",  # focus plan tab
             "enter",  # execute plan
             "tab",
