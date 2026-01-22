@@ -14,7 +14,9 @@ from typing import Any, Callable, Union, cast
 
 from . import confirm, version
 from . import plan as plan_module
+from . import repair
 from .app_state import AppState
+from .repair_odt import OEM_CONFIG_PRESETS
 
 _DEFAULT_MENU_LABELS = [
     "Detect & show installed Office",
@@ -22,6 +24,8 @@ _DEFAULT_MENU_LABELS = [
     "Targeted scrub (choose versions/components)",
     "Cleanup only (licenses, residue)",
     "Diagnostics only (export plan & inventory)",
+    "ODT Install (Office Deployment Tool)",
+    "ODT Repair (repair/remove via ODT)",
     "Settings (restore point, logging, backups)",
     "Exit",
 ]
@@ -70,8 +74,10 @@ def run_cli(app_state: AppState) -> None:
         (_DEFAULT_MENU_LABELS[2], _menu_targeted),
         (_DEFAULT_MENU_LABELS[3], _menu_cleanup),
         (_DEFAULT_MENU_LABELS[4], _menu_diagnostics),
-        (_DEFAULT_MENU_LABELS[5], _menu_settings),
-        (_DEFAULT_MENU_LABELS[6], _menu_exit),
+        (_DEFAULT_MENU_LABELS[5], _menu_odt_install),
+        (_DEFAULT_MENU_LABELS[6], _menu_odt_repair),
+        (_DEFAULT_MENU_LABELS[7], _menu_settings),
+        (_DEFAULT_MENU_LABELS[8], _menu_exit),
     ]
 
     context: MutableMapping[str, object] = {
@@ -94,7 +100,7 @@ def run_cli(app_state: AppState) -> None:
 
     while context.get("running", True):
         _print_menu(menu)
-        selection = input_func("Select an option (1-7): ").strip()
+        selection = input_func("Select an option (1-9): ").strip()
         if not selection.isdigit():
             _notify(
                 context,
@@ -102,7 +108,7 @@ def run_cli(app_state: AppState) -> None:
                 f"Menu selection {selection!r} is not a number.",
                 level="warning",
             )
-            print("Please enter a number between 1 and 7.")
+            print("Please enter a number between 1 and 9.")
             continue
         index = int(selection) - 1
         if index < 0 or index >= len(menu):
@@ -151,6 +157,8 @@ def _print_menu(menu: list[tuple[str, MenuHandler]]) -> None:
         5. {labels[4]}
         6. {labels[5]}
         7. {labels[6]}
+        8. {labels[7]}
+        9. {labels[8]}
         --------------------------------------------------
         """).strip("\n")
     print(header)
@@ -226,6 +234,127 @@ def _menu_diagnostics(context: MutableMapping[str, object]) -> None:
     )
     _notify(context, "diagnostics.complete", "Diagnostics artifacts generated.")
     print("Diagnostics captured; no actions executed.")
+
+
+def _menu_odt_install(context: MutableMapping[str, object]) -> None:
+    """!
+    @brief ODT Install menu - select and run an installation preset.
+    """
+    input_func = cast(Callable[[str], str], context.get("input", input))
+    args = cast(Any, context.get("args"))
+    dry_run = bool(getattr(args, "dry_run", False)) if args is not None else False
+
+    # Show available install presets
+    install_presets = [
+        ("proplus-x64", "Microsoft 365 ProPlus (64-bit)"),
+        ("proplus-x86", "Microsoft 365 ProPlus (32-bit)"),
+        ("proplus-visio-project", "ProPlus + Visio + Project"),
+        ("business-x64", "Microsoft 365 Business (64-bit)"),
+        ("office2019-x64", "Office 2019 Professional Plus (64-bit)"),
+        ("office2021-x64", "Office LTSC 2021 (64-bit)"),
+        ("office2024-x64", "Office LTSC 2024 (64-bit)"),
+        ("multilang", "Multi-language Installation"),
+        ("shared-computer", "Shared Computer Activation"),
+        ("interactive", "Interactive Setup (Full UI)"),
+    ]
+
+    print("\nODT Installation Presets:")
+    print("-" * 40)
+    for idx, (key, desc) in enumerate(install_presets, 1):
+        print(f"  {idx}. {desc}")
+    print(f"  {len(install_presets) + 1}. Return to main menu")
+    print("-" * 40)
+
+    selection = input_func(f"Select preset (1-{len(install_presets) + 1}): ").strip()
+    if not selection.isdigit():
+        _notify(
+            context, "odt_install.invalid", f"Invalid selection: {selection!r}", level="warning"
+        )
+        print("Invalid selection.")
+        return
+
+    idx = int(selection) - 1
+    if idx == len(install_presets):
+        return  # Return to main menu
+    if idx < 0 or idx >= len(install_presets):
+        _notify(
+            context, "odt_install.invalid", f"Selection out of range: {selection}", level="warning"
+        )
+        print("Invalid selection.")
+        return
+
+    preset_key, preset_desc = install_presets[idx]
+    _notify(context, "odt_install.start", f"Running ODT install: {preset_desc}", preset=preset_key)
+    print(f"\nRunning: {preset_desc}...")
+
+    result = repair.run_oem_config(preset_key, dry_run=dry_run)
+    if result.returncode == 0:
+        _notify(context, "odt_install.complete", f"ODT install completed: {preset_desc}")
+        print(f"ODT install completed successfully.")
+    else:
+        _notify(
+            context,
+            "odt_install.error",
+            f"ODT install failed: {result.error or result.stderr}",
+            level="error",
+        )
+        print(f"ODT install failed: {result.error or result.stderr}")
+
+
+def _menu_odt_repair(context: MutableMapping[str, object]) -> None:
+    """!
+    @brief ODT Repair menu - select and run a repair/removal preset.
+    """
+    input_func = cast(Callable[[str], str], context.get("input", input))
+    args = cast(Any, context.get("args"))
+    dry_run = bool(getattr(args, "dry_run", False)) if args is not None else False
+
+    # Show available repair presets
+    repair_presets = [
+        ("quick-repair", "Quick Repair (local, no internet)"),
+        ("full-repair", "Full Online Repair (needs internet)"),
+        ("full-removal", "Full Removal (complete uninstall)"),
+    ]
+
+    print("\nODT Repair/Removal Presets:")
+    print("-" * 40)
+    for idx, (key, desc) in enumerate(repair_presets, 1):
+        print(f"  {idx}. {desc}")
+    print(f"  {len(repair_presets) + 1}. Return to main menu")
+    print("-" * 40)
+
+    selection = input_func(f"Select preset (1-{len(repair_presets) + 1}): ").strip()
+    if not selection.isdigit():
+        _notify(context, "odt_repair.invalid", f"Invalid selection: {selection!r}", level="warning")
+        print("Invalid selection.")
+        return
+
+    idx = int(selection) - 1
+    if idx == len(repair_presets):
+        return  # Return to main menu
+    if idx < 0 or idx >= len(repair_presets):
+        _notify(
+            context, "odt_repair.invalid", f"Selection out of range: {selection}", level="warning"
+        )
+        print("Invalid selection.")
+        return
+
+    preset_key, preset_desc = repair_presets[idx]
+    _notify(context, "odt_repair.start", f"Running ODT repair: {preset_desc}", preset=preset_key)
+    print(f"\nRunning: {preset_desc}...")
+
+    result = repair.run_oem_config(preset_key, dry_run=dry_run)
+    if result.returncode == 0:
+        _notify(context, "odt_repair.complete", f"ODT repair completed: {preset_desc}")
+        print(f"ODT operation completed successfully.")
+    else:
+        _notify(
+            context,
+            "odt_repair.error",
+            f"ODT repair failed: {result.error or result.stderr}",
+            level="error",
+        )
+        print(f"ODT operation failed: {result.error or result.stderr}")
 
 
 def _menu_settings(context: MutableMapping[str, object]) -> None:

@@ -489,7 +489,7 @@ def test_ui_run_cli_detect_option(monkeypatch) -> None:
     """
 
     events: list[str] = []
-    inputs = iter(["1", "7"])
+    inputs = iter(["1", "9"])
 
     def fake_input(prompt: str) -> str:
         return next(inputs)
@@ -528,7 +528,7 @@ def test_ui_run_cli_auto_all_executes(monkeypatch) -> None:
     """
 
     events: list[tuple[str, object]] = []
-    inputs = iter(["2", "7"])
+    inputs = iter(["2", "9"])
 
     def fake_input(prompt: str) -> str:
         return next(inputs)
@@ -594,7 +594,7 @@ def test_ui_run_cli_targeted_prompts(monkeypatch) -> None:
     """
 
     events: list[tuple[str, object]] = []
-    inputs = iter(["3", "2016,365", "visio,project", "7"])
+    inputs = iter(["3", "2016,365", "visio,project", "9"])
 
     def fake_input(prompt: str) -> str:
         return next(inputs)
