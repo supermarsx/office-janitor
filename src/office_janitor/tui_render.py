@@ -48,6 +48,7 @@ class TUIRendererMixin:
     - odt_install_presets: dict[str, tuple[str, bool]]
     - odt_repair_presets: dict[str, tuple[str, bool]]
     - odt_locales: dict[str, tuple[str, bool]]
+    - c2r_channels: dict[str, tuple[str, bool]]
     - app_state: MutableMapping
     - current_mode: str | None
     - mode_options: list[tuple[str, str, str]]
@@ -72,6 +73,7 @@ class TUIRendererMixin:
     odt_install_presets: dict[str, tuple[str, bool]]
     odt_repair_presets: dict[str, tuple[str, bool]]
     odt_locales: dict[str, tuple[str, bool]]
+    c2r_channels: dict[str, tuple[str, bool]]
     app_state: dict[str, object]
     list_filters: dict[str, str]
     current_mode: str | None
@@ -201,6 +203,8 @@ class TUIRendererMixin:
             return self._render_odt_repair_pane(width)
         if self.active_tab == "c2r_remove":
             return self._render_c2r_remove_pane(width)
+        if self.active_tab == "c2r_channel":
+            return self._render_c2r_channel_pane(width)
         if self.active_tab == "offscrub":
             return self._render_offscrub_pane(width)
         if self.active_tab == "licensing":
@@ -345,7 +349,7 @@ class TUIRendererMixin:
         return [line[:width] for line in lines]
 
     def _render_odt_locales_pane(self, width: int) -> list[str]:
-        """Render the ODT locale selection pane."""
+        """Render the ODT locale selection pane with scrolling."""
         lines = ["ODT Language Selection:"]
         lines.append("")
         # Show selection summary
@@ -357,17 +361,42 @@ class TUIRendererMixin:
         active_filter = self._get_pane_filter(pane.name)
         if active_filter:
             lines.append(f"Filter: {active_filter}")
+
+        # Scrolling window configuration
+        max_visible = 12  # Max items to show at once
+        total_items = len(entries)
+
         if entries:
-            for index, (_, label) in enumerate(entries):
-                cursor = "➤" if pane.cursor == index else " "
+            # Ensure scroll_offset keeps cursor visible
+            if pane.cursor < pane.scroll_offset:
+                pane.scroll_offset = pane.cursor
+            elif pane.cursor >= pane.scroll_offset + max_visible:
+                pane.scroll_offset = pane.cursor - max_visible + 1
+
+            # Clamp scroll_offset to valid range
+            pane.scroll_offset = max(0, min(pane.scroll_offset, max(0, total_items - max_visible)))
+
+            # Show scroll indicator at top
+            if pane.scroll_offset > 0:
+                lines.append(f"  ▲ {pane.scroll_offset} more above")
+
+            # Render visible window
+            visible_end = min(pane.scroll_offset + max_visible, total_items)
+            for index in range(pane.scroll_offset, visible_end):
+                _, label = entries[index]
+                cursor = "►" if pane.cursor == index else " "
                 lines.append(f"{cursor} {label}")
+
+            # Show scroll indicator at bottom
+            remaining = total_items - visible_end
+            if remaining > 0:
+                lines.append(f"  ▼ {remaining} more below")
         else:
             lines.append("No matching locales.")
+
         lines.append("")
         lines.append("─" * min(width - 2, 50))
-        lines.append("Toggle languages with Space. Use / to filter.")
-        lines.append("Multiple languages can be selected for Office install.")
-        return [line[:width] for line in lines]
+        lines.append("Space toggle • / filter • PgUp/PgDn scroll")
         return [line[:width] for line in lines]
 
     def _render_odt_repair_pane(self, width: int) -> list[str]:
@@ -462,6 +491,29 @@ class TUIRendererMixin:
         lines.append("  • Clean up remaining registry entries")
         lines.append("")
         lines.append("Press Enter or F10 to execute.")
+        return [line[:width] for line in lines]
+
+    def _render_c2r_channel_pane(self, width: int) -> list[str]:
+        """Render the C2R update channel selection pane."""
+        lines = ["C2R Update Channel:"]
+        lines.append("")
+        lines.append("Select the Office update channel:")
+        lines.append("")
+        pane = self.panes["c2r_channel"]
+        entries = self._ensure_pane_lines(pane)
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "►" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        lines.append("")
+        lines.append("─" * 50)
+        lines.append("Channels control update frequency and stability:")
+        lines.append("  • Current: Latest features, monthly updates")
+        lines.append("  • Monthly Enterprise: Predictable monthly schedule")
+        lines.append("  • Semi-Annual: Stable, updates twice per year")
+        lines.append("  • Beta: Early access, may have bugs")
+        lines.append("")
+        lines.append("Space to select, F10 to apply change.")
         return [line[:width] for line in lines]
 
     def _render_offscrub_pane(self, width: int) -> list[str]:

@@ -782,7 +782,8 @@ def test_render_odt_locales_pane(monkeypatch):
 
     assert lines[0] == "ODT Language Selection:"
     assert any("Selected:" in line for line in lines)
-    assert any("Multiple languages" in line for line in lines)
+    assert any("Space toggle" in line for line in lines)  # New help text
+    assert any("PgUp/PgDn" in line or "scroll" in line for line in lines)  # Scroll hint
 
 
 def test_render_odt_repair_pane(monkeypatch):
@@ -798,6 +799,37 @@ def test_render_odt_repair_pane(monkeypatch):
     assert any("Quick Repair" in line for line in lines)
     assert any("Full Repair" in line for line in lines)
     assert any("Full Removal" in line for line in lines)
+
+
+def test_odt_locales_scrolling(monkeypatch):
+    """Test ODT locales pane scrolling with many items."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "odt_locales"
+    pane = interface.panes["odt_locales"]
+
+    # There are many locales (40+), scrolling should work
+    total_locales = len(interface.odt_locales)
+    assert total_locales > 12  # More than max_visible
+
+    # Initially at top
+    pane.cursor = 0
+    pane.scroll_offset = 0
+    lines = interface._render_odt_locales_pane(80)
+    assert any("more below" in line for line in lines)  # Should show scroll indicator
+
+    # Move cursor down past visible window
+    pane.cursor = 20
+    lines = interface._render_odt_locales_pane(80)
+    assert any("more above" in line for line in lines)  # Should show top scroll indicator
+    assert any("more below" in line for line in lines)  # Should show bottom scroll indicator
+
+    # Move to end
+    pane.cursor = total_locales - 1
+    lines = interface._render_odt_locales_pane(80)
+    assert any("more above" in line for line in lines)  # Should show scroll indicator at top
 
 
 def test_render_odt_install_shows_locales_summary(monkeypatch):

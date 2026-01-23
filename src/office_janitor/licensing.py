@@ -921,6 +921,49 @@ def _parse_ospp_dstatus(output: str) -> list[dict[str, str]]:
     return licenses
 
 
+def get_license_status() -> dict[str, object]:
+    """!
+    @brief Get Office licensing status in a structured format.
+    @returns Dict with 'products' list containing license info.
+    """
+    licenses = query_ospp_status()
+    products = []
+    for lic in licenses:
+        products.append({
+            "name": lic.get("name", "Unknown"),
+            "status": lic.get("status", "Unknown"),
+            "partial_key": lic.get("partial_key", ""),
+            "description": lic.get("description", ""),
+        })
+    return {"products": products}
+
+
+def activate_office(*, dry_run: bool = False) -> dict[str, object]:
+    """!
+    @brief Attempt to activate Office using OSPP.VBS /act.
+    @param dry_run If True, don't actually run the command.
+    @returns Dict with success status and any error message.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    ospp_path = find_ospp_vbs()
+    if ospp_path is None:
+        return {"success": False, "error": "OSPP.VBS not found"}
+
+    if dry_run:
+        human_logger.info("[DRY-RUN] Would run: OSPP.VBS /act")
+        return {"success": True, "dry_run": True}
+
+    result = _run_ospp_command(ospp_path, "/act")
+    if result.returncode == 0:
+        human_logger.info("Office activation triggered successfully")
+        return {"success": True, "output": result.stdout}
+    else:
+        error_msg = result.stderr or result.stdout or "Unknown error"
+        human_logger.warning(f"Office activation failed: {error_msg}")
+        return {"success": False, "error": error_msg}
+
+
 def uninstall_ospp_key(
     partial_key: str,
     ospp_path: Path | None = None,
@@ -1102,6 +1145,8 @@ __all__ = [
     "OSPP_VBS_SEARCH_PATHS",
     "find_ospp_vbs",
     "query_ospp_status",
+    "get_license_status",
+    "activate_office",
     "uninstall_ospp_key",
     "clean_licenses_via_ospp",
     "clean_ospp_licenses_wmi",

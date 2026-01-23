@@ -80,6 +80,7 @@ class PaneContext:
 
     name: str
     cursor: int = 0
+    scroll_offset: int = 0  # For scrolling long lists
     lines: list[str] = field(default_factory=list)
 
 
@@ -368,6 +369,17 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         # Add locale pane
         self.panes["odt_locales"] = PaneContext("odt_locales")
 
+        # C2R Update Channel options (channel_id -> (display_name, selected))
+        self.c2r_channels: dict[str, tuple[str, bool]] = {
+            "current": ("Current Channel (Recommended)", False),
+            "monthly": ("Monthly Enterprise Channel", False),
+            "semi-annual": ("Semi-Annual Enterprise Channel", False),
+            "current-preview": ("Current Channel (Preview)", False),
+            "semi-annual-preview": ("Semi-Annual Channel (Preview)", False),
+            "beta": ("Beta Channel (Insiders)", False),
+        }
+        self.selected_c2r_channel: str | None = None
+
     # -----------------------------------------------------------------------
     # Confirmation input (overrides stub in TUIActionsMixin)
     # -----------------------------------------------------------------------
@@ -575,10 +587,13 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             pane.cursor = min(max(len(pane.lines) - 1, 0), pane.cursor + 1)
             return
         if command == "page_down":
-            pane.cursor = min(max(len(pane.lines) - 1, 0), pane.cursor + 5)
+            # Larger jump for locale lists, normal for others
+            jump = 10 if self.active_tab == "odt_locales" else 5
+            pane.cursor = min(max(len(pane.lines) - 1, 0), pane.cursor + jump)
             return
         if command == "page_up":
-            pane.cursor = max(0, pane.cursor - 5)
+            jump = 10 if self.active_tab == "odt_locales" else 5
+            pane.cursor = max(0, pane.cursor - jump)
             return
         if command == "f10":
             if self.active_tab == "targeted":
@@ -595,6 +610,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._handle_odt_repair(execute=True)
             elif self.active_tab == "c2r_remove":
                 self._handle_c2r_remove()
+            elif self.active_tab == "c2r_channel":
+                self._handle_c2r_channel_change()
             elif self.active_tab == "offscrub":
                 self._handle_offscrub()
             elif self.active_tab == "licensing":
@@ -650,6 +667,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._select_odt_repair_preset(pane.cursor)
             elif self.active_tab == "odt_locales":
                 self._toggle_odt_locale(pane.cursor)
+            elif self.active_tab == "c2r_channel":
+                self._select_c2r_channel(pane.cursor)
             return
         if command == "/":
             self._prompt_filter(pane)
@@ -775,6 +794,14 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                     f"{'[x]' if selected else '[ ]'} {desc} ({key})",
                 )
                 for key, (desc, selected) in self.odt_locales.items()
+            ]
+        elif pane.name == "c2r_channel":
+            entries = [
+                (
+                    key,
+                    f"{'[●]' if selected else '[ ]'} {desc}",
+                )
+                for key, (desc, selected) in self.c2r_channels.items()
             ]
         elif pane.name in {"auto", "cleanup", "diagnostics"}:
             entries = []

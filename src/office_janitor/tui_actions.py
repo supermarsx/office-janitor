@@ -47,7 +47,9 @@ class TUIActionsMixin:
     - odt_install_presets: dict[str, tuple[str, bool]]
     - odt_repair_presets: dict[str, tuple[str, bool]]
     - odt_locales: dict[str, tuple[str, bool]]
+    - c2r_channels: dict[str, tuple[str, bool]]
     - selected_odt_preset: str | None
+    - selected_c2r_channel: str | None
     - status_lines: list[str]
     - compact_layout: bool
     - _running: bool
@@ -70,7 +72,9 @@ class TUIActionsMixin:
     odt_install_presets: dict[str, tuple[str, bool]]
     odt_repair_presets: dict[str, tuple[str, bool]]
     odt_locales: dict[str, tuple[str, bool]]
+    c2r_channels: dict[str, tuple[str, bool]]
     selected_odt_preset: str | None
+    selected_c2r_channel: str | None
     status_lines: list[str]
     compact_layout: bool
     _running: bool
@@ -754,12 +758,45 @@ class TUIActionsMixin:
 
     def _prepare_c2r_channel(self) -> None:
         """Prepare C2R channel change options."""
-        self.progress_message = "Configure C2R update channel"
-        self._append_status("C2R Channel: Select target update channel.")
+        self.progress_message = "Select C2R update channel"
+        self._append_status("C2R Channel: Select target channel with Space, F10 to apply.")
+        self._append_status("Channels: Current (stable), Monthly, Semi-Annual, Beta")
         self.active_tab = "c2r_channel"
         pane = self.panes.get("c2r_channel")
         if pane:
             pane.cursor = 0
+
+    def _handle_c2r_channel_change(self) -> None:
+        """Apply the selected C2R channel change."""
+        from . import c2r_integrator
+
+        # Find selected channel
+        selected_channel = None
+        for key, (_, selected) in self.c2r_channels.items():
+            if selected:
+                selected_channel = key
+                break
+
+        if not selected_channel:
+            self._append_status("✗ No channel selected. Use Space to select one.")
+            return
+
+        self.progress_message = f"Changing to {selected_channel} channel..."
+        self._notify("c2r.channel_change", f"Changing channel to {selected_channel}")
+        self._render()
+
+        try:
+            result = c2r_integrator.change_update_channel(selected_channel, dry_run=self.dry_run)
+            if result.get("success"):
+                channel_name = result.get("channel", selected_channel)
+                self._append_status(f"✓ Channel changed to: {channel_name}")
+                self.progress_message = "Channel change complete"
+            else:
+                self._append_status(f"✗ Channel change failed: {result.get('error', 'Unknown')}")
+                self.progress_message = "Channel change failed"
+        except Exception as exc:
+            self._append_status(f"✗ Channel change error: {exc}")
+            self.progress_message = "Channel change failed"
 
     def _prepare_license_install(self) -> None:
         """Prepare product key installation."""
@@ -931,6 +968,30 @@ class TUIActionsMixin:
         selected_count = sum(1 for _, (_, sel) in self.odt_locales.items() if sel)
         self._append_status(f"{desc} ({selected_key}) {new_state} — {selected_count} total")
         self.progress_message = f"Select Office languages ({selected_count} selected)"
+
+    def _select_c2r_channel(self, index: int) -> None:
+        """Select a C2R update channel (radio button style - one allowed)."""
+        pane = self.panes.get("c2r_channel")
+        if pane is None:
+            return
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
+        if not keys:
+            self._append_status("No channels available.")
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        selected_key = keys[safe_index]
+        if selected_key not in self.c2r_channels:
+            self._append_status(f"Unknown channel: {selected_key}")
+            return
+        # Radio button behavior - deselect all others
+        for key in self.c2r_channels:
+            desc, _ = self.c2r_channels[key]
+            self.c2r_channels[key] = (desc, key == selected_key)
+        self.selected_c2r_channel = selected_key
+        desc, _ = self.c2r_channels[selected_key]
+        self._append_status(f"Selected: {desc}")
+        self.progress_message = f"Channel: {desc}"
 
     def _get_selected_odt_locales(self) -> list[str]:
         """Get list of selected ODT locale codes."""

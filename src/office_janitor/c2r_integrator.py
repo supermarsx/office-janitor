@@ -537,3 +537,121 @@ def reinstall_c2r_licenses(
     )
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# C2R Update Channel definitions
+# ---------------------------------------------------------------------------
+
+C2R_UPDATE_CHANNELS: dict[str, tuple[str, str]] = {
+    "current": ("Current Channel", "http://officecdn.microsoft.com/pr/492350f6-3a01-4f97-b9c0-c7c6ddf67d60"),
+    "monthly": ("Monthly Enterprise Channel", "http://officecdn.microsoft.com/pr/55336b82-a18d-4dd6-b5f6-9e5095c314a6"),
+    "semi-annual": ("Semi-Annual Enterprise Channel", "http://officecdn.microsoft.com/pr/7ffbc6bf-bc32-4f92-8982-f9dd17fd3114"),
+    "beta": ("Beta Channel", "http://officecdn.microsoft.com/pr/5440fd1f-7ecb-4221-8110-145efaa6372f"),
+    "current-preview": ("Current Channel (Preview)", "http://officecdn.microsoft.com/pr/64256afe-f5d9-4f86-8936-8840a6a4f5be"),
+    "semi-annual-preview": ("Semi-Annual Enterprise Channel (Preview)", "http://officecdn.microsoft.com/pr/b8f9b850-328d-4355-9145-c59439a0c4cf"),
+}
+
+
+def trigger_update(*, dry_run: bool = False) -> dict[str, object]:
+    """!
+    @brief Trigger an Office C2R update check.
+    @param dry_run If True, don't actually run the command.
+    @returns Dict with success status and any error message.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    # Find OfficeC2RClient.exe
+    c2r_client = _find_office_c2r_client()
+    if c2r_client is None:
+        return {"success": False, "error": "OfficeC2RClient.exe not found"}
+
+    if dry_run:
+        human_logger.info("[DRY-RUN] Would run: OfficeC2RClient.exe /update user")
+        return {"success": True, "dry_run": True}
+
+    cmd = [str(c2r_client), "/update", "user"]
+    result = exec_utils.run_command(
+        cmd,
+        event="c2r_update",
+        timeout=60,
+        dry_run=False,
+        human_message="Triggering Office update check",
+    )
+
+    if result.returncode == 0:
+        human_logger.info("Office update check triggered successfully")
+        return {"success": True}
+    else:
+        error_msg = result.stderr or result.stdout or "Unknown error"
+        return {"success": False, "error": error_msg}
+
+
+def change_update_channel(
+    channel_id: str,
+    *,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    """!
+    @brief Change the Office C2R update channel.
+    @param channel_id Key from C2R_UPDATE_CHANNELS (e.g., 'current', 'monthly').
+    @param dry_run If True, don't actually make changes.
+    @returns Dict with success status and any error message.
+    """
+    human_logger = logging_ext.get_human_logger()
+
+    if channel_id not in C2R_UPDATE_CHANNELS:
+        return {"success": False, "error": f"Unknown channel: {channel_id}"}
+
+    channel_name, cdn_url = C2R_UPDATE_CHANNELS[channel_id]
+
+    # Find OfficeC2RClient.exe
+    c2r_client = _find_office_c2r_client()
+    if c2r_client is None:
+        return {"success": False, "error": "OfficeC2RClient.exe not found"}
+
+    if dry_run:
+        human_logger.info(f"[DRY-RUN] Would change channel to: {channel_name}")
+        return {"success": True, "dry_run": True, "channel": channel_name}
+
+    # Use /changesetting to update the CDN URL
+    cmd = [str(c2r_client), "/changesetting", f"CDNBaseUrl={cdn_url}"]
+    result = exec_utils.run_command(
+        cmd,
+        event="c2r_channel_change",
+        timeout=60,
+        dry_run=False,
+        human_message=f"Changing update channel to {channel_name}",
+    )
+
+    if result.returncode == 0:
+        human_logger.info(f"Office update channel changed to {channel_name}")
+        return {"success": True, "channel": channel_name}
+    else:
+        error_msg = result.stderr or result.stdout or "Unknown error"
+        return {"success": False, "error": error_msg}
+
+
+def _find_office_c2r_client() -> Path | None:
+    """!
+    @brief Find OfficeC2RClient.exe in common locations.
+    @returns Path to OfficeC2RClient.exe or None if not found.
+    """
+    search_paths = [
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+        / "Common Files"
+        / "Microsoft Shared"
+        / "ClickToRun"
+        / "OfficeC2RClient.exe",
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+        / "Common Files"
+        / "Microsoft Shared"
+        / "ClickToRun"
+        / "OfficeC2RClient.exe",
+    ]
+
+    for path in search_paths:
+        if path.exists():
+            return path
+
+    return None
