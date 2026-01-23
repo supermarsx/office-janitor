@@ -36,7 +36,7 @@ def add_repair_subcommand_options(parser: argparse.ArgumentParser) -> None:
     repair_mode = parser.add_argument_group("Repair Mode")
     repair_type = repair_mode.add_mutually_exclusive_group()
     repair_type.add_argument(
-        "-q",
+        "-Q",
         "--quick",
         action="store_const",
         const="quick",
@@ -66,7 +66,7 @@ def add_repair_subcommand_options(parser: argparse.ArgumentParser) -> None:
 
     repair_opts = parser.add_argument_group("Repair Options")
     repair_opts.add_argument(
-        "-c",
+        "-l",
         "--culture",
         metavar="LANG",
         default="en-us",
@@ -98,7 +98,7 @@ def add_repair_subcommand_options(parser: argparse.ArgumentParser) -> None:
         help="Timeout for repair operations in seconds (default: 3600).",
     )
     repair_opts.add_argument(
-        "-a",
+        "-A",
         "--all-products",
         action="store_true",
         dest="repair_all_products",
