@@ -160,9 +160,10 @@ class TUIRendererMixin:
 
     def _render_navigation(self, width: int) -> list[str]:
         """Render the navigation column."""
-        lines: list[str] = ["Navigation:"]
+        mode_label = self.current_mode.title() if self.current_mode else "Mode"
+        lines: list[str] = [f"{mode_label} Menu:"]
         for index, item in enumerate(self.navigation):
-            prefix = "➤" if index == self.nav_index else " "
+            prefix = "►" if index == self.nav_index else " "
             # Build visible text first, truncate to width, then apply ANSI
             visible_text = f"{prefix} {item.label}"
             truncated = visible_text[:width]
@@ -174,7 +175,7 @@ class TUIRendererMixin:
                 line = truncated
             lines.append(line)
         lines.append("")
-        lines.append("Status log:")
+        lines.append("Status:")
         lines.extend(self.status_lines[-(12 if self.compact_layout else 18) :])
         return lines
 
@@ -217,11 +218,11 @@ class TUIRendererMixin:
     def _render_footer(self) -> str:
         """Render the footer help text."""
         if self.current_mode is None:
-            help_text = "↑↓ select mode • Enter confirm • Q quit"
+            help_text = "↑↓ Navigate  →/Enter Select  Q Quit  F1 Help"
         else:
             help_text = (
-                "Arrows navigate • Tab switches focus • Space toggles • Enter confirms • "
-                "F10 run • / filter • Esc back • Q quits"
+                "↑↓ Navigate  →/Enter Select  ← Back  Tab Focus  "
+                "Space Toggle  F10 Run  / Filter  Q Quit"
             )
         return help_text
 
