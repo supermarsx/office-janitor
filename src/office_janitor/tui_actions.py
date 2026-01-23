@@ -38,6 +38,7 @@ class TUIActionsMixin:
     - _confirm_requestor: Callable | None
     - last_inventory: Mapping | None
     - last_plan: list | None
+    - last_license_status: dict | None
     - last_overrides: dict | None
     - progress_message: str
     - panes: dict[str, PaneContext]
@@ -50,6 +51,7 @@ class TUIActionsMixin:
     - odt_products: dict[str, tuple[str, bool]]
     - c2r_channels: dict[str, tuple[str, bool]]
     - scrub_levels: dict[str, tuple[str, bool]]
+    - offscrub_scripts: dict[str, tuple[str, bool]]
     - selected_odt_preset: str | None
     - selected_c2r_channel: str | None
     - selected_scrub_level: str
@@ -66,6 +68,7 @@ class TUIActionsMixin:
     _confirm_requestor: Callable[..., bool] | None
     last_inventory: Mapping[str, object] | None
     last_plan: list[dict[str, object]] | None
+    last_license_status: dict[str, object] | None
     last_overrides: dict[str, object] | None
     progress_message: str
     panes: dict[str, object]
@@ -78,6 +81,7 @@ class TUIActionsMixin:
     odt_products: dict[str, tuple[str, bool]]
     c2r_channels: dict[str, tuple[str, bool]]
     scrub_levels: dict[str, tuple[str, bool]]
+    offscrub_scripts: dict[str, tuple[str, bool]]
     selected_odt_preset: str | None
     selected_c2r_channel: str | None
     selected_scrub_level: str
@@ -546,10 +550,12 @@ class TUIActionsMixin:
 
     def _prepare_offscrub(self) -> None:
         """Prepare OffScrub scripts action."""
-        self.progress_message = "OffScrub Scripts"
-        self._append_status("OffScrub: Legacy Microsoft removal scripts.")
-        self._append_status("Supports Office 2003-2021, MSI and C2R versions.")
-        self._append_status("Press Enter/F10 to run OffScrub for detected versions.")
+        self.progress_message = "Select OffScrub Scripts"
+        self._append_status("OffScrub: Choose legacy Microsoft removal scripts.")
+        self.active_tab = "offscrub_select"
+        pane = self.panes.get("offscrub_select")
+        if pane:
+            pane.cursor = 0
 
     def _prepare_licensing(self) -> None:
         """Prepare licensing cleanup action."""
@@ -557,6 +563,34 @@ class TUIActionsMixin:
         self._append_status("Licensing: Remove Office product keys and activation.")
         self._append_status("Cleans SPP tokens, OSPP entries, and registry keys.")
         self._append_status("Press Enter/F10 to clean licensing artifacts.")
+
+    def _prepare_license_install(self) -> None:
+        """Prepare license key installation."""
+        self.progress_message = "Install product key"
+        self._append_status("License Install: Enter custom key or use KMS activation.")
+        self.active_tab = "license_install"
+
+    def _toggle_offscrub_script(self, index: int) -> None:
+        """Toggle an OffScrub script selection (checkbox style - multiple allowed)."""
+        pane = self.panes.get("offscrub_select")
+        if pane is None:
+            return
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
+        if not keys:
+            self._append_status("No scripts available.")
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        selected_key = keys[safe_index]
+        if selected_key not in self.offscrub_scripts:
+            self._append_status(f"Unknown script: {selected_key}")
+            return
+        # Toggle the selected state
+        desc, current_state = self.offscrub_scripts[selected_key]
+        self.offscrub_scripts[selected_key] = (desc, not current_state)
+        new_state = "selected" if not current_state else "deselected"
+        selected_count = sum(1 for _, (_, sel) in self.offscrub_scripts.items() if sel)
+        self._append_status(f"{desc} {new_state} — {selected_count} total")
 
     def _handle_c2r_remove(self) -> None:
         """Execute C2R uninstall action."""
@@ -695,6 +729,14 @@ class TUIActionsMixin:
             spinner(0.2, "Querying licenses...")
             status = licensing.get_license_status()
 
+            # Store the results for display in the pane
+            ospp_path = licensing.find_ospp_vbs()
+            self.last_license_status = {
+                "products": status.get("products", []) if status else [],
+                "ospp_path": str(ospp_path) if ospp_path else None,
+            }
+
+            # Also append to status log
             self._append_status("═" * 40)
             self._append_status("Office Licensing Status:")
             self._append_status("═" * 40)
@@ -707,7 +749,6 @@ class TUIActionsMixin:
                     license_status = product.get("status", "Unknown")
                     self._append_status(f"  • {name}: {license_status}")
 
-            ospp_path = licensing.find_ospp_vbs()
             if ospp_path:
                 self._append_status(f"OSPP.VBS: {ospp_path}")
             else:

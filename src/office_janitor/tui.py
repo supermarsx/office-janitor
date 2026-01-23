@@ -118,6 +118,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         self.emit_event = self.app_state.get("emit_event")
         self.last_inventory: Mapping[str, object] | None = None
         self.last_plan: list[dict[str, object]] | None = None
+        self.last_license_status: dict[str, object] | None = None
         self.status_lines: list[str] = []
         self.progress_message = "Ready"
         self.log_lines: list[str] = []
@@ -279,6 +280,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             "license_status",
             "license_install",
             "license_remove",
+            "license_install",
+            "license_remove",
             "license_activate",
             "config_view",
             "config_edit",
@@ -420,6 +423,17 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             "nuclear": ("Nuclear - Maximum cleanup, may affect shared components", False),
         }
         self.selected_scrub_level = "standard"
+
+        # OffScrub scripts selection (script_name -> (display_name, selected))
+        self.offscrub_scripts: dict[str, tuple[str, bool]] = {
+            "OffScrub03.vbs": ("Office 2003 removal script", False),
+            "OffScrub07.vbs": ("Office 2007 removal script", False),
+            "OffScrub10.vbs": ("Office 2010 removal script", False),
+            "OffScrub_O15msi.vbs": ("Office 2013 MSI removal script", False),
+            "OffScrub_O16msi.vbs": ("Office 2016 MSI removal script", False),
+            "OffScrubC2R.vbs": ("Office C2R (365/2019/2021) removal script", False),
+        }
+        self.license_key_input: str = ""
 
     # -----------------------------------------------------------------------
     # Confirmation input (overrides stub in TUIActionsMixin)
@@ -714,6 +728,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._select_c2r_channel(pane.cursor)
             elif self.active_tab == "scrub_level":
                 self._select_scrub_level(pane.cursor)
+            elif self.active_tab == "offscrub_select":
+                self._toggle_offscrub_script(pane.cursor)
             return
         if command == "/":
             self._prompt_filter(pane)
@@ -863,6 +879,14 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                     f"{'[●]' if selected else '[ ]'} {desc}",
                 )
                 for key, (desc, selected) in self.scrub_levels.items()
+            ]
+        elif pane.name == "offscrub_select":
+            entries = [
+                (
+                    key,
+                    f"{'[x]' if selected else '[ ]'} {desc}",
+                )
+                for key, (desc, selected) in self.offscrub_scripts.items()
             ]
         elif pane.name in {"auto", "cleanup", "diagnostics"}:
             entries = []

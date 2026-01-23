@@ -42,6 +42,7 @@ class TUIRendererMixin:
     - log_lines: list[str]
     - last_inventory: Mapping | None
     - last_plan: list | None
+    - last_license_status: dict | None
     - plan_overrides: dict[str, bool]
     - target_overrides: dict[str, bool]
     - settings_overrides: dict[str, bool]
@@ -51,6 +52,7 @@ class TUIRendererMixin:
     - odt_products: dict[str, tuple[str, bool]]
     - c2r_channels: dict[str, tuple[str, bool]]
     - scrub_levels: dict[str, tuple[str, bool]]
+    - offscrub_scripts: dict[str, tuple[str, bool]]
     - app_state: MutableMapping
     - current_mode: str | None
     - mode_options: list[tuple[str, str, str]]
@@ -69,6 +71,7 @@ class TUIRendererMixin:
     log_lines: list[str]
     last_inventory: Mapping[str, object] | None
     last_plan: list[dict[str, object]] | None
+    last_license_status: dict[str, object] | None
     plan_overrides: dict[str, bool]
     target_overrides: dict[str, bool]
     settings_overrides: dict[str, bool]
@@ -78,6 +81,7 @@ class TUIRendererMixin:
     odt_products: dict[str, tuple[str, bool]]
     c2r_channels: dict[str, tuple[str, bool]]
     scrub_levels: dict[str, tuple[str, bool]]
+    offscrub_scripts: dict[str, tuple[str, bool]]
     app_state: dict[str, object]
     list_filters: dict[str, str]
     current_mode: str | None
@@ -221,8 +225,12 @@ class TUIRendererMixin:
             return self._render_scrub_level_pane(width)
         if self.active_tab == "offscrub":
             return self._render_offscrub_pane(width)
+        if self.active_tab == "offscrub_select":
+            return self._render_offscrub_select_pane(width)
         if self.active_tab == "licensing":
             return self._render_licensing_pane(width)
+        if self.active_tab == "license_install":
+            return self._render_license_install_pane(width)
         if self.active_tab == "license_status":
             return self._render_license_status_pane(width)
         if self.active_tab == "run":
@@ -601,7 +609,27 @@ class TUIRendererMixin:
         lines.append("/ to filter, Esc to clear filter.")
         lines.append("")
         return [line[:width] for line in lines]
-
+    def _render_license_install_pane(self, width: int) -> list[str]:
+        """Render the license key installation pane."""
+        lines = ["Install Product Key:"]
+        lines.append("")
+        lines.append("Install an Office product key for activation.")
+        lines.append("")
+        lines.append("─" * 50)
+        lines.append("")
+        lines.append("Options:")
+        lines.append("  1. Enter custom product key (25-character format)")
+        lines.append("  2. Use KMS activation (requires KMS server)")
+        lines.append("")
+        if hasattr(self, 'license_key_input') and self.license_key_input:
+            lines.append(f"Current key: {self.license_key_input[:5]}-****-****-****-*****")
+        else:
+            lines.append("No key entered yet.")
+        lines.append("")
+        lines.append("Press Enter/F10 to enter product key.")
+        lines.append("Press K for KMS activation setup.")
+        lines.append("")
+        return [line[:width] for line in lines]
     def _render_odt_import_pane(self, width: int) -> list[str]:
         """Render the ODT import configuration pane."""
         lines = ["Import ODT Configuration:"]
@@ -643,6 +671,28 @@ class TUIRendererMixin:
         lines.append("Press Enter or F10 to execute.")
         return [line[:width] for line in lines]
 
+    def _render_offscrub_select_pane(self, width: int) -> list[str]:
+        """Render the OffScrub scripts selection pane."""
+        lines = ["Select OffScrub Scripts:"]
+        lines.append("")
+        lines.append("Choose which legacy removal scripts to run:")
+        lines.append("")
+        pane = self.panes["offscrub_select"]
+        entries = self._ensure_pane_lines(pane)
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "►" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        lines.append("")
+        lines.append("─" * 50)
+        selected_count = sum(1 for _, (_, sel) in self.offscrub_scripts.items() if sel)
+        lines.append(f"Selected: {selected_count} script(s)")
+        lines.append("")
+        lines.append("Toggle scripts with Space. Multiple allowed.")
+        lines.append("Press Enter/F10 to run selected scripts.")
+        lines.append("")
+        return [line[:width] for line in lines]
+
     def _render_licensing_pane(self, width: int) -> list[str]:
         """Render the licensing cleanup pane."""
         lines = ["Licensing Cleanup:"]
@@ -666,16 +716,35 @@ class TUIRendererMixin:
         """Render the license status pane."""
         lines = ["Licensing Status:"]
         lines.append("")
-        lines.append("Query and display current Office licensing state.")
+        if self.last_license_status is None:
+            lines.append("No license status queried yet.")
+            lines.append("")
+            lines.append("─" * 50)
+            lines.append("This will show:")
+            lines.append("  • Installed Office products")
+            lines.append("  • License status for each product")
+            lines.append("  • Activation state")
+            lines.append("  • OSPP.VBS availability")
+            lines.append("")
+            lines.append("Press Enter or F10 to query status.")
+        else:
+            products = self.last_license_status.get("products", [])
+            if not products:
+                lines.append("No Office licenses found.")
+            else:
+                for product in products:
+                    name = product.get("name", "Unknown")
+                    status = product.get("status", "Unknown")
+                    lines.append(f"  • {name}: {status}")
+            lines.append("")
+            ospp = self.last_license_status.get("ospp_path")
+            if ospp:
+                lines.append(f"OSPP.VBS: {ospp}")
+            else:
+                lines.append("OSPP.VBS: Not found")
+            lines.append("")
+            lines.append("Press Enter/F10 to refresh status.")
         lines.append("")
-        lines.append("─" * 50)
-        lines.append("This will show:")
-        lines.append("  • Installed Office products")
-        lines.append("  • License status for each product")
-        lines.append("  • Activation state")
-        lines.append("  • OSPP.VBS availability")
-        lines.append("")
-        lines.append("Press Enter or F10 to query status.")
         return [line[:width] for line in lines]
 
     # Abstract methods that must be provided by the main class
