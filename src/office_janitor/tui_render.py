@@ -145,9 +145,10 @@ class TUIRendererMixin:
         lines.append(nav_help.center(width))
         lines.append("")
 
-        # Add status log at bottom
+        # Add status log at bottom (truncated to width)
         lines.append("Status:")
-        lines.extend(self.status_lines[-(8 if self.compact_layout else 10) :])
+        for status in self.status_lines[-(8 if self.compact_layout else 10) :]:
+            lines.append(status[:width])
 
         return lines
 
@@ -163,7 +164,7 @@ class TUIRendererMixin:
     def _render_navigation(self, width: int) -> list[str]:
         """Render the navigation column."""
         mode_label = self.current_mode.title() if self.current_mode else "Mode"
-        lines: list[str] = [f"{mode_label} Menu:"]
+        lines: list[str] = [f"{mode_label} Menu:"[:width]]
         for index, item in enumerate(self.navigation):
             prefix = "►" if index == self.nav_index else " "
             # Build visible text first, truncate to width, then apply ANSI
@@ -178,7 +179,9 @@ class TUIRendererMixin:
             lines.append(line)
         lines.append("")
         lines.append("Status:")
-        lines.extend(self.status_lines[-(12 if self.compact_layout else 18) :])
+        # Truncate status lines to fit the navigation column width
+        for status in self.status_lines[-(12 if self.compact_layout else 18) :]:
+            lines.append(status[:width])
         return lines
 
     def _render_content(self, width: int) -> list[str]:
