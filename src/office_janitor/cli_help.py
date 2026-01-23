@@ -1530,7 +1530,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     odt_parser.add_argument("-h", "--help", action=HelpActionWithPause)
     odt_parser.set_defaults(show_help=odt_parser)
     add_odt_subcommand_options(odt_parser)
-    add_output_options(odt_parser)
+    # ODT has own --output, --stdout options; no common output options
     add_tui_options(odt_parser)
 
     # ----- OFFSCRUB subcommand -----
@@ -1545,7 +1545,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     offscrub_parser.add_argument("-h", "--help", action=HelpActionWithPause)
     offscrub_parser.set_defaults(show_help=offscrub_parser)
     add_offscrub_subcommand_options(offscrub_parser)
-    add_output_options(offscrub_parser, include_quiet=False)  # offscrub defines own -Q/--quiet
+    # OffScrub has own --quiet; no common output options
     add_tui_options(offscrub_parser)
     add_advanced_options(offscrub_parser)
 
@@ -1561,7 +1561,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     c2r_parser.add_argument("-h", "--help", action=HelpActionWithPause)
     c2r_parser.set_defaults(show_help=c2r_parser)
     add_c2r_subcommand_options(c2r_parser)
-    add_output_options(c2r_parser, include_timeout=False)  # c2r defines own --timeout
+    # C2R has own --timeout, passthrough args; no common output options
     add_tui_options(c2r_parser)
 
     # ----- LICENSE subcommand -----
@@ -1576,7 +1576,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     license_parser.add_argument("-h", "--help", action=HelpActionWithPause)
     license_parser.set_defaults(show_help=license_parser)
     add_license_subcommand_options(license_parser)
-    add_output_options(license_parser)
+    # License has own --backup, --export; no common output options
     add_tui_options(license_parser)
 
     # ----- CONFIG subcommand -----
@@ -1591,7 +1591,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     config_parser.add_argument("-h", "--help", action=HelpActionWithPause)
     config_parser.set_defaults(show_help=config_parser)
     add_config_subcommand_options(config_parser)
-    add_output_options(config_parser)
+    # Config has own --output, --json; no common output options
     add_tui_options(config_parser)
 
     # ---------------------------------------------------------------------------
