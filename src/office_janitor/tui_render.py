@@ -215,6 +215,8 @@ class TUIRendererMixin:
             return self._render_odt_products_pane(width)
         if self.active_tab == "odt_locales":
             return self._render_odt_locales_pane(width)
+        if self.active_tab == "odt_exclusions":
+            return self._render_odt_exclusions_pane(width)
         if self.active_tab == "odt_import":
             return self._render_odt_import_pane(width)
         if self.active_tab == "odt_repair":
