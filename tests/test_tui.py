@@ -136,7 +136,9 @@ def test_mode_selection_initial_state(monkeypatch):
     assert interface.current_mode is None
     assert interface.mode_index == 0
     assert interface.active_tab == "mode_select"
-    assert len(interface.mode_options) == 9  # install, repair, remove, diagnose, odt, offscrub, c2r, license, config
+    assert (
+        len(interface.mode_options) == 9
+    )  # install, repair, remove, diagnose, odt, offscrub, c2r, license, config
     assert interface.navigation == []  # Navigation is empty until mode selected
 
 
@@ -204,13 +206,13 @@ def test_navigation_right_arrow_activates_item(monkeypatch):
     _select_mode(interface, "install")
     assert interface.current_mode == "install"
 
-    # Navigate to odt_presets and activate with right arrow
+    # Navigate to odt_install and activate with right arrow
     interface.focus_area = "nav"
-    interface.nav_index = 0  # odt_presets is first
+    interface.nav_index = 0  # odt_install is first
     prev_tab = interface.active_tab
     interface._handle_key("right")
-    # Should activate the navigation item (odt_presets has an action)
-    assert interface.active_tab == "odt_presets"
+    # Should activate the navigation item (odt_install has an action)
+    assert interface.active_tab == "odt_install"
 
 
 def test_mode_selection_enters_mode(monkeypatch):
@@ -223,7 +225,7 @@ def test_mode_selection_enters_mode(monkeypatch):
     _select_mode(interface, "install")
     assert interface.current_mode == "install"
     assert len(interface.navigation) > 0
-    assert any(item.name == "odt_presets" for item in interface.navigation)
+    assert any(item.name == "odt_install" for item in interface.navigation)
 
     # Return to mode selection
     interface._return_to_mode_selection()
@@ -256,7 +258,7 @@ def test_mode_specific_navigation(monkeypatch):
     # Install mode
     _select_mode(interface, "install")
     install_names = [item.name for item in interface.navigation]
-    assert "odt_presets" in install_names
+    assert "odt_install" in install_names
     assert "odt_locales" in install_names
     assert "back" in install_names
 
@@ -567,10 +569,10 @@ def test_navigation_includes_odt_items(monkeypatch):
     monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
     interface = tui.OfficeJanitorTUI(state)
 
-    # Check install mode has odt_presets
+    # Check install mode has odt_install
     _select_mode(interface, "install")
     install_nav_names = [item.name for item in interface.navigation]
-    assert "odt_presets" in install_nav_names
+    assert "odt_install" in install_nav_names
 
     # Check repair mode has repair_odt
     interface._return_to_mode_selection()
@@ -1238,8 +1240,8 @@ def test_odt_navigation_order(monkeypatch):
     # Test install mode navigation order
     _select_mode(interface, "install")
     install_nav_names = [item.name for item in interface.navigation]
-    # Install mode should have: odt_presets, odt_locales, odt_custom, run_install, back
-    assert install_nav_names.index("odt_presets") < install_nav_names.index("odt_locales")
+    # Install mode should have: odt_install, odt_locales, odt_custom, run_install, back
+    assert install_nav_names.index("odt_install") < install_nav_names.index("odt_locales")
     assert install_nav_names.index("odt_locales") < install_nav_names.index("odt_custom")
     assert install_nav_names.index("odt_custom") < install_nav_names.index("run_install")
 
@@ -1382,7 +1384,9 @@ def test_new_modes_have_navigation(monkeypatch):
         _select_mode(interface, mode)
         assert interface.current_mode == mode, f"Mode {mode} not set"
         assert len(interface.navigation) > 0, f"Mode {mode} has no navigation"
-        assert any(item.name == "back" for item in interface.navigation), f"Mode {mode} missing back item"
+        assert any(item.name == "back" for item in interface.navigation), (
+            f"Mode {mode} missing back item"
+        )
         interface._return_to_mode_selection()
 
 
@@ -1394,7 +1398,7 @@ def test_odt_mode_navigation_items(monkeypatch):
 
     _select_mode(interface, "odt")
     nav_names = [item.name for item in interface.navigation]
-    assert "odt_presets" in nav_names
+    assert "odt_install" in nav_names
     assert "odt_locales" in nav_names
     assert "odt_custom" in nav_names
     assert "odt_export" in nav_names
@@ -1445,6 +1449,7 @@ def test_config_mode_navigation_items(monkeypatch):
     assert "config_export" in nav_names
     assert "config_import" in nav_names
     assert "back" in nav_names
+
 
 def test_render_c2r_remove_pane(monkeypatch):
     """Test C2R remove pane renders correctly."""

@@ -155,7 +155,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
 
         # Mode-specific navigation items
         self._install_nav = [
-            NavigationItem("odt_presets", "Installation Presets", action=self._prepare_odt_install),
+            NavigationItem("odt_install", "Installation Presets", action=self._prepare_odt_install),
             NavigationItem("odt_locales", "Language Selection", action=self._prepare_odt_locales),
             NavigationItem("odt_custom", "Custom Configuration", action=self._prepare_odt_custom),
             NavigationItem(
@@ -195,7 +195,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
 
         # New specialized mode navigation
         self._odt_nav = [
-            NavigationItem("odt_presets", "Preset Templates", action=self._prepare_odt_install),
+            NavigationItem("odt_install", "Preset Templates", action=self._prepare_odt_install),
             NavigationItem("odt_locales", "Language Selection", action=self._prepare_odt_locales),
             NavigationItem("odt_custom", "Custom XML Editor", action=self._prepare_odt_custom),
             NavigationItem("odt_export", "Export Config", action=self._handle_odt_export),
@@ -204,9 +204,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         self._offscrub_nav = [
             NavigationItem("detect", "Detect Inventory", action=self._handle_detect),
             NavigationItem("offscrub_select", "Select Scripts", action=self._prepare_offscrub),
-            NavigationItem(
-                "offscrub_run", "▶ Run OffScrub", action=self._handle_offscrub_run
-            ),
+            NavigationItem("offscrub_run", "▶ Run OffScrub", action=self._handle_offscrub_run),
             NavigationItem("logs", "View Logs", action=self._handle_logs),
             NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
         ]
@@ -222,9 +220,13 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             NavigationItem(
                 "license_status", "Licensing Status", action=self._handle_license_status
             ),
-            NavigationItem("license_install", "Install Product Key", action=self._prepare_license_install),
+            NavigationItem(
+                "license_install", "Install Product Key", action=self._prepare_license_install
+            ),
             NavigationItem("license_remove", "Remove Licenses", action=self._prepare_licensing),
-            NavigationItem("license_activate", "Activate Office", action=self._handle_license_activate),
+            NavigationItem(
+                "license_activate", "Activate Office", action=self._handle_license_activate
+            ),
             NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
         ]
         self._config_nav = [

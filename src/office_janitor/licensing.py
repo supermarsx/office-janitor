@@ -929,12 +929,14 @@ def get_license_status() -> dict[str, object]:
     licenses = query_ospp_status()
     products = []
     for lic in licenses:
-        products.append({
-            "name": lic.get("name", "Unknown"),
-            "status": lic.get("status", "Unknown"),
-            "partial_key": lic.get("partial_key", ""),
-            "description": lic.get("description", ""),
-        })
+        products.append(
+            {
+                "name": lic.get("name", "Unknown"),
+                "status": lic.get("status", "Unknown"),
+                "partial_key": lic.get("partial_key", ""),
+                "description": lic.get("description", ""),
+            }
+        )
     return {"products": products}
 
 
