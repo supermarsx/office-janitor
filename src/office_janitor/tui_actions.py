@@ -835,7 +835,7 @@ class TUIActionsMixin:
 
         # Show key config values
         config_items = [
-            ("Dry Run", self.dry_run),
+            ("Dry Run", self.settings_overrides.get("dry_run", False)),
             ("Force Mode", self.settings_overrides.get("force", False)),
             ("Registry Cleanup", self.plan_overrides.get("orphan_registry", False)),
             ("Files Cleanup", self.plan_overrides.get("orphan_files", False)),

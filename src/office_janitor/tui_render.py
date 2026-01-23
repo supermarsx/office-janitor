@@ -177,9 +177,9 @@ class TUIRendererMixin:
             else:
                 line = truncated
             lines.append(line)
+        # Add status lines below navigation items
         lines.append("")
         lines.append("Status:")
-        # Truncate status lines to fit the navigation column width
         for status in self.status_lines[-(12 if self.compact_layout else 18) :]:
             lines.append(status[:width])
         return lines
