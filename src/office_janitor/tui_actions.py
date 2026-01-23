@@ -49,6 +49,7 @@ class TUIActionsMixin:
     - odt_repair_presets: dict[str, tuple[str, bool]]
     - odt_locales: dict[str, tuple[str, bool]]
     - odt_products: dict[str, tuple[str, bool]]
+    - odt_exclusions: dict[str, tuple[str, bool]]
     - c2r_channels: dict[str, tuple[str, bool]]
     - scrub_levels: dict[str, tuple[str, bool]]
     - offscrub_scripts: dict[str, tuple[str, bool]]
@@ -79,6 +80,7 @@ class TUIActionsMixin:
     odt_repair_presets: dict[str, tuple[str, bool]]
     odt_locales: dict[str, tuple[str, bool]]
     odt_products: dict[str, tuple[str, bool]]
+    odt_exclusions: dict[str, tuple[str, bool]]
     c2r_channels: dict[str, tuple[str, bool]]
     scrub_levels: dict[str, tuple[str, bool]]
     offscrub_scripts: dict[str, tuple[str, bool]]
@@ -978,6 +980,32 @@ class TUIActionsMixin:
         # Toggle the selected state
         desc, current_state = self.odt_products[selected_key]
         self.odt_products[selected_key] = (desc, not current_state)
+
+    def _prepare_odt_exclusions(self) -> None:
+        """Prepare the ODT exclusions pane."""
+        self._switch_to_tab("odt_exclusions")
+        self._append_status("Select apps to exclude from installation.")
+
+    def _toggle_odt_exclusion(self, index: int) -> None:
+        """Toggle an ODT app exclusion (checkbox style - multiple allowed)."""
+        pane = self.panes.get("odt_exclusions")
+        if pane is None:
+            return
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
+        if not keys:
+            self._append_status("No apps available.")
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        selected_key = keys[safe_index]
+        if selected_key not in self.odt_exclusions:
+            self._append_status(f"Unknown app: {selected_key}")
+            return
+        # Toggle the exclusion state
+        desc, current_state = self.odt_exclusions[selected_key]
+        self.odt_exclusions[selected_key] = (desc, not current_state)
+        excluded_count = sum(1 for _, (_, excluded) in self.odt_exclusions.items() if excluded)
+        self._append_status(f"{desc}: {'Excluded' if not current_state else 'Included'}  ({excluded_count} excluded)")
         new_state = "selected" if not current_state else "deselected"
         selected_count = sum(1 for _, (_, sel) in self.odt_products.items() if sel)
         self._append_status(f"{desc} {new_state} — {selected_count} total")
@@ -1113,6 +1141,14 @@ class TUIActionsMixin:
         """Get list of selected ODT locale codes."""
         return [key for key, (_, selected) in self.odt_locales.items() if selected]
 
+    def _get_selected_odt_products(self) -> list[str]:
+        """Get list of selected ODT product IDs."""
+        return [key for key, (_, selected) in self.odt_products.items() if selected]
+
+    def _get_excluded_odt_apps(self) -> list[str]:
+        """Get list of excluded ODT app IDs."""
+        return [key for key, (_, excluded) in self.odt_exclusions.items() if excluded]
+
     def _get_selected_odt_install_preset(self) -> str | None:
         """Get the currently selected ODT install preset."""
         for key, (_, selected) in self.odt_install_presets.items():
@@ -1148,9 +1184,16 @@ class TUIActionsMixin:
         if len(selected_locales) > 3:
             locale_summary += f" +{len(selected_locales) - 3} more"
 
+        excluded_apps = self._get_excluded_odt_apps()
+        exclusion_summary = ""
+        if excluded_apps:
+            exclusion_summary = f"\\nExcluding: {', '.join(excluded_apps)}"
+
         if not execute:
             self._append_status(f"ODT install ready: {desc}")
             self._append_status(f"Languages: {locale_summary}")
+            if excluded_apps:
+                self._append_status(f"Excluding: {', '.join(excluded_apps)}")
             self.progress_message = f"Ready: {desc}"
             return
 
@@ -1160,7 +1203,7 @@ class TUIActionsMixin:
             dry_run = self.settings_overrides["dry_run"]
 
         # Request confirmation
-        confirm_msg = f"ODT Install: {desc}\nLanguages: {locale_summary}"
+        confirm_msg = f"ODT Install: {desc}\nLanguages: {locale_summary}{exclusion_summary}"
         if not self._confirm_odt_execution(confirm_msg, dry_run):
             return
 

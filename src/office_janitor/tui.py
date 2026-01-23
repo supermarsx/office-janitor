@@ -159,6 +159,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             NavigationItem("odt_install", "Installation Presets", action=self._prepare_odt_install),
             NavigationItem("odt_products", "Select Products", action=self._prepare_odt_products),
             NavigationItem("odt_locales", "Language Selection", action=self._prepare_odt_locales),
+            NavigationItem("odt_exclusions", "Exclude Apps", action=self._prepare_odt_exclusions),
             NavigationItem("odt_custom", "Custom Configuration", action=self._prepare_odt_custom),
             NavigationItem("odt_import", "Import ODT File", action=self._prepare_odt_import),
             NavigationItem(
@@ -260,6 +261,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             "odt_presets",
             "odt_products",
             "odt_locales",
+            "odt_exclusions",
             "odt_custom",
             "odt_import",
             "odt_install",
@@ -403,6 +405,21 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             "Access2019Retail": ("Access 2019", False),
         }
         self.imported_odt_config: str | None = None
+
+        # ODT App Exclusions (app_id -> (display_name, excluded))
+        self.odt_exclusions: dict[str, tuple[str, bool]] = {
+            "Access": ("Microsoft Access", False),
+            "Excel": ("Microsoft Excel", False),
+            "Groove": ("OneDrive for Business (Groove)", False),
+            "Lync": ("Skype for Business (Lync)", False),
+            "OneDrive": ("OneDrive Consumer", False),
+            "OneNote": ("Microsoft OneNote", False),
+            "Outlook": ("Microsoft Outlook", False),
+            "PowerPoint": ("Microsoft PowerPoint", False),
+            "Publisher": ("Microsoft Publisher", False),
+            "Teams": ("Microsoft Teams", False),
+            "Word": ("Microsoft Word", False),
+        }
 
         # C2R Update Channel options (channel_id -> (display_name, selected))
         self.c2r_channels: dict[str, tuple[str, bool]] = {
@@ -642,12 +659,12 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             pane.cursor = min(max(len(pane.lines) - 1, 0), pane.cursor + 1)
             return
         if command == "page_down":
-            # Larger jump for locale lists, normal for others
-            jump = 10 if self.active_tab == "odt_locales" else 5
+            # Larger jump for locale and product lists, normal for others
+            jump = 10 if self.active_tab in ("odt_locales", "odt_products") else 5
             pane.cursor = min(max(len(pane.lines) - 1, 0), pane.cursor + jump)
             return
         if command == "page_up":
-            jump = 10 if self.active_tab == "odt_locales" else 5
+            jump = 10 if self.active_tab in ("odt_locales", "odt_products") else 5
             pane.cursor = max(0, pane.cursor - jump)
             return
         if command == "f10":
@@ -724,6 +741,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._toggle_odt_locale(pane.cursor)
             elif self.active_tab == "odt_products":
                 self._toggle_odt_product(pane.cursor)
+            elif self.active_tab == "odt_exclusions":
+                self._toggle_odt_exclusion(pane.cursor)
             elif self.active_tab == "c2r_channel":
                 self._select_c2r_channel(pane.cursor)
             elif self.active_tab == "scrub_level":
@@ -863,6 +882,14 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                     f"{'[x]' if selected else '[ ]'} {desc}",
                 )
                 for key, (desc, selected) in self.odt_products.items()
+            ]
+        elif pane.name == "odt_exclusions":
+            entries = [
+                (
+                    key,
+                    f"{'[x]' if excluded else '[ ]'} {desc}",
+                )
+                for key, (desc, excluded) in self.odt_exclusions.items()
             ]
         elif pane.name == "c2r_channel":
             entries = [

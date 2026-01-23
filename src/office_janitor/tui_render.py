@@ -50,6 +50,7 @@ class TUIRendererMixin:
     - odt_repair_presets: dict[str, tuple[str, bool]]
     - odt_locales: dict[str, tuple[str, bool]]
     - odt_products: dict[str, tuple[str, bool]]
+    - odt_exclusions: dict[str, tuple[str, bool]]
     - c2r_channels: dict[str, tuple[str, bool]]
     - scrub_levels: dict[str, tuple[str, bool]]
     - offscrub_scripts: dict[str, tuple[str, bool]]
@@ -79,6 +80,7 @@ class TUIRendererMixin:
     odt_repair_presets: dict[str, tuple[str, bool]]
     odt_locales: dict[str, tuple[str, bool]]
     odt_products: dict[str, tuple[str, bool]]
+    odt_exclusions: dict[str, tuple[str, bool]]
     c2r_channels: dict[str, tuple[str, bool]]
     scrub_levels: dict[str, tuple[str, bool]]
     offscrub_scripts: dict[str, tuple[str, bool]]
@@ -582,31 +584,44 @@ class TUIRendererMixin:
         if active_filter:
             lines.append(f"Filter: {active_filter}")
 
-        if not entries:
-            lines.append("No products available.")
-        else:
-            # Show visible window
-            max_visible = 12 if self.compact_layout else 15
-            start_idx = pane.scroll_offset
-            end_idx = start_idx + max_visible
-            visible_entries = entries[start_idx:end_idx]
+        # Scrolling window configuration
+        max_visible = 12 if self.compact_layout else 15
+        total_items = len(entries)
 
-            # Add scroll indicators
-            if start_idx > 0:
-                lines.append("▲ Scroll up for more...")
-            for index, (_, label) in enumerate(visible_entries, start=start_idx):
+        if entries:
+            # Ensure scroll_offset keeps cursor visible
+            if pane.cursor < pane.scroll_offset:
+                pane.scroll_offset = pane.cursor
+            elif pane.cursor >= pane.scroll_offset + max_visible:
+                pane.scroll_offset = pane.cursor - max_visible + 1
+
+            # Clamp scroll_offset to valid range
+            pane.scroll_offset = max(0, min(pane.scroll_offset, max(0, total_items - max_visible)))
+
+            # Show scroll indicator at top
+            if pane.scroll_offset > 0:
+                lines.append(f"  ▲ {pane.scroll_offset} more above")
+
+            # Render visible window
+            visible_end = min(pane.scroll_offset + max_visible, total_items)
+            for index in range(pane.scroll_offset, visible_end):
+                _, label = entries[index]
                 cursor = "►" if pane.cursor == index else " "
                 lines.append(f"{cursor} {label}")
-            if end_idx < len(entries):
-                lines.append("▼ Scroll down for more...")
+
+            # Show scroll indicator at bottom
+            remaining = total_items - visible_end
+            if remaining > 0:
+                lines.append(f"  ▼ {remaining} more below")
+        else:
+            lines.append("No products available.")
 
         lines.append("")
         lines.append("─" * min(width - 2, 50))
         selected_count = sum(1 for _, (_, sel) in self.odt_products.items() if sel)
         lines.append(f"Selected: {selected_count} product(s)")
         lines.append("")
-        lines.append("Toggle products with Space. Multiple allowed.")
-        lines.append("/ to filter, Esc to clear filter.")
+        lines.append("Space toggle • / filter • PgUp/PgDn scroll")
         lines.append("")
         return [line[:width] for line in lines]
     def _render_license_install_pane(self, width: int) -> list[str]:
@@ -651,6 +666,57 @@ class TUIRendererMixin:
             lines.append("No configuration imported yet.")
         lines.append("")
         lines.append("Press Enter/F10 to browse for XML file.")
+        lines.append("")
+        return [line[:width] for line in lines]
+
+    def _render_odt_exclusions_pane(self, width: int) -> list[str]:
+        """Render the ODT exclusions selection pane."""
+        lines = ["Exclude Office Applications:"]
+        lines.append("")
+        pane = self.panes["odt_exclusions"]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+
+        # Scrolling window configuration
+        max_visible = 12 if self.compact_layout else 15
+        total_items = len(entries)
+
+        if entries:
+            # Ensure scroll_offset keeps cursor visible
+            if pane.cursor < pane.scroll_offset:
+                pane.scroll_offset = pane.cursor
+            elif pane.cursor >= pane.scroll_offset + max_visible:
+                pane.scroll_offset = pane.cursor - max_visible + 1
+
+            # Clamp scroll_offset to valid range
+            pane.scroll_offset = max(0, min(pane.scroll_offset, max(0, total_items - max_visible)))
+
+            # Show scroll indicator at top
+            if pane.scroll_offset > 0:
+                lines.append(f"  ▲ {pane.scroll_offset} more above")
+
+            # Render visible window
+            visible_end = min(pane.scroll_offset + max_visible, total_items)
+            for index in range(pane.scroll_offset, visible_end):
+                _, label = entries[index]
+                cursor = "►" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+
+            # Show scroll indicator at bottom
+            remaining = total_items - visible_end
+            if remaining > 0:
+                lines.append(f"  ▼ {remaining} more below")
+        else:
+            lines.append("No apps available.")
+
+        lines.append("")
+        lines.append("─" * min(width - 2, 50))
+        excluded_count = sum(1 for _, (_, excluded) in self.odt_exclusions.items() if excluded)
+        lines.append(f"Excluded: {excluded_count} app(s)")
+        lines.append("")
+        lines.append("Space toggle • / filter • PgUp/PgDn scroll")
         lines.append("")
         return [line[:width] for line in lines]
     def _render_offscrub_pane(self, width: int) -> list[str]:
