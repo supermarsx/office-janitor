@@ -1492,3 +1492,38 @@ def test_render_license_status_pane(monkeypatch):
     lines = interface._render_content(60)
 
     assert any("Licensing Status" in line for line in lines)
+
+
+def test_render_c2r_channel_pane(monkeypatch):
+    """Test C2R channel pane renders with channel options."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "c2r_channel"
+    lines = interface._render_content(80)
+
+    assert any("Update Channel" in line for line in lines)
+    assert any("Current" in line for line in lines)
+    assert any("Monthly" in line or "Semi-Annual" in line for line in lines)
+
+
+def test_c2r_channel_selection(monkeypatch):
+    """Test selecting a C2R channel updates state."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    # Initially no channel selected
+    assert interface.selected_c2r_channel is None
+
+    # Select a channel
+    interface.active_tab = "c2r_channel"
+    pane = interface.panes["c2r_channel"]
+    pane.cursor = 1  # monthly
+    interface._select_c2r_channel(1)
+
+    # Check that the channel is selected (radio button style)
+    selected_count = sum(1 for _, (_, sel) in interface.c2r_channels.items() if sel)
+    assert selected_count == 1
+    assert interface.selected_c2r_channel is not None
