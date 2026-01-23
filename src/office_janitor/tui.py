@@ -144,6 +144,11 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             ("repair", "Repair Office", "Fix broken Office installations (quick or full)"),
             ("remove", "Remove Office", "Uninstall Office and clean up residual artifacts"),
             ("diagnose", "Diagnose", "Detect and report Office installations without changes"),
+            ("odt", "ODT Builder", "Create custom Office Deployment Tool configurations"),
+            ("offscrub", "OffScrub", "Run legacy Microsoft OffScrub removal scripts"),
+            ("c2r", "C2R Passthrough", "Direct Click-to-Run OfficeC2RClient commands"),
+            ("license", "Licensing", "Manage Office product keys and license activation"),
+            ("config", "Config Generator", "Generate configuration files and deployment scripts"),
         ]
         self.mode_index = 0
 
@@ -184,6 +189,48 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             ),
             NavigationItem("plan", "View Plan", action=None),
             NavigationItem("logs", "View Logs", action=self._handle_logs),
+            NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
+        ]
+
+        # New specialized mode navigation
+        self._odt_nav = [
+            NavigationItem("odt_presets", "Preset Templates", action=self._prepare_odt_install),
+            NavigationItem("odt_locales", "Language Selection", action=self._prepare_odt_locales),
+            NavigationItem("odt_custom", "Custom XML Editor", action=self._prepare_odt_custom),
+            NavigationItem("odt_export", "Export Config", action=self._handle_odt_export),
+            NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
+        ]
+        self._offscrub_nav = [
+            NavigationItem("detect", "Detect Inventory", action=self._handle_detect),
+            NavigationItem("offscrub_select", "Select Scripts", action=self._prepare_offscrub),
+            NavigationItem(
+                "offscrub_run", "▶ Run OffScrub", action=self._handle_offscrub_run
+            ),
+            NavigationItem("logs", "View Logs", action=self._handle_logs),
+            NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
+        ]
+        self._c2r_nav = [
+            NavigationItem("detect", "Detect Inventory", action=self._handle_detect),
+            NavigationItem("c2r_remove", "Uninstall Product", action=self._prepare_c2r_remove),
+            NavigationItem("c2r_repair", "Repair Product", action=self._prepare_c2r_repair),
+            NavigationItem("c2r_update", "Force Update", action=self._handle_c2r_update),
+            NavigationItem("c2r_channel", "Change Channel", action=self._prepare_c2r_channel),
+            NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
+        ]
+        self._license_nav = [
+            NavigationItem(
+                "license_status", "Licensing Status", action=self._handle_license_status
+            ),
+            NavigationItem("license_install", "Install Product Key", action=self._prepare_license_install),
+            NavigationItem("license_remove", "Remove Licenses", action=self._prepare_licensing),
+            NavigationItem("license_activate", "Activate Office", action=self._handle_license_activate),
+            NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
+        ]
+        self._config_nav = [
+            NavigationItem("config_view", "View Current Config", action=self._handle_config_view),
+            NavigationItem("config_edit", "Edit Settings", action=self._prepare_config_edit),
+            NavigationItem("config_export", "Export to JSON", action=self._handle_config_export),
+            NavigationItem("config_import", "Import Config", action=self._prepare_config_import),
             NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
         ]
 
@@ -417,6 +464,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         Only pauses when running interactively (not in tests or piped input).
         """
         import os
+        import sys
 
         # Don't pause in test environments
         if os.environ.get("PYTEST_CURRENT_TEST"):
@@ -460,6 +508,13 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             self._running = False
             return
 
+        if command == "left":
+            # Left arrow returns to mode selection if in a mode
+            if self.current_mode is not None:
+                self._return_to_mode_selection()
+                return
+            return
+
         if command == "f1":
             self._show_help()
             return
@@ -480,7 +535,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             if command == "up":
                 self._move_nav(-1)
                 return
-            if command in {"enter", "space"}:
+            if command in {"enter", "space", "right"}:
                 self._activate_nav()
                 return
             if command == "f10":
@@ -607,7 +662,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         if command == "up":
             self.mode_index = (self.mode_index - 1) % len(self.mode_options)
             return
-        if command in {"enter", "space"}:
+        if command in {"enter", "space", "right"}:
             self._select_mode(self.mode_index)
             return
 
@@ -623,6 +678,11 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             "repair": self._repair_nav,
             "remove": self._remove_nav,
             "diagnose": self._diagnose_nav,
+            "odt": self._odt_nav,
+            "offscrub": self._offscrub_nav,
+            "c2r": self._c2r_nav,
+            "license": self._license_nav,
+            "config": self._config_nav,
         }
 
         self.navigation = mode_nav_map.get(mode_id, self._remove_nav)
