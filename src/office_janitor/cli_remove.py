@@ -19,6 +19,10 @@ SCRUB LEVELS:
   aggressive   Deep cleanup including license artifacts
   nuclear      Complete removal of all Office traces
 
+LEGACY MODE FLAGS:
+  --auto-all       Remove all detected Office installations
+  --cleanup-only   Skip uninstalls; clean residue and licensing only
+
 EXAMPLES:
   office-janitor remove                      # Remove all detected Office
   office-janitor remove --target 2019        # Target specific version
@@ -26,6 +30,7 @@ EXAMPLES:
   office-janitor remove --msi-only           # Remove MSI Office only
   office-janitor remove --scrub aggressive   # Aggressive cleanup
   office-janitor remove --dry-run            # Preview (safe mode)
+  office-janitor remove --auto-all           # Legacy: remove everything
 """
 
 
@@ -34,6 +39,19 @@ def add_remove_subcommand_options(parser: argparse.ArgumentParser) -> None:
     @brief Add options specific to the 'remove' subcommand.
     @param parser The subparser to add arguments to.
     """
+    # Legacy mode flags (moved from top-level)
+    legacy_opts = parser.add_argument_group("Legacy Mode Flags")
+    legacy_opts.add_argument(
+        "--auto-all",
+        action="store_true",
+        help="Run full detection and scrub of all Office installations.",
+    )
+    legacy_opts.add_argument(
+        "--cleanup-only",
+        action="store_true",
+        help="Skip uninstalls; clean residue and licensing only.",
+    )
+
     target_opts = parser.add_argument_group("Target Selection")
     target_opts.add_argument(
         "-t",

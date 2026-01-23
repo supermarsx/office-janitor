@@ -20,11 +20,17 @@ REPAIR MODES:
   --odt        Repair using Office Deployment Tool configuration
   --c2r        Repair using OfficeClickToRun.exe directly
 
+LEGACY MODE FLAGS:
+  --auto-repair      Auto-detect and repair all Office installations
+  --repair TYPE      Repair type: quick (local) or full (online CDN)
+  --repair-config    Repair using custom XML configuration file
+
 EXAMPLES:
   office-janitor repair                      # Auto-repair all detected
   office-janitor repair --quick              # Quick local repair
   office-janitor repair --full --visible     # Full repair with UI
   office-janitor repair --dry-run            # Preview repair operations
+  office-janitor repair --auto-repair        # Legacy: auto-repair all
 """
 
 
@@ -33,6 +39,26 @@ def add_repair_subcommand_options(parser: argparse.ArgumentParser) -> None:
     @brief Add options specific to the 'repair' subcommand.
     @param parser The subparser to add arguments to.
     """
+    # Legacy mode flags (moved from top-level)
+    legacy_opts = parser.add_argument_group("Legacy Mode Flags")
+    legacy_opts.add_argument(
+        "--auto-repair",
+        action="store_true",
+        help="Auto-detect and repair all Office installations.",
+    )
+    legacy_opts.add_argument(
+        "--repair",
+        choices=["quick", "full"],
+        metavar="TYPE",
+        dest="legacy_repair_type",
+        help="Repair Office C2R (quick=local, full=online CDN).",
+    )
+    legacy_opts.add_argument(
+        "--repair-config",
+        metavar="XML",
+        help="Repair/reconfigure using a custom XML configuration file.",
+    )
+
     repair_mode = parser.add_argument_group("Repair Mode")
     repair_type = repair_mode.add_mutually_exclusive_group()
     repair_type.add_argument(

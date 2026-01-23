@@ -1015,8 +1015,12 @@ class TestCLIArgumentParsing:
         assert exc_info.value.code == 0
         output = capsys.readouterr().out
         assert "office-janitor" in output
-        assert "--auto-all" in output
-        assert "--diagnose" in output
+        # Legacy mode flags are now hidden from main help but documented in epilog
+        assert "LEGACY FLAGS" in output
+        # Subcommands are listed
+        assert "diagnose" in output
+        assert "remove" in output
+        assert "repair" in output
 
     def test_auto_all_mode(self) -> None:
         """Test --auto-all sets the mode correctly."""

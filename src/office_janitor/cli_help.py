@@ -292,6 +292,19 @@ def add_legacy_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     # We add all the option groups but with help=SUPPRESS to hide from main help.
     # This maintains backward compatibility while keeping the main help clean.
 
+    # Legacy Mode Arguments (moved from top-level to subcommands, kept hidden here)
+    # These are mutually exclusive in their original form
+    legacy_modes = parser.add_mutually_exclusive_group()
+    legacy_modes.add_argument("--auto-all", action="store_true", help=argparse.SUPPRESS)
+    legacy_modes.add_argument("--target", metavar="VER", help=argparse.SUPPRESS)
+    legacy_modes.add_argument("--diagnose", action="store_true", help=argparse.SUPPRESS)
+    legacy_modes.add_argument("--cleanup-only", action="store_true", help=argparse.SUPPRESS)
+    legacy_modes.add_argument(
+        "--repair", choices=["quick", "full"], metavar="TYPE", help=argparse.SUPPRESS
+    )
+    legacy_modes.add_argument("--repair-config", metavar="XML", help=argparse.SUPPRESS)
+    legacy_modes.add_argument("--auto-repair", action="store_true", help=argparse.SUPPRESS)
+
     # Core Options (subset not already in global)
     parser.add_argument("--include", metavar="COMPONENTS", help=argparse.SUPPRESS)
     parser.add_argument("--force", "-f", action="store_true", help=argparse.SUPPRESS)
