@@ -1339,6 +1339,81 @@ def test_prepare_licensing(monkeypatch):
     assert any("Licensing" in line or "license" in line.lower() for line in interface.status_lines)
 
 
+def test_new_modes_have_navigation(monkeypatch):
+    """Test that all new modes have proper navigation defined."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    new_modes = ["odt", "offscrub", "c2r", "license", "config"]
+    for mode in new_modes:
+        _select_mode(interface, mode)
+        assert interface.current_mode == mode, f"Mode {mode} not set"
+        assert len(interface.navigation) > 0, f"Mode {mode} has no navigation"
+        assert any(item.name == "back" for item in interface.navigation), f"Mode {mode} missing back item"
+        interface._return_to_mode_selection()
+
+
+def test_odt_mode_navigation_items(monkeypatch):
+    """Test ODT mode has expected navigation items."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    _select_mode(interface, "odt")
+    nav_names = [item.name for item in interface.navigation]
+    assert "odt_presets" in nav_names
+    assert "odt_locales" in nav_names
+    assert "odt_custom" in nav_names
+    assert "odt_export" in nav_names
+    assert "back" in nav_names
+
+
+def test_c2r_mode_navigation_items(monkeypatch):
+    """Test C2R mode has expected navigation items."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    _select_mode(interface, "c2r")
+    nav_names = [item.name for item in interface.navigation]
+    assert "detect" in nav_names
+    assert "c2r_remove" in nav_names
+    assert "c2r_repair" in nav_names
+    assert "c2r_update" in nav_names
+    assert "c2r_channel" in nav_names
+    assert "back" in nav_names
+
+
+def test_license_mode_navigation_items(monkeypatch):
+    """Test License mode has expected navigation items."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    _select_mode(interface, "license")
+    nav_names = [item.name for item in interface.navigation]
+    assert "license_status" in nav_names
+    assert "license_install" in nav_names
+    assert "license_remove" in nav_names
+    assert "license_activate" in nav_names
+    assert "back" in nav_names
+
+
+def test_config_mode_navigation_items(monkeypatch):
+    """Test Config mode has expected navigation items."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    _select_mode(interface, "config")
+    nav_names = [item.name for item in interface.navigation]
+    assert "config_view" in nav_names
+    assert "config_edit" in nav_names
+    assert "config_export" in nav_names
+    assert "config_import" in nav_names
+    assert "back" in nav_names
+
 def test_render_c2r_remove_pane(monkeypatch):
     """Test C2R remove pane renders correctly."""
     state, _ = _make_app_state()
