@@ -709,6 +709,140 @@ class TUIActionsMixin:
             self.progress_message = "License status failed"
 
     # -----------------------------------------------------------------------
+    # New Mode Handlers (ODT Builder, OffScrub, C2R, License, Config)
+    # -----------------------------------------------------------------------
+
+    def _handle_odt_export(self) -> None:
+        """Export the current ODT configuration to a file."""
+        self.progress_message = "Exporting ODT configuration..."
+        self._append_status("Export ODT config: Feature pending implementation.")
+        self._notify("odt.export", "ODT export requested")
+
+    def _handle_offscrub_run(self) -> None:
+        """Run the selected OffScrub scripts."""
+        self.progress_message = "Running OffScrub scripts..."
+        self._notify("offscrub.run", "OffScrub execution requested")
+        self._handle_offscrub()
+
+    def _prepare_c2r_repair(self) -> None:
+        """Prepare C2R repair options."""
+        self.progress_message = "Configure C2R repair"
+        self._append_status("C2R Repair: Select repair type and run.")
+        self.active_tab = "c2r_repair"
+        pane = self.panes.get("c2r_repair")
+        if pane:
+            pane.cursor = 0
+
+    def _handle_c2r_update(self) -> None:
+        """Force a Click-to-Run update check."""
+        from . import c2r_integrator
+
+        self.progress_message = "Forcing C2R update..."
+        self._notify("c2r.update", "C2R update requested")
+        self._render()
+
+        try:
+            result = c2r_integrator.trigger_update(dry_run=self.dry_run)
+            if result.get("success"):
+                self._append_status("✓ C2R update triggered successfully")
+            else:
+                self._append_status(f"✗ C2R update failed: {result.get('error', 'Unknown')}")
+            self.progress_message = "C2R update complete"
+        except Exception as exc:
+            self._append_status(f"✗ C2R update error: {exc}")
+            self.progress_message = "C2R update failed"
+
+    def _prepare_c2r_channel(self) -> None:
+        """Prepare C2R channel change options."""
+        self.progress_message = "Configure C2R update channel"
+        self._append_status("C2R Channel: Select target update channel.")
+        self.active_tab = "c2r_channel"
+        pane = self.panes.get("c2r_channel")
+        if pane:
+            pane.cursor = 0
+
+    def _prepare_license_install(self) -> None:
+        """Prepare product key installation."""
+        self.progress_message = "Install product key"
+        self._append_status("License Install: Enter product key to install.")
+        self.active_tab = "license_install"
+        pane = self.panes.get("license_install")
+        if pane:
+            pane.cursor = 0
+
+    def _handle_license_activate(self) -> None:
+        """Trigger Office activation."""
+        from . import licensing
+
+        self.progress_message = "Activating Office..."
+        self._notify("license.activate", "Office activation requested")
+        self._render()
+
+        try:
+            result = licensing.activate_office(dry_run=self.dry_run)
+            if result.get("success"):
+                self._append_status("✓ Office activation triggered")
+            else:
+                self._append_status(f"✗ Activation failed: {result.get('error', 'Unknown')}")
+            self.progress_message = "Activation complete"
+        except Exception as exc:
+            self._append_status(f"✗ Activation error: {exc}")
+            self.progress_message = "Activation failed"
+
+    def _handle_config_view(self) -> None:
+        """Display current configuration."""
+        self.progress_message = "Viewing configuration..."
+        self._append_status("═" * 40)
+        self._append_status("Current Configuration:")
+        self._append_status("═" * 40)
+
+        # Show key config values
+        config_items = [
+            ("Dry Run", self.dry_run),
+            ("Force Mode", self.settings_overrides.get("force", False)),
+            ("Registry Cleanup", self.plan_overrides.get("orphan_registry", False)),
+            ("Files Cleanup", self.plan_overrides.get("orphan_files", False)),
+        ]
+        for key, value in config_items:
+            self._append_status(f"  {key}: {value}")
+
+        self.progress_message = "Configuration displayed"
+
+    def _prepare_config_edit(self) -> None:
+        """Prepare configuration editor."""
+        self.progress_message = "Edit configuration settings"
+        self._append_status("Config Edit: Modify settings with Space, save with F10.")
+        self.active_tab = "settings"
+        pane = self.panes.get("settings")
+        if pane:
+            pane.cursor = 0
+
+    def _handle_config_export(self) -> None:
+        """Export configuration to JSON file."""
+        import json
+
+        self.progress_message = "Exporting configuration..."
+        self._notify("config.export", "Configuration export requested")
+
+        config_data = {
+            "plan_overrides": dict(self.plan_overrides),
+            "settings_overrides": dict(self.settings_overrides),
+            "target_overrides": dict(self.target_overrides),
+        }
+
+        self._append_status("═" * 40)
+        self._append_status("Configuration Export:")
+        self._append_status(json.dumps(config_data, indent=2))
+        self._append_status("═" * 40)
+        self.progress_message = "Configuration exported"
+
+    def _prepare_config_import(self) -> None:
+        """Prepare configuration import."""
+        self.progress_message = "Import configuration"
+        self._append_status("Config Import: Feature pending implementation.")
+        self._append_status("Tip: Use --config flag on CLI to import JSON configs.")
+
+    # -----------------------------------------------------------------------
     # ODT Install/Repair Handlers
     # -----------------------------------------------------------------------
 
