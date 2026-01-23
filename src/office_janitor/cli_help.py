@@ -7,10 +7,99 @@ enabling a streamlined help system and consistent command-line interface.
 from __future__ import annotations
 
 import argparse
-from typing import TYPE_CHECKING
+import sys
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     pass
+
+
+# ---------------------------------------------------------------------------
+# Custom Argparse Actions with Pause
+# ---------------------------------------------------------------------------
+
+
+class HelpActionWithPause(argparse.Action):
+    """!
+    @brief Custom help action that pauses before exiting.
+    @details Prevents the console window from closing immediately after
+    displaying help when run from a GUI shortcut or double-click.
+    """
+
+    def __init__(
+        self,
+        option_strings: list[str],
+        dest: str = argparse.SUPPRESS,
+        default: str = argparse.SUPPRESS,
+        help: str | None = "show this help message and exit",  # noqa: A002
+    ) -> None:
+        super().__init__(
+            option_strings=option_strings,
+            dest=dest,
+            default=default,
+            nargs=0,
+            help=help,
+        )
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: str | None = None,
+    ) -> None:
+        parser.print_help()
+        print("\nPress Enter to exit...")
+        try:
+            input()
+        except (EOFError, OSError, KeyboardInterrupt):
+            pass
+        parser.exit()
+
+
+class VersionActionWithPause(argparse.Action):
+    """!
+    @brief Custom version action that pauses before exiting.
+    @details Prevents the console window from closing immediately after
+    displaying version when run from a GUI shortcut or double-click.
+    """
+
+    def __init__(
+        self,
+        option_strings: list[str],
+        version: str | None = None,
+        dest: str = argparse.SUPPRESS,
+        default: str = argparse.SUPPRESS,
+        help: str | None = "show program's version number and exit",  # noqa: A002
+    ) -> None:
+        super().__init__(
+            option_strings=option_strings,
+            dest=dest,
+            default=default,
+            nargs=0,
+            help=help,
+        )
+        self.version = version
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: str | None = None,
+    ) -> None:
+        version = self.version
+        if version:
+            formatter = parser._get_formatter()
+            formatter.add_text(version)
+            parser._print_message(formatter.format_help(), sys.stdout)
+        print("\nPress Enter to exit...")
+        try:
+            input()
+        except (EOFError, OSError, KeyboardInterrupt):
+            pass
+        parser.exit()
+
 
 # ---------------------------------------------------------------------------
 # Version & Program Info
@@ -946,17 +1035,25 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     """
     parser = argparse.ArgumentParser(
         prog=PROGRAM_NAME,
-        add_help=True,
+        add_help=False,  # We'll add custom help action
         description=PROGRAM_DESCRIPTION,
         epilog=EPILOG_TEXT,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    # Add custom help action that pauses before exit
+    parser.add_argument(
+        "-h",
+        "--help",
+        action=HelpActionWithPause,
+        help="show this help message and exit",
     )
 
     if version_info:
         parser.add_argument(
             "-V",
             "--version",
-            action="version",
+            action=VersionActionWithPause,
             version=f"{version_info.get('version', '0.0.0')} ({version_info.get('build', 'dev')})",
         )
 
