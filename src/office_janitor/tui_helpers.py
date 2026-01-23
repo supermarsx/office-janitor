@@ -52,7 +52,10 @@ def _enable_windows_ansi() -> bool:
         return True
 
     try:
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32 = getattr(ctypes, "windll", None)
+        if kernel32 is None:
+            return False
+        kernel32 = kernel32.kernel32
         # STD_OUTPUT_HANDLE = -11
         handle = kernel32.GetStdHandle(-11)
         if handle == -1:
