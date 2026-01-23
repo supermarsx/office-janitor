@@ -136,7 +136,7 @@ def test_mode_selection_initial_state(monkeypatch):
     assert interface.current_mode is None
     assert interface.mode_index == 0
     assert interface.active_tab == "mode_select"
-    assert len(interface.mode_options) == 4
+    assert len(interface.mode_options) == 9  # install, repair, remove, diagnose, odt, offscrub, c2r, license, config
     assert interface.navigation == []  # Navigation is empty until mode selected
 
 
@@ -160,10 +160,57 @@ def test_mode_selection_navigation(monkeypatch):
     interface._handle_key("up")
     assert interface.mode_index == 1
 
-    # Navigate back up to wrap
+    # Navigate back up to wrap (9 modes total, index 0-8)
     interface._handle_key("up")
-    interface._handle_key("up")  # Should wrap to bottom (index 3)
-    assert interface.mode_index == 3
+    interface._handle_key("up")  # Should wrap to bottom (index 8)
+    assert interface.mode_index == 8
+
+
+def test_mode_selection_right_arrow_enters_mode(monkeypatch):
+    """Test right arrow key enters the selected mode."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    # Select install mode using right arrow
+    interface._handle_key("right")
+    assert interface.current_mode == "install"
+    assert len(interface.navigation) > 0
+
+
+def test_left_arrow_returns_to_mode_selection(monkeypatch):
+    """Test left arrow key returns to mode selection from a mode."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    # Enter remove mode
+    _select_mode(interface, "remove")
+    assert interface.current_mode == "remove"
+
+    # Press left arrow to return to mode selection
+    interface._handle_key("left")
+    assert interface.current_mode is None
+    assert interface.active_tab == "mode_select"
+
+
+def test_navigation_right_arrow_activates_item(monkeypatch):
+    """Test right arrow key activates navigation items within a mode."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    # Enter install mode
+    _select_mode(interface, "install")
+    assert interface.current_mode == "install"
+
+    # Navigate to odt_presets and activate with right arrow
+    interface.focus_area = "nav"
+    interface.nav_index = 0  # odt_presets is first
+    prev_tab = interface.active_tab
+    interface._handle_key("right")
+    # Should activate the navigation item (odt_presets has an action)
+    assert interface.active_tab == "odt_presets"
 
 
 def test_mode_selection_enters_mode(monkeypatch):
