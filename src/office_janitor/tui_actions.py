@@ -48,8 +48,10 @@ class TUIActionsMixin:
     - odt_repair_presets: dict[str, tuple[str, bool]]
     - odt_locales: dict[str, tuple[str, bool]]
     - c2r_channels: dict[str, tuple[str, bool]]
+    - scrub_levels: dict[str, tuple[str, bool]]
     - selected_odt_preset: str | None
     - selected_c2r_channel: str | None
+    - selected_scrub_level: str
     - status_lines: list[str]
     - compact_layout: bool
     - _running: bool
@@ -73,8 +75,10 @@ class TUIActionsMixin:
     odt_repair_presets: dict[str, tuple[str, bool]]
     odt_locales: dict[str, tuple[str, bool]]
     c2r_channels: dict[str, tuple[str, bool]]
+    scrub_levels: dict[str, tuple[str, bool]]
     selected_odt_preset: str | None
     selected_c2r_channel: str | None
+    selected_scrub_level: str
     status_lines: list[str]
     compact_layout: bool
     _running: bool
@@ -183,6 +187,8 @@ class TUIActionsMixin:
         license_cleanup = bool(toggles.get("license_cleanup", True))
         overrides["license_cleanup"] = license_cleanup
         overrides["no_license"] = not license_cleanup
+        # Add scrub level from selection
+        overrides["scrub_level"] = self.selected_scrub_level
         return overrides
 
     def _collect_plan_overrides(self) -> dict[str, object]:
@@ -992,6 +998,40 @@ class TUIActionsMixin:
         desc, _ = self.c2r_channels[selected_key]
         self._append_status(f"Selected: {desc}")
         self.progress_message = f"Channel: {desc}"
+
+    def _prepare_scrub_level(self) -> None:
+        """Prepare scrub level selection."""
+        self.progress_message = "Select scrub level"
+        self._append_status("Scrub Level: Choose cleanup intensity with Space, F10 to apply.")
+        self._append_status("Levels: Minimal, Standard (default), Aggressive, Nuclear")
+        self.active_tab = "scrub_level"
+        pane = self.panes.get("scrub_level")
+        if pane:
+            pane.cursor = 0
+
+    def _select_scrub_level(self, index: int) -> None:
+        """Select a scrub level (radio button style - one allowed)."""
+        pane = self.panes.get("scrub_level")
+        if pane is None:
+            return
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
+        if not keys:
+            self._append_status("No scrub levels available.")
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        selected_key = keys[safe_index]
+        if selected_key not in self.scrub_levels:
+            self._append_status(f"Unknown scrub level: {selected_key}")
+            return
+        # Radio button behavior - deselect all others
+        for key in self.scrub_levels:
+            desc, _ = self.scrub_levels[key]
+            self.scrub_levels[key] = (desc, key == selected_key)
+        self.selected_scrub_level = selected_key
+        desc, _ = self.scrub_levels[selected_key]
+        self._append_status(f"Selected: {desc}")
+        self.progress_message = f"Scrub: {selected_key.title()}"
 
     def _get_selected_odt_locales(self) -> list[str]:
         """Get list of selected ODT locale codes."""

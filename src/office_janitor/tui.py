@@ -174,6 +174,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             NavigationItem("detect", "Detect Inventory", action=self._handle_detect),
             NavigationItem("auto", "Auto Remove All", action=self._handle_auto_all),
             NavigationItem("targeted", "Targeted Remove", action=self._prepare_targeted),
+            NavigationItem("scrub_level", "Scrub Level", action=self._prepare_scrub_level),
             NavigationItem("c2r_remove", "C2R Uninstall", action=self._prepare_c2r_remove),
             NavigationItem("offscrub", "OffScrub Scripts", action=self._prepare_offscrub),
             NavigationItem("licensing", "Licensing Cleanup", action=self._prepare_licensing),
@@ -264,6 +265,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             "c2r_repair",
             "c2r_update",
             "c2r_channel",
+            "scrub_level",
             "offscrub",
             "offscrub_select",
             "offscrub_run",
@@ -381,6 +383,15 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             "beta": ("Beta Channel (Insiders)", False),
         }
         self.selected_c2r_channel: str | None = None
+
+        # Scrub level options (level_id -> (display_name, selected))
+        self.scrub_levels: dict[str, tuple[str, bool]] = {
+            "minimal": ("Minimal - Remove only installed products", False),
+            "standard": ("Standard - Remove products + common artifacts", True),  # Default
+            "aggressive": ("Aggressive - Deep cleanup, remove more residual files", False),
+            "nuclear": ("Nuclear - Maximum cleanup, may affect shared components", False),
+        }
+        self.selected_scrub_level = "standard"
 
     # -----------------------------------------------------------------------
     # Confirmation input (overrides stub in TUIActionsMixin)
@@ -671,6 +682,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._toggle_odt_locale(pane.cursor)
             elif self.active_tab == "c2r_channel":
                 self._select_c2r_channel(pane.cursor)
+            elif self.active_tab == "scrub_level":
+                self._select_scrub_level(pane.cursor)
             return
         if command == "/":
             self._prompt_filter(pane)
@@ -804,6 +817,14 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                     f"{'[●]' if selected else '[ ]'} {desc}",
                 )
                 for key, (desc, selected) in self.c2r_channels.items()
+            ]
+        elif pane.name == "scrub_level":
+            entries = [
+                (
+                    key,
+                    f"{'[●]' if selected else '[ ]'} {desc}",
+                )
+                for key, (desc, selected) in self.scrub_levels.items()
             ]
         elif pane.name in {"auto", "cleanup", "diagnostics"}:
             entries = []

@@ -49,6 +49,7 @@ class TUIRendererMixin:
     - odt_repair_presets: dict[str, tuple[str, bool]]
     - odt_locales: dict[str, tuple[str, bool]]
     - c2r_channels: dict[str, tuple[str, bool]]
+    - scrub_levels: dict[str, tuple[str, bool]]
     - app_state: MutableMapping
     - current_mode: str | None
     - mode_options: list[tuple[str, str, str]]
@@ -74,6 +75,7 @@ class TUIRendererMixin:
     odt_repair_presets: dict[str, tuple[str, bool]]
     odt_locales: dict[str, tuple[str, bool]]
     c2r_channels: dict[str, tuple[str, bool]]
+    scrub_levels: dict[str, tuple[str, bool]]
     app_state: dict[str, object]
     list_filters: dict[str, str]
     current_mode: str | None
@@ -107,6 +109,12 @@ class TUIRendererMixin:
                 visible_len = len(strip_ansi(left_text))
                 padding = " " * max(0, left_width - visible_len)
                 sys.stdout.write(f"{left_text}{padding} {right_text[: width - left_width - 1]}\n")
+
+            # Add full-width status section
+            sys.stdout.write(divider(width) + "\n")
+            status_lines = self._render_status(width)
+            for line in status_lines:
+                sys.stdout.write(line + "\n")
 
         sys.stdout.write(divider(width) + "\n")
         sys.stdout.write(self._render_footer() + "\n")
@@ -177,11 +185,6 @@ class TUIRendererMixin:
             else:
                 line = truncated
             lines.append(line)
-        # Add status lines below navigation items
-        lines.append("")
-        lines.append("Status:")
-        for status in self.status_lines[-(12 if self.compact_layout else 18) :]:
-            lines.append(status[:width])
         return lines
 
     def _render_content(self, width: int) -> list[str]:
@@ -208,6 +211,8 @@ class TUIRendererMixin:
             return self._render_c2r_remove_pane(width)
         if self.active_tab == "c2r_channel":
             return self._render_c2r_channel_pane(width)
+        if self.active_tab == "scrub_level":
+            return self._render_scrub_level_pane(width)
         if self.active_tab == "offscrub":
             return self._render_offscrub_pane(width)
         if self.active_tab == "licensing":
@@ -221,6 +226,17 @@ class TUIRendererMixin:
         if self.active_tab == "settings":
             return self._render_settings_pane(width)
         return ["Select an option with Enter"]
+
+    def _render_status(self, width: int) -> list[str]:
+        """Render the full-width status section."""
+        lines = []
+        if self.status_lines:
+            lines.append("Status:")
+            # Show last 3-4 status messages in full width
+            recent_status = self.status_lines[-(3 if self.compact_layout else 4):]
+            for status in recent_status:
+                lines.append(status[:width])
+        return lines
 
     def _render_footer(self) -> str:
         """Render the footer help text."""
