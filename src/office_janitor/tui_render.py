@@ -114,12 +114,13 @@ class TUIRendererMixin:
         """Render the mode selection screen."""
         lines: list[str] = []
         lines.append("")
-        lines.append("Select Operation Mode".center(width))
-        lines.append("=" * 40)
+        title = "Select Operation Mode"
+        lines.append(title.center(width))
+        lines.append(("═" * len(title)).center(width))
         lines.append("")
 
         for index, (mode_id, label, description) in enumerate(self.mode_options):
-            prefix = "➤" if index == self.mode_index else " "
+            prefix = "►" if index == self.mode_index else " "
             visible_text = f"{prefix} [{mode_id[0].upper()}] {label}"
 
             if self.ansi_supported and index == self.mode_index:
@@ -129,18 +130,22 @@ class TUIRendererMixin:
             else:
                 line = visible_text
             lines.append(line)
-            # Add description under the label
-            desc_line = f"      {description}"
-            lines.append(desc_line[:width])
-            lines.append("")
+            # Add description under the label (dimmed if ANSI supported)
+            desc_text = f"      {description}"
+            if self.ansi_supported:
+                desc_line = f"\x1b[2m{desc_text[:width]}\x1b[0m"
+            else:
+                desc_line = desc_text[:width]
+            lines.append(desc_line)
 
         lines.append("")
-        lines.append("Use ↑↓ to select, Enter to confirm, Q to quit".center(width))
+        nav_help = "↑↓ Navigate  →/Enter Select  ←/Esc Back  Q Quit  F1 Help"
+        lines.append(nav_help.center(width))
         lines.append("")
 
         # Add status log at bottom
         lines.append("Status:")
-        lines.extend(self.status_lines[-(8 if self.compact_layout else 12) :])
+        lines.extend(self.status_lines[-(8 if self.compact_layout else 10) :])
 
         return lines
 
