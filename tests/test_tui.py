@@ -1223,3 +1223,118 @@ def test_odt_repair_radio_button_behavior(monkeypatch):
     assert selected is False
     desc, selected = interface.odt_repair_presets["full-repair"]
     assert selected is True
+
+
+# ---------------------------------------------------------------------------
+# Special Action Tests: OffScrub, C2R, Licensing
+# ---------------------------------------------------------------------------
+
+
+def test_remove_mode_has_special_actions(monkeypatch):
+    """Test remove mode includes OffScrub, C2R, and Licensing actions."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    _select_mode(interface, "remove")
+    nav_names = [item.name for item in interface.navigation]
+
+    assert "c2r_remove" in nav_names
+    assert "offscrub" in nav_names
+    assert "licensing" in nav_names
+
+
+def test_diagnose_mode_has_license_status(monkeypatch):
+    """Test diagnose mode includes Licensing Status action."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    _select_mode(interface, "diagnose")
+    nav_names = [item.name for item in interface.navigation]
+
+    assert "license_status" in nav_names
+
+
+def test_prepare_c2r_remove(monkeypatch):
+    """Test _prepare_c2r_remove sets appropriate messages."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface._prepare_c2r_remove()
+
+    assert "C2R" in interface.progress_message
+    assert any("C2R" in line for line in interface.status_lines)
+
+
+def test_prepare_offscrub(monkeypatch):
+    """Test _prepare_offscrub sets appropriate messages."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface._prepare_offscrub()
+
+    assert "OffScrub" in interface.progress_message
+    assert any("OffScrub" in line for line in interface.status_lines)
+
+
+def test_prepare_licensing(monkeypatch):
+    """Test _prepare_licensing sets appropriate messages."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface._prepare_licensing()
+
+    assert "Licensing" in interface.progress_message
+    assert any("Licensing" in line or "license" in line.lower() for line in interface.status_lines)
+
+
+def test_render_c2r_remove_pane(monkeypatch):
+    """Test C2R remove pane renders correctly."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "c2r_remove"
+    lines = interface._render_content(60)
+
+    assert any("Click-to-Run" in line for line in lines)
+
+
+def test_render_offscrub_pane(monkeypatch):
+    """Test OffScrub pane renders correctly."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "offscrub"
+    lines = interface._render_content(60)
+
+    assert any("OffScrub" in line for line in lines)
+
+
+def test_render_licensing_pane(monkeypatch):
+    """Test Licensing pane renders correctly."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "licensing"
+    lines = interface._render_content(60)
+
+    assert any("Licensing" in line for line in lines)
+
+
+def test_render_license_status_pane(monkeypatch):
+    """Test License status pane renders correctly."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    interface.active_tab = "license_status"
+    lines = interface._render_content(60)
+
+    assert any("Licensing Status" in line for line in lines)

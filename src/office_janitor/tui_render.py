@@ -193,6 +193,14 @@ class TUIRendererMixin:
             return self._render_odt_locales_pane(width)
         if self.active_tab == "odt_repair":
             return self._render_odt_repair_pane(width)
+        if self.active_tab == "c2r_remove":
+            return self._render_c2r_remove_pane(width)
+        if self.active_tab == "offscrub":
+            return self._render_offscrub_pane(width)
+        if self.active_tab == "licensing":
+            return self._render_licensing_pane(width)
+        if self.active_tab == "license_status":
+            return self._render_license_status_pane(width)
         if self.active_tab == "run":
             return self._render_run_pane(width)
         if self.active_tab == "logs":
@@ -432,6 +440,75 @@ class TUIRendererMixin:
         lines.append(f"Backup directory: {getattr(args, 'backup', '(disabled)')}")
         timeout = getattr(args, "timeout", None)
         lines.append(f"Timeout: {timeout if timeout is not None else '(default)'}")
+        return [line[:width] for line in lines]
+
+    def _render_c2r_remove_pane(self, width: int) -> list[str]:
+        """Render the C2R uninstall pane."""
+        lines = ["Click-to-Run Uninstall:"]
+        lines.append("")
+        lines.append("Removes Office Click-to-Run installations using the")
+        lines.append("native OfficeClickToRun.exe uninstaller.")
+        lines.append("")
+        lines.append("─" * 50)
+        lines.append("This action will:")
+        lines.append("  • Detect installed C2R Office products")
+        lines.append("  • Invoke the built-in uninstaller for each")
+        lines.append("  • Clean up remaining registry entries")
+        lines.append("")
+        lines.append("Press Enter or F10 to execute.")
+        return [line[:width] for line in lines]
+
+    def _render_offscrub_pane(self, width: int) -> list[str]:
+        """Render the OffScrub scripts pane."""
+        lines = ["OffScrub Scripts:"]
+        lines.append("")
+        lines.append("Legacy Microsoft Office removal scripts supporting:")
+        lines.append("  • Office 2003, 2007, 2010 (OffScrub03/07/10.vbs)")
+        lines.append("  • Office 2013, 2016 MSI (OffScrub_O15/O16msi.vbs)")
+        lines.append("  • Office 365/2019/2021 C2R (OffScrubC2R.vbs)")
+        lines.append("")
+        lines.append("─" * 50)
+        lines.append("This action will:")
+        lines.append("  • Detect Office versions present")
+        lines.append("  • Run appropriate OffScrub script for each")
+        lines.append("  • Perform deep registry and file cleanup")
+        lines.append("")
+        lines.append("Press Enter or F10 to execute.")
+        return [line[:width] for line in lines]
+
+    def _render_licensing_pane(self, width: int) -> list[str]:
+        """Render the licensing cleanup pane."""
+        lines = ["Licensing Cleanup:"]
+        lines.append("")
+        lines.append("Removes Office product keys and activation state:")
+        lines.append("  • Software Protection Platform (SPP) tokens")
+        lines.append("  • OSPP (Office Software Protection) entries")
+        lines.append("  • Registry-based license information")
+        lines.append("  • vNext identity tokens")
+        lines.append("")
+        lines.append("─" * 50)
+        lines.append("This action will:")
+        lines.append("  • Remove installed product keys")
+        lines.append("  • Clear activation cache")
+        lines.append("  • Reset licensing registry keys")
+        lines.append("")
+        lines.append("Press Enter or F10 to execute.")
+        return [line[:width] for line in lines]
+
+    def _render_license_status_pane(self, width: int) -> list[str]:
+        """Render the license status pane."""
+        lines = ["Licensing Status:"]
+        lines.append("")
+        lines.append("Query and display current Office licensing state.")
+        lines.append("")
+        lines.append("─" * 50)
+        lines.append("This will show:")
+        lines.append("  • Installed Office products")
+        lines.append("  • License status for each product")
+        lines.append("  • Activation state")
+        lines.append("  • OSPP.VBS availability")
+        lines.append("")
+        lines.append("Press Enter or F10 to query status.")
         return [line[:width] for line in lines]
 
     # Abstract methods that must be provided by the main class

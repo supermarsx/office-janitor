@@ -168,6 +168,9 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             NavigationItem("detect", "Detect Inventory", action=self._handle_detect),
             NavigationItem("auto", "Auto Remove All", action=self._handle_auto_all),
             NavigationItem("targeted", "Targeted Remove", action=self._prepare_targeted),
+            NavigationItem("c2r_remove", "C2R Uninstall", action=self._prepare_c2r_remove),
+            NavigationItem("offscrub", "OffScrub Scripts", action=self._prepare_offscrub),
+            NavigationItem("licensing", "Licensing Cleanup", action=self._prepare_licensing),
             NavigationItem("cleanup", "Cleanup Only", action=self._handle_cleanup_only),
             NavigationItem("settings", "Scrub Settings", action=None),
             NavigationItem("run_remove", "▶ Run Removal", action=self._handle_run),
@@ -176,6 +179,9 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         self._diagnose_nav = [
             NavigationItem("detect", "Detect Inventory", action=self._handle_detect),
             NavigationItem("diagnostics", "Run Diagnostics", action=self._handle_diagnostics),
+            NavigationItem(
+                "license_status", "Licensing Status", action=self._handle_license_status
+            ),
             NavigationItem("plan", "View Plan", action=None),
             NavigationItem("logs", "View Logs", action=self._handle_logs),
             NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
@@ -192,6 +198,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             "mode_select", "detect", "auto", "targeted", "cleanup", "diagnostics",
             "odt_presets", "odt_locales", "odt_custom", "odt_install", "odt_repair",
             "repair_quick", "repair_full", "repair_odt",
+            "c2r_remove", "offscrub", "licensing", "license_status",
             "plan", "run", "logs", "settings",
             "run_install", "run_repair", "run_remove", "back",
         ]
@@ -489,6 +496,14 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._handle_odt_install(execute=True)
             elif self.active_tab == "odt_repair":
                 self._handle_odt_repair(execute=True)
+            elif self.active_tab == "c2r_remove":
+                self._handle_c2r_remove()
+            elif self.active_tab == "offscrub":
+                self._handle_offscrub()
+            elif self.active_tab == "licensing":
+                self._handle_licensing_cleanup()
+            elif self.active_tab == "license_status":
+                self._handle_license_status()
             else:
                 self._handle_run()
             return
@@ -516,6 +531,14 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._handle_odt_install(execute=True)
             elif self.active_tab == "odt_repair":
                 self._handle_odt_repair(execute=True)
+            elif self.active_tab == "c2r_remove":
+                self._handle_c2r_remove()
+            elif self.active_tab == "offscrub":
+                self._handle_offscrub()
+            elif self.active_tab == "licensing":
+                self._handle_licensing_cleanup()
+            elif self.active_tab == "license_status":
+                self._handle_license_status()
             return
         if command == "space":
             if self.active_tab == "plan":

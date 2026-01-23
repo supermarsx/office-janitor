@@ -522,6 +522,195 @@ class TUIActionsMixin:
             self.progress_message = "Repair failed"
 
     # -----------------------------------------------------------------------
+    # Special Remove Actions: C2R, OffScrub, Licensing
+    # -----------------------------------------------------------------------
+
+    def _prepare_c2r_remove(self) -> None:
+        """Prepare Click-to-Run uninstall action."""
+        self.progress_message = "C2R Uninstall"
+        self._append_status("C2R Uninstall: Remove Click-to-Run Office installations.")
+        self._append_status("Uses native OfficeClickToRun.exe for clean removal.")
+        self._append_status("Press Enter/F10 to detect and remove C2R installations.")
+
+    def _prepare_offscrub(self) -> None:
+        """Prepare OffScrub scripts action."""
+        self.progress_message = "OffScrub Scripts"
+        self._append_status("OffScrub: Legacy Microsoft removal scripts.")
+        self._append_status("Supports Office 2003-2021, MSI and C2R versions.")
+        self._append_status("Press Enter/F10 to run OffScrub for detected versions.")
+
+    def _prepare_licensing(self) -> None:
+        """Prepare licensing cleanup action."""
+        self.progress_message = "Licensing Cleanup"
+        self._append_status("Licensing: Remove Office product keys and activation.")
+        self._append_status("Cleans SPP tokens, OSPP entries, and registry keys.")
+        self._append_status("Press Enter/F10 to clean licensing artifacts.")
+
+    def _handle_c2r_remove(self) -> None:
+        """Execute C2R uninstall action."""
+        from . import c2r_uninstall, detect
+
+        args = self.app_state.get("args")
+        dry_run = bool(getattr(args, "dry_run", False))
+        if "dry_run" in self.settings_overrides:
+            dry_run = self.settings_overrides["dry_run"]
+
+        self.progress_message = "Detecting C2R installations..."
+        self._notify("c2r_remove.start", "Starting C2R removal", dry_run=dry_run)
+        self._render()
+
+        try:
+            spinner(0.2, "Scanning for C2R...")
+            inventory = detect.gather_office_inventory()
+            c2r_items = inventory.get("c2r", [])
+
+            if not c2r_items:
+                self._append_status("No C2R installations found.")
+                self.progress_message = "No C2R to remove"
+                return
+
+            self._append_status(f"Found {len(c2r_items)} C2R installation(s)")
+
+            for item in c2r_items:
+                config = c2r_uninstall.build_uninstall_config(item)
+                if dry_run:
+                    self._append_status(f"[DRY-RUN] Would uninstall: {item}")
+                else:
+                    c2r_uninstall.uninstall_products(config, dry_run=dry_run)
+                    self._append_status(f"✓ Uninstalled: {item}")
+
+            self._notify("c2r_remove.complete", "C2R removal completed")
+            self.progress_message = "C2R removal complete"
+        except Exception as exc:
+            self._notify("c2r_remove.error", f"C2R removal error: {exc}", level="error")
+            self._append_status(f"✗ C2R removal error: {exc}")
+            self.progress_message = "C2R removal failed"
+
+    def _handle_offscrub(self) -> None:
+        """Execute OffScrub scripts action."""
+        from . import detect, off_scrub_native
+
+        args = self.app_state.get("args")
+        dry_run = bool(getattr(args, "dry_run", False))
+        if "dry_run" in self.settings_overrides:
+            dry_run = self.settings_overrides["dry_run"]
+
+        self.progress_message = "Running OffScrub..."
+        self._notify("offscrub.start", "Starting OffScrub", dry_run=dry_run)
+        self._render()
+
+        try:
+            spinner(0.2, "Scanning for Office...")
+            inventory = detect.gather_office_inventory()
+
+            msi_items = inventory.get("msi", [])
+            c2r_items = inventory.get("c2r", [])
+
+            if not msi_items and not c2r_items:
+                self._append_status("No Office installations found for OffScrub.")
+                self.progress_message = "No Office to scrub"
+                return
+
+            # Run OffScrub for MSI installations
+            if msi_items:
+                self._append_status(f"Found {len(msi_items)} MSI installation(s)")
+                if dry_run:
+                    self._append_status("[DRY-RUN] Would run OffScrub for MSI")
+                else:
+                    off_scrub_native.run_msi_offscrub(
+                        targets="ALL", dry_run=dry_run, force=True
+                    )
+                    self._append_status("✓ OffScrub MSI completed")
+
+            # Run OffScrub for C2R installations
+            if c2r_items:
+                self._append_status(f"Found {len(c2r_items)} C2R installation(s)")
+                if dry_run:
+                    self._append_status("[DRY-RUN] Would run OffScrub for C2R")
+                else:
+                    off_scrub_native.run_c2r_offscrub(
+                        release_ids=["ALL"], dry_run=dry_run, force=True
+                    )
+                    self._append_status("✓ OffScrub C2R completed")
+
+            self._notify("offscrub.complete", "OffScrub completed")
+            self.progress_message = "OffScrub complete"
+        except Exception as exc:
+            self._notify("offscrub.error", f"OffScrub error: {exc}", level="error")
+            self._append_status(f"✗ OffScrub error: {exc}")
+            self.progress_message = "OffScrub failed"
+
+    def _handle_licensing_cleanup(self) -> None:
+        """Execute licensing cleanup action."""
+        from . import licensing
+
+        args = self.app_state.get("args")
+        dry_run = bool(getattr(args, "dry_run", False))
+        if "dry_run" in self.settings_overrides:
+            dry_run = self.settings_overrides["dry_run"]
+
+        self.progress_message = "Cleaning licensing..."
+        self._notify("licensing.start", "Starting licensing cleanup", dry_run=dry_run)
+        self._render()
+
+        try:
+            spinner(0.2, "Removing licenses...")
+
+            if dry_run:
+                self._append_status("[DRY-RUN] Would clean Office licenses")
+                self._append_status("[DRY-RUN] Would remove SPP tokens")
+                self._append_status("[DRY-RUN] Would clear OSPP cache")
+            else:
+                licensing.cleanup_licenses(extended=True)
+                self._append_status("✓ Office licenses removed")
+                self._append_status("✓ SPP tokens cleaned")
+                self._append_status("✓ OSPP cache cleared")
+
+            self._notify("licensing.complete", "Licensing cleanup completed")
+            self.progress_message = "Licensing cleanup complete"
+        except Exception as exc:
+            self._notify("licensing.error", f"Licensing cleanup error: {exc}", level="error")
+            self._append_status(f"✗ Licensing cleanup error: {exc}")
+            self.progress_message = "Licensing cleanup failed"
+
+    def _handle_license_status(self) -> None:
+        """Display licensing status information."""
+        from . import licensing
+
+        self.progress_message = "Checking license status..."
+        self._notify("license_status.start", "Querying license status")
+        self._render()
+
+        try:
+            spinner(0.2, "Querying licenses...")
+            status = licensing.get_license_status()
+
+            self._append_status("═" * 40)
+            self._append_status("Office Licensing Status:")
+            self._append_status("═" * 40)
+
+            if not status or not status.get("products"):
+                self._append_status("No Office licenses found.")
+            else:
+                for product in status.get("products", []):
+                    name = product.get("name", "Unknown")
+                    license_status = product.get("status", "Unknown")
+                    self._append_status(f"  • {name}: {license_status}")
+
+            ospp_path = licensing.find_ospp_vbs()
+            if ospp_path:
+                self._append_status(f"OSPP.VBS: {ospp_path}")
+            else:
+                self._append_status("OSPP.VBS: Not found")
+
+            self._notify("license_status.complete", "License status retrieved")
+            self.progress_message = "License status ready"
+        except Exception as exc:
+            self._notify("license_status.error", f"License status error: {exc}", level="error")
+            self._append_status(f"✗ License status error: {exc}")
+            self.progress_message = "License status failed"
+
+    # -----------------------------------------------------------------------
     # ODT Install/Repair Handlers
     # -----------------------------------------------------------------------
 
