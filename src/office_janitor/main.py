@@ -278,6 +278,21 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     app_state = build_app_state(args, human_log, machine_log, start_time=_MAIN_START_TIME)
     progress_ok()
 
+    # ---------------------------------------------------------------------------
+    # Install mode handling (new subcommand)
+    # ---------------------------------------------------------------------------
+    if mode.startswith("install:"):
+        progress("Entering install mode...")
+        # Route install subcommand modes to ODT handlers
+        # The determine_mode already mapped subcommand options back to ODT args
+        if handle_odt_build_commands(args):
+            return 0
+        progress("Install mode requires --preset or --product specification.")
+        return 1
+
+    # ---------------------------------------------------------------------------
+    # Repair mode handling
+    # ---------------------------------------------------------------------------
     # Auto-repair mode handling - intelligent repair of all Office installations
     if mode == "auto-repair":
         progress("Entering auto-repair mode...")
@@ -297,6 +312,14 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     if mode.startswith("repair:"):
         progress("Entering repair mode...")
         return handle_repair_mode(args, mode, human_log, machine_log)
+
+    # ---------------------------------------------------------------------------
+    # Remove mode handling (maps to auto-all, target, etc.)
+    # ---------------------------------------------------------------------------
+    if mode.startswith("remove:"):
+        # remove:msi-only and remove:c2r-only map to target-specific removal
+        progress(f"Entering remove mode ({mode.split(':')[1]})...")
+        # Fall through to standard scrub flow - mode already set correctly
 
     # OEM config mode handling - execute bundled XML configurations
     if mode.startswith("oem-config:"):

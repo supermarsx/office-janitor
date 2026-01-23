@@ -25,8 +25,9 @@ __all__ = [
 def handle_odt_list_commands(args: argparse.Namespace) -> bool:
     """!
     @brief Handle ODT listing commands that don't require elevation.
-    @details Processes --odt-list-* commands which are read-only operations
-    that can run without administrative privileges.
+    @details Processes --odt-list-* commands (legacy) and install --list-* commands
+    (new subcommand syntax) which are read-only operations that can run
+    without administrative privileges.
     @param args Parsed command-line arguments.
     @returns True if a list command was handled (caller should exit), False otherwise.
     """
@@ -78,11 +79,18 @@ def handle_odt_build_commands(args: argparse.Namespace) -> bool:
     @brief Handle ODT build and configuration generation commands.
     @details Processes --odt-build, --odt-install, --odt-removal, --odt-download,
     and author aliases (--goobler, --pupa).
+    Also handles the new 'install' subcommand options:
+    - install --preset NAME
+    - install --build FILE
+    - install --download PATH
+    - install --goobler / --pupa
     These commands may write files and run after elevation.
     @param args Parsed command-line arguments.
     @returns True if an ODT command was handled (caller should exit), False otherwise.
     """
-    # Handle author quick install aliases
+    command = getattr(args, "command", None)
+    
+    # Handle author quick install aliases (works for both legacy and subcommand)
     if getattr(args, "goobler", False):
         return _run_author_install(
             args,
@@ -99,11 +107,24 @@ def handle_odt_build_commands(args: argparse.Namespace) -> bool:
             name="Pupa",
         )
 
-    # Handle install command (actually runs ODT)
+    # Handle 'install' subcommand
+    if command == "install":
+        # Check for build output (generate XML only)
+        if getattr(args, "odt_output", None):
+            return _build_odt_config(args)
+        # Check for download generation
+        if getattr(args, "odt_download", None):
+            return _build_odt_download(args)
+        # Check for preset or products (run installation)
+        if getattr(args, "odt_preset", None) or getattr(args, "odt_products", None):
+            return _run_odt_install(args)
+        return False
+
+    # Handle legacy install command (actually runs ODT)
     if getattr(args, "odt_install", False):
         return _run_odt_install(args)
 
-    # Handle build command (generates XML)
+    # Handle legacy build command (generates XML)
     if getattr(args, "odt_build", False):
         return _build_odt_config(args)
 

@@ -77,7 +77,82 @@ def determine_mode(args: argparse.Namespace) -> str:
     @brief Map parsed arguments to a simple textual mode identifier.
     @param args Parsed command-line arguments.
     @returns Mode string identifying the operation type.
+    @details Supports both new subcommand syntax and legacy flags for
+    backward compatibility.
+    
+    Subcommand modes:
+    - install: ODT installation
+    - repair: Repair operations (quick, full, odt, c2r)
+    - remove: Uninstall and scrub
+    
+    Legacy modes (backward compatibility):
+    - auto-all, target:VER, diagnose, cleanup-only
+    - auto-repair, repair-odt, repair-c2r, repair:TYPE
+    - oem-config:NAME
     """
+    # Handle new subcommand-based syntax
+    command = getattr(args, "command", None)
+    
+    if command == "diagnose":
+        return "diagnose"
+    
+    if command == "install":
+        # Check for author aliases
+        if getattr(args, "goobler", False):
+            return "install:goobler"
+        if getattr(args, "pupa", False):
+            return "install:pupa"
+        # Check for preset-based installation
+        preset = getattr(args, "odt_preset", None)
+        if preset:
+            return f"install:preset:{preset}"
+        # Check for ODT build/download
+        if getattr(args, "odt_output", None):
+            return "install:build"
+        if getattr(args, "odt_download", None):
+            return "install:download"
+        # Check for list commands
+        if getattr(args, "odt_list_presets", False):
+            return "install:list-presets"
+        if getattr(args, "odt_list_products", False):
+            return "install:list-products"
+        if getattr(args, "odt_list_channels", False):
+            return "install:list-channels"
+        if getattr(args, "odt_list_languages", False):
+            return "install:list-languages"
+        return "install:interactive"
+    
+    if command == "repair":
+        # Check repair type
+        repair_type = getattr(args, "repair_type", None)
+        if repair_type == "quick":
+            return "repair:quick"
+        if repair_type == "full":
+            return "repair:full"
+        if getattr(args, "repair_odt", False):
+            return "repair-odt"
+        if getattr(args, "repair_c2r", False):
+            return "repair-c2r"
+        # Default to auto-repair if no specific type
+        return "auto-repair"
+    
+    if command == "remove":
+        # Check target selection
+        target = getattr(args, "target", None)
+        if target:
+            return f"target:{target}"
+        # Check uninstall method
+        method = getattr(args, "uninstall_method", None)
+        if method == "msi":
+            return "remove:msi-only"
+        if method == "c2r":
+            return "remove:c2r-only"
+        # Default to full removal
+        return "auto-all"
+    
+    # ---------------------------------------------------------------------------
+    # Legacy flag handling (backward compatibility)
+    # ---------------------------------------------------------------------------
     if getattr(args, "auto_all", False):
         return "auto-all"
     if getattr(args, "target", None):
@@ -98,6 +173,19 @@ def determine_mode(args: argparse.Namespace) -> str:
         return "repair:config"
     if getattr(args, "oem_config", None):
         return f"oem-config:{args.oem_config}"
+    # Author aliases (legacy style)
+    if getattr(args, "goobler", False):
+        return "install:goobler"
+    if getattr(args, "pupa", False):
+        return "install:pupa"
+    # ODT operations (legacy style)
+    if getattr(args, "odt_install", False):
+        preset = getattr(args, "odt_preset", None)
+        if preset:
+            return f"install:preset:{preset}"
+        return "install:odt"
+    if getattr(args, "odt_build", False):
+        return "install:build"
     return "interactive"
 
 

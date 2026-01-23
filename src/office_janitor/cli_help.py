@@ -106,7 +106,15 @@ class VersionActionWithPause(argparse.Action):
 # ---------------------------------------------------------------------------
 
 PROGRAM_NAME = "office-janitor"
-PROGRAM_DESCRIPTION = "Detect, repair, uninstall, and scrub Microsoft Office installations."
+PROGRAM_DESCRIPTION = """\
+Microsoft Office installation manager with three operation modes:
+
+  install    Deploy Office via ODT presets or custom configurations
+  repair     Fix broken Office installations (quick or full repair)
+  remove     Uninstall Office and clean up residual artifacts
+
+Run 'office-janitor <command> --help' for mode-specific options.
+"""
 
 # ---------------------------------------------------------------------------
 # Help Text Constants
@@ -117,32 +125,34 @@ EPILOG_TEXT = """\
                            QUICK REFERENCE GUIDE
 ================================================================================
 
-REPAIR OPERATIONS:
-  office-janitor --auto-repair              Auto-detect and repair all Office
-  office-janitor --repair quick             Quick local repair (5-15 min)
-  office-janitor --repair full              Full online repair (30-60 min)
-  office-janitor --repair-odt               Repair via ODT configuration
-  office-janitor --repair-c2r               Repair via C2R client directly
+INSTALL MODE:
+  office-janitor install --preset 365-proplus-x64
+  office-janitor install --preset ltsc2024-full-x64
+  office-janitor install --goobler           # Author preset: LTSC 2024 full
 
-INSTALLATION PRESETS (--odt-install --odt-preset NAME):
-  365-proplus-x64              Microsoft 365 Apps for enterprise (64-bit)
-  365-business-x64             Microsoft 365 Apps for business (64-bit)
-  office2024-x64               Office LTSC 2024 Professional Plus (64-bit)
-  office2021-x64               Office LTSC 2021 Professional Plus (64-bit)
-  ltsc2024-full-x64            Office 2024 + Visio + Project (64-bit)
-  ltsc2024-full-x64-clean      Office 2024 + Visio + Project (no bloat)
+REPAIR MODE:
+  office-janitor repair                      # Auto-repair all detected Office
+  office-janitor repair --quick              # Quick local repair (5-15 min)
+  office-janitor repair --full               # Full online repair (30-60 min)
+  office-janitor repair --c2r                # Repair via C2R client directly
+  office-janitor repair --odt                # Repair via ODT configuration
 
-REMOVAL OPERATIONS:
-  office-janitor --auto-all                 Full detection and removal
-  office-janitor --auto-all --dry-run       Preview removal (safe)
-  office-janitor --target 2019              Target specific Office version
-  office-janitor --c2r-remove               Remove C2R Office only
+REMOVE MODE:
+  office-janitor remove                      # Full detection and removal
+  office-janitor remove --dry-run            # Preview removal (safe)
+  office-janitor remove --target 2019        # Target specific Office version
+  office-janitor remove --c2r-only           # Remove C2R Office only
+  office-janitor remove --scrub aggressive   # Aggressive cleanup level
 
-DIAGNOSTICS:
-  office-janitor --diagnose                 Emit inventory without changes
-  office-janitor --diagnose --plan out.json Save detailed plan to file
+DIAGNOSTICS (global):
+  office-janitor --diagnose                  # Emit inventory without changes
+  office-janitor --diagnose --plan out.json  # Save detailed plan to file
 
 ================================================================================
+
+BACKWARD COMPATIBILITY:
+  Legacy flags like --auto-all, --auto-repair, --repair quick still work.
+  The new subcommand syntax is recommended for clarity.
 
 SUPPORTED LANGUAGES: en-us, de-de, fr-fr, es-es, pt-br, pt-pt, it-it, ja-jp,
   ko-kr, zh-cn, zh-tw, ru-ru, pl-pl, nl-nl, ar-sa, he-il, tr-tr
@@ -153,6 +163,70 @@ Use --odt-list-channels for update channel options.
 Use --odt-list-presets for all installation presets.
 
 Full documentation: https://github.com/supermarsx/office-janitor
+"""
+
+# ---------------------------------------------------------------------------
+# Subcommand Epilog Text
+# ---------------------------------------------------------------------------
+
+INSTALL_EPILOG = """\
+INSTALLATION PRESETS:
+  365-proplus-x64         Microsoft 365 Apps for enterprise (64-bit)
+  365-business-x64        Microsoft 365 Apps for business (64-bit)
+  office2024-x64          Office LTSC 2024 Professional Plus (64-bit)
+  office2021-x64          Office LTSC 2021 Professional Plus (64-bit)
+  ltsc2024-full-x64       Office 2024 + Visio + Project (64-bit)
+  ltsc2024-full-x64-clean Office 2024 + Visio + Project (no bloat)
+
+EXAMPLES:
+  office-janitor install --preset 365-proplus-x64
+  office-janitor install --preset ltsc2024-full-x64 --language pt-pt
+  office-janitor install --goobler              # LTSC 2024 + Visio + Project
+  office-janitor install --build config.xml    # Generate custom ODT config
+"""
+
+REPAIR_EPILOG = """\
+REPAIR MODES:
+  (default)    Auto-detect and repair all Office installations
+  --quick      Quick local repair - fixes common issues (5-15 min)
+  --full       Full online repair - redownloads components (30-60 min)
+  --odt        Repair using Office Deployment Tool configuration
+  --c2r        Repair using OfficeClickToRun.exe directly
+
+EXAMPLES:
+  office-janitor repair                      # Auto-repair all detected
+  office-janitor repair --quick              # Quick local repair
+  office-janitor repair --full --visible     # Full repair with UI
+  office-janitor repair --dry-run            # Preview repair operations
+"""
+
+REMOVE_EPILOG = """\
+SCRUB LEVELS:
+  minimal      Uninstall only, minimal cleanup
+  standard     Uninstall + registry/filesystem cleanup (default)
+  aggressive   Deep cleanup including license artifacts
+  nuclear      Complete removal of all Office traces
+
+EXAMPLES:
+  office-janitor remove                      # Remove all detected Office
+  office-janitor remove --target 2019        # Target specific version
+  office-janitor remove --c2r-only           # Remove Click-to-Run only
+  office-janitor remove --msi-only           # Remove MSI Office only
+  office-janitor remove --scrub aggressive   # Aggressive cleanup
+  office-janitor remove --dry-run            # Preview (safe mode)
+"""
+
+DIAGNOSE_EPILOG = """\
+OUTPUT FORMATS:
+  --plan FILE           Save detailed action plan as JSON
+  --json                Output structured events to stdout
+  --verbose             Increase detail level (-v, -vv, -vvv)
+
+EXAMPLES:
+  office-janitor diagnose                    # Show detected Office installations
+  office-janitor diagnose --plan report.json # Save plan to file
+  office-janitor diagnose --json             # Machine-readable output
+  office-janitor diagnose -vvv               # Maximum verbosity
 """
 
 # ---------------------------------------------------------------------------
@@ -206,10 +280,16 @@ def add_mode_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     return parser
 
 
-def add_core_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def add_core_options(
+    parser: argparse.ArgumentParser,
+    *,
+    include_passes: bool = True,
+) -> argparse.ArgumentParser:
     """!
     @brief Add core operation options.
     @param parser The ArgumentParser to add arguments to.
+    @param include_passes Whether to include the --passes option (default True).
+        Set to False when the subparser already has a passes option.
     @returns The parser for chaining.
     """
     core = parser.add_argument_group("Core Options")
@@ -247,13 +327,14 @@ def add_core_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         metavar="JSON",
         help="Load options from a JSON configuration file.",
     )
-    core.add_argument(
-        "--passes",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Number of uninstall passes (default: 1).",
-    )
+    if include_passes:
+        core.add_argument(
+            "--passes",
+            type=int,
+            default=None,
+            metavar="N",
+            help="Number of uninstall passes (default: 1).",
+        )
     return parser
 
 
@@ -588,10 +669,16 @@ def add_registry_cleanup_options(parser: argparse.ArgumentParser) -> argparse.Ar
     return parser
 
 
-def add_output_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def add_output_options(
+    parser: argparse.ArgumentParser,
+    *,
+    include_timeout: bool = True,
+) -> argparse.ArgumentParser:
     """!
     @brief Add output and logging options.
     @param parser The ArgumentParser to add arguments to.
+    @param include_timeout Whether to include the --timeout option (default True).
+        Set to False when the subparser already has a timeout option.
     @returns The parser for chaining.
     """
     output = parser.add_argument_group("Output & Logging Options")
@@ -610,12 +697,13 @@ def add_output_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         metavar="DIR",
         help="Destination for registry/file backups.",
     )
-    output.add_argument(
-        "--timeout",
-        metavar="SEC",
-        type=int,
-        help="Per-step timeout in seconds.",
-    )
+    if include_timeout:
+        output.add_argument(
+            "--timeout",
+            metavar="SEC",
+            type=int,
+            help="Per-step timeout in seconds.",
+        )
     output.add_argument(
         "--quiet",
         "-q",
@@ -1029,9 +1117,15 @@ def add_advanced_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
 
 def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.ArgumentParser:
     """!
-    @brief Create the top-level argument parser with all CLI options.
+    @brief Create the top-level argument parser with subcommands and all CLI options.
     @param version_info Optional version metadata dict with 'version' and 'build' keys.
     @returns Configured ArgumentParser instance.
+    @details Supports three operation modes via subcommands:
+    - install: Deploy Office via ODT presets or custom configurations
+    - repair: Fix broken Office installations
+    - remove: Uninstall Office and clean up residual artifacts
+    
+    Legacy flags (--auto-all, --auto-repair, etc.) are preserved for backward compatibility.
     """
     parser = argparse.ArgumentParser(
         prog=PROGRAM_NAME,
@@ -1057,7 +1151,90 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
             version=f"{version_info.get('version', '0.0.0')} ({version_info.get('build', 'dev')})",
         )
 
-    # Add all argument groups in logical order
+    # ---------------------------------------------------------------------------
+    # Subcommands: install, repair, remove
+    # ---------------------------------------------------------------------------
+    subparsers = parser.add_subparsers(
+        dest="command",
+        title="operation modes",
+        description="Choose an operation mode (or use legacy flags for backward compatibility)",
+        metavar="<command>",
+    )
+
+    # ----- INSTALL subcommand -----
+    install_parser = subparsers.add_parser(
+        "install",
+        help="Deploy Office via ODT presets or custom configurations",
+        description="Install Microsoft Office using the Office Deployment Tool (ODT).",
+        epilog=INSTALL_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    install_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    _add_install_subcommand_options(install_parser)
+    add_core_options(install_parser)
+    add_output_options(install_parser)
+    add_tui_options(install_parser)
+    add_retry_options(install_parser)
+    add_advanced_options(install_parser)
+
+    # ----- REPAIR subcommand -----
+    repair_parser = subparsers.add_parser(
+        "repair",
+        help="Fix broken Office installations (quick or full repair)",
+        description="Repair Microsoft Office installations using various methods.",
+        epilog=REPAIR_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    repair_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    _add_repair_subcommand_options(repair_parser)
+    add_core_options(repair_parser)
+    add_output_options(repair_parser, include_timeout=False)  # Timeout already in repair opts
+    add_tui_options(repair_parser)
+    add_retry_options(repair_parser)
+    add_advanced_options(repair_parser)
+
+    # ----- REMOVE subcommand -----
+    remove_parser = subparsers.add_parser(
+        "remove",
+        help="Uninstall Office and clean up residual artifacts",
+        description="Remove Microsoft Office installations and scrub leftover artifacts.",
+        epilog=REMOVE_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    remove_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    _add_remove_subcommand_options(remove_parser)
+    add_core_options(remove_parser, include_passes=False)  # Passes already in remove opts
+    add_scrub_options(remove_parser)
+    add_license_options(remove_parser)
+    add_data_options(remove_parser)
+    add_registry_cleanup_options(remove_parser)
+    add_output_options(remove_parser)
+    add_tui_options(remove_parser)
+    add_retry_options(remove_parser)
+    add_offscrub_options(remove_parser)
+    add_advanced_options(remove_parser)
+
+    # ----- DIAGNOSE subcommand -----
+    diagnose_parser = subparsers.add_parser(
+        "diagnose",
+        help="Detect and report Office installations without making changes",
+        description="Scan the system for Office installations and generate a diagnostic report.",
+        epilog=DIAGNOSE_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    diagnose_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    _add_diagnose_subcommand_options(diagnose_parser)
+    add_output_options(diagnose_parser)
+    add_tui_options(diagnose_parser)
+
+    # ---------------------------------------------------------------------------
+    # Legacy/Global options (backward compatibility)
+    # ---------------------------------------------------------------------------
+    # These options work without subcommands for backward compatibility
     add_mode_arguments(parser)
     add_core_options(parser)
     add_repair_options(parser)
@@ -1076,6 +1253,314 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     add_advanced_options(parser)
 
     return parser
+
+
+# ---------------------------------------------------------------------------
+# Subcommand-Specific Option Functions
+# ---------------------------------------------------------------------------
+
+
+def _add_install_subcommand_options(parser: argparse.ArgumentParser) -> None:
+    """!
+    @brief Add options specific to the 'install' subcommand.
+    @param parser The subparser to add arguments to.
+    """
+    install_opts = parser.add_argument_group("Installation Options")
+    install_opts.add_argument(
+        "--preset",
+        metavar="NAME",
+        dest="odt_preset",
+        help="Use a predefined ODT installation preset (use --list-presets to see options).",
+    )
+    install_opts.add_argument(
+        "--product",
+        metavar="ID",
+        action="append",
+        dest="odt_products",
+        help="Product ID to include in installation (repeatable).",
+    )
+    install_opts.add_argument(
+        "--language",
+        metavar="CODE",
+        action="append",
+        dest="odt_languages",
+        help="Language code for installation (repeatable, default: en-us).",
+    )
+    install_opts.add_argument(
+        "--arch",
+        choices=["32", "64"],
+        default="64",
+        dest="odt_arch",
+        metavar="BITS",
+        help="Architecture for installation (default: 64).",
+    )
+    install_opts.add_argument(
+        "--channel",
+        metavar="CHANNEL",
+        dest="odt_channel",
+        help="Update channel for installation.",
+    )
+    install_opts.add_argument(
+        "--shared-computer",
+        action="store_true",
+        dest="odt_shared_computer",
+        help="Enable shared computer licensing.",
+    )
+    install_opts.add_argument(
+        "--remove-msi",
+        action="store_true",
+        dest="odt_remove_msi",
+        help="Remove existing MSI Office before installation.",
+    )
+    install_opts.add_argument(
+        "--exclude-app",
+        metavar="APP",
+        action="append",
+        dest="odt_exclude_apps",
+        help="App to exclude from installation (repeatable).",
+    )
+    install_opts.add_argument(
+        "--include-visio",
+        action="store_true",
+        dest="odt_include_visio",
+        help="Include Visio Professional.",
+    )
+    install_opts.add_argument(
+        "--include-project",
+        action="store_true",
+        dest="odt_include_project",
+        help="Include Project Professional.",
+    )
+
+    # Build/generate options
+    build_opts = parser.add_argument_group("Build Options")
+    build_opts.add_argument(
+        "--build",
+        metavar="FILE",
+        dest="odt_output",
+        help="Generate an ODT XML configuration file instead of installing.",
+    )
+    build_opts.add_argument(
+        "--download",
+        metavar="PATH",
+        dest="odt_download",
+        help="Generate a download XML with the specified local path.",
+    )
+
+    # List options
+    list_opts = parser.add_argument_group("List Options")
+    list_opts.add_argument(
+        "--list-presets",
+        action="store_true",
+        dest="odt_list_presets",
+        help="List all available installation presets and exit.",
+    )
+    list_opts.add_argument(
+        "--list-products",
+        action="store_true",
+        dest="odt_list_products",
+        help="List all available ODT product IDs and exit.",
+    )
+    list_opts.add_argument(
+        "--list-channels",
+        action="store_true",
+        dest="odt_list_channels",
+        help="List all available update channels and exit.",
+    )
+    list_opts.add_argument(
+        "--list-languages",
+        action="store_true",
+        dest="odt_list_languages",
+        help="List all supported language codes and exit.",
+    )
+
+    # Author aliases
+    alias_opts = parser.add_argument_group("Quick Install Aliases")
+    alias_opts.add_argument(
+        "--goobler",
+        action="store_true",
+        help="Install LTSC 2024 + Visio + Project (clean) with pt-pt and en-us.",
+    )
+    alias_opts.add_argument(
+        "--pupa",
+        action="store_true",
+        help="Install LTSC 2024 ProPlus only (clean) with pt-pt and en-us.",
+    )
+
+
+def _add_repair_subcommand_options(parser: argparse.ArgumentParser) -> None:
+    """!
+    @brief Add options specific to the 'repair' subcommand.
+    @param parser The subparser to add arguments to.
+    """
+    repair_mode = parser.add_argument_group("Repair Mode")
+    repair_type = repair_mode.add_mutually_exclusive_group()
+    repair_type.add_argument(
+        "--quick",
+        action="store_const",
+        const="quick",
+        dest="repair_type",
+        help="Quick local repair (5-15 min, no internet required).",
+    )
+    repair_type.add_argument(
+        "--full",
+        action="store_const",
+        const="full",
+        dest="repair_type",
+        help="Full online repair (30-60 min, downloads components).",
+    )
+    repair_type.add_argument(
+        "--odt",
+        action="store_true",
+        dest="repair_odt",
+        help="Repair using ODT/setup.exe configuration method.",
+    )
+    repair_type.add_argument(
+        "--c2r",
+        action="store_true",
+        dest="repair_c2r",
+        help="Repair using OfficeClickToRun.exe directly.",
+    )
+
+    repair_opts = parser.add_argument_group("Repair Options")
+    repair_opts.add_argument(
+        "--culture",
+        metavar="LANG",
+        default="en-us",
+        dest="repair_culture",
+        help="Language/culture code for repair (default: en-us).",
+    )
+    repair_opts.add_argument(
+        "--platform",
+        choices=["x86", "x64"],
+        metavar="ARCH",
+        dest="repair_platform",
+        help="Architecture for repair (auto-detected if not specified).",
+    )
+    repair_opts.add_argument(
+        "--visible",
+        action="store_true",
+        dest="repair_visible",
+        help="Show repair UI instead of running silently.",
+    )
+    repair_opts.add_argument(
+        "--timeout",
+        type=int,
+        default=3600,
+        metavar="SEC",
+        dest="repair_timeout",
+        help="Timeout for repair operations in seconds (default: 3600).",
+    )
+    repair_opts.add_argument(
+        "--all-products",
+        action="store_true",
+        dest="repair_all_products",
+        help="Repair all detected Office products.",
+    )
+    repair_opts.add_argument(
+        "--preset",
+        metavar="NAME",
+        dest="repair_preset",
+        help="Use a specific repair preset (quick-repair, full-repair, etc.).",
+    )
+
+
+def _add_diagnose_subcommand_options(parser: argparse.ArgumentParser) -> None:
+    """!
+    @brief Add options specific to the 'diagnose' subcommand.
+    @param parser The subparser to add arguments to.
+    """
+    diag_opts = parser.add_argument_group("Diagnostic Options")
+    diag_opts.add_argument(
+        "--inventory",
+        metavar="FILE",
+        help="Save inventory data to a JSON file.",
+    )
+    diag_opts.add_argument(
+        "--check-health",
+        action="store_true",
+        help="Perform health checks on detected installations.",
+    )
+    diag_opts.add_argument(
+        "--check-licenses",
+        action="store_true",
+        help="Check license status of detected products.",
+    )
+    diag_opts.add_argument(
+        "--check-updates",
+        action="store_true",
+        help="Check for available updates.",
+    )
+
+
+def _add_remove_subcommand_options(parser: argparse.ArgumentParser) -> None:
+    """!
+    @brief Add options specific to the 'remove' subcommand.
+    @param parser The subparser to add arguments to.
+    """
+    target_opts = parser.add_argument_group("Target Selection")
+    target_opts.add_argument(
+        "--target",
+        metavar="VERSION",
+        help="Target specific Office version (2013, 2016, 2019, 2021, 2024, 365).",
+    )
+    target_opts.add_argument(
+        "--msi-only",
+        action="store_const",
+        const="msi",
+        dest="uninstall_method",
+        help="Only uninstall MSI-based Office products.",
+    )
+    target_opts.add_argument(
+        "--c2r-only",
+        action="store_const",
+        const="c2r",
+        dest="uninstall_method",
+        help="Only uninstall Click-to-Run Office products.",
+    )
+    target_opts.add_argument(
+        "--product-code",
+        metavar="GUID",
+        action="append",
+        dest="product_codes",
+        help="Specific MSI product code(s) to uninstall (repeatable).",
+    )
+    target_opts.add_argument(
+        "--release-id",
+        metavar="ID",
+        action="append",
+        dest="release_ids",
+        help="Specific C2R release ID(s) to uninstall (repeatable).",
+    )
+
+    scrub_opts = parser.add_argument_group("Scrub Level")
+    scrub_opts.add_argument(
+        "--scrub",
+        choices=["minimal", "standard", "aggressive", "nuclear"],
+        default="standard",
+        dest="scrub_level",
+        metavar="LEVEL",
+        help="Scrub intensity level (default: standard).",
+    )
+
+    uninstall_opts = parser.add_argument_group("Uninstall Options")
+    uninstall_opts.add_argument(
+        "--force-app-shutdown",
+        action="store_true",
+        help="Force close running Office applications before uninstall.",
+    )
+    uninstall_opts.add_argument(
+        "--no-force-app-shutdown",
+        action="store_true",
+        help="Prompt user to close apps instead of forcing shutdown.",
+    )
+    uninstall_opts.add_argument(
+        "--passes",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Number of uninstall passes (default: 1).",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1180,6 +1665,10 @@ __all__ = [
     "PROGRAM_NAME",
     "PROGRAM_DESCRIPTION",
     "EPILOG_TEXT",
+    "INSTALL_EPILOG",
+    "REPAIR_EPILOG",
+    "REMOVE_EPILOG",
+    "DIAGNOSE_EPILOG",
     "build_arg_parser",
     "format_repair_help",
     "format_quick_reference",
