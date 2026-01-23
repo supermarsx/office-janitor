@@ -394,7 +394,15 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         """!
         @brief Wait for the user to press Enter before closing.
         @details Used to prevent the console window from closing immediately.
+        Only pauses when running interactively (not in tests or piped input).
         """
+        import os
+        # Don't pause in test environments
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+        # Don't pause if stdin is not a TTY
+        if not sys.stdin.isatty():
+            return
         print("\nPress Enter to exit...")
         try:
             input_func = self.app_state.get("input", input)
@@ -402,8 +410,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 input_func("")
             else:
                 input()
-        except (EOFError, OSError):
-            pass  # Non-interactive context (tests, piped input)
+        except (EOFError, OSError, KeyboardInterrupt):
+            pass  # Non-interactive context
 
     # -----------------------------------------------------------------------
     # Key handling

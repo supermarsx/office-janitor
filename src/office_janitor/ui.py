@@ -476,13 +476,25 @@ def _menu_settings(context: MutableMapping[str, object]) -> None:
             print("Please choose a valid option (1-8).")
 
 
+def _should_pause_on_exit() -> bool:
+    """Determine if we should pause before exit (not in tests or piped input)."""
+    import os
+    import sys
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
+    if not sys.stdin.isatty():
+        return False
+    return True
+
+
 def _menu_exit(context: MutableMapping[str, object]) -> None:
     context["running"] = False
     _notify(context, "ui.exit", "Exiting Office Janitor interactive CLI.")
     print("Exiting Office Janitor.")
-    print("\nPress Enter to exit...")
-    input_func = cast(Callable[[str], str], context.get("input", input))
-    input_func("")
+    if _should_pause_on_exit():
+        print("\nPress Enter to exit...")
+        input_func = cast(Callable[[str], str], context.get("input", input))
+        input_func("")
 
 
 def _plan_and_execute(

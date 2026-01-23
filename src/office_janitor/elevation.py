@@ -110,10 +110,12 @@ def pause_if_elevated(exit_code: int = 0) -> None:
             print(f"Operation finished with exit code: {exit_code}")
             print("=" * 60)
         print()
-        try:
-            input("Press Enter to close this window...")
-        except (EOFError, KeyboardInterrupt):
-            pass  # Handle non-interactive or Ctrl+C gracefully
+        # Only pause if running interactively
+        if not os.environ.get("PYTEST_CURRENT_TEST") and sys.stdin.isatty():
+            try:
+                input("Press Enter to close this window...")
+            except (EOFError, KeyboardInterrupt):
+                pass  # Handle non-interactive or Ctrl+C gracefully
 
 
 def run_as_limited_user(

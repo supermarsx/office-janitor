@@ -1597,8 +1597,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     # ---------------------------------------------------------------------------
     # Global options (shown in main help)
     # ---------------------------------------------------------------------------
-    # Truly global options that apply to all modes/subcommands
-    add_mode_arguments(parser)  # Legacy mode flags (--auto-all, --diagnose, etc.)
+    # Truly global options that apply to all commands
     add_global_options(parser)  # Truly global: --dry-run, --yes, --verbose, etc.
 
     # ---------------------------------------------------------------------------
