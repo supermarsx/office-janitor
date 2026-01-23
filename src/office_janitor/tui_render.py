@@ -49,6 +49,9 @@ class TUIRendererMixin:
     - odt_repair_presets: dict[str, tuple[str, bool]]
     - odt_locales: dict[str, tuple[str, bool]]
     - app_state: MutableMapping
+    - current_mode: str | None
+    - mode_options: list[tuple[str, str, str]]
+    - mode_index: int
     """
 
     # Type hints for mixin attributes (defined in OfficeJanitorTUI)
@@ -71,6 +74,9 @@ class TUIRendererMixin:
     odt_locales: dict[str, tuple[str, bool]]
     app_state: dict[str, object]
     list_filters: dict[str, str]
+    current_mode: str | None
+    mode_options: list[tuple[str, str, str]]
+    mode_index: int
 
     def _render(self) -> None:
         """!
@@ -82,21 +88,61 @@ class TUIRendererMixin:
         sys.stdout.write(self._render_header(width) + "\n")
         sys.stdout.write(divider(width) + "\n")
 
-        nav_lines = self._render_navigation(left_width)
-        content_lines = self._render_content(width - left_width - 1)
+        # Mode selection screen uses full-width centered layout
+        if self.current_mode is None:
+            mode_lines = self._render_mode_selection(width)
+            for line in mode_lines:
+                sys.stdout.write(line + "\n")
+        else:
+            nav_lines = self._render_navigation(left_width)
+            content_lines = self._render_content(width - left_width - 1)
 
-        max_lines = max(len(nav_lines), len(content_lines))
-        for index in range(max_lines):
-            left_text = nav_lines[index] if index < len(nav_lines) else ""
-            right_text = content_lines[index] if index < len(content_lines) else ""
-            # Calculate visible length (excluding ANSI codes) for proper padding
-            visible_len = len(strip_ansi(left_text))
-            padding = " " * max(0, left_width - visible_len)
-            sys.stdout.write(f"{left_text}{padding} {right_text[: width - left_width - 1]}\n")
+            max_lines = max(len(nav_lines), len(content_lines))
+            for index in range(max_lines):
+                left_text = nav_lines[index] if index < len(nav_lines) else ""
+                right_text = content_lines[index] if index < len(content_lines) else ""
+                # Calculate visible length (excluding ANSI codes) for proper padding
+                visible_len = len(strip_ansi(left_text))
+                padding = " " * max(0, left_width - visible_len)
+                sys.stdout.write(f"{left_text}{padding} {right_text[: width - left_width - 1]}\n")
 
         sys.stdout.write(divider(width) + "\n")
         sys.stdout.write(self._render_footer() + "\n")
         sys.stdout.flush()
+
+    def _render_mode_selection(self, width: int) -> list[str]:
+        """Render the mode selection screen."""
+        lines: list[str] = []
+        lines.append("")
+        lines.append("Select Operation Mode".center(width))
+        lines.append("=" * 40)
+        lines.append("")
+
+        for index, (mode_id, label, description) in enumerate(self.mode_options):
+            prefix = "➤" if index == self.mode_index else " "
+            visible_text = f"{prefix} [{mode_id[0].upper()}] {label}"
+
+            if self.ansi_supported and index == self.mode_index:
+                # Highlight selected option
+                padded = visible_text.ljust(width)
+                line = f"\x1b[7m{padded}\x1b[0m"
+            else:
+                line = visible_text
+            lines.append(line)
+            # Add description under the label
+            desc_line = f"      {description}"
+            lines.append(desc_line[:width])
+            lines.append("")
+
+        lines.append("")
+        lines.append("Use ↑↓ to select, Enter to confirm, Q to quit".center(width))
+        lines.append("")
+
+        # Add status log at bottom
+        lines.append("Status:")
+        lines.extend(self.status_lines[-(8 if self.compact_layout else 12) :])
+
+        return lines
 
     def _render_header(self, width: int) -> str:
         """Render the header line with version and status."""
@@ -157,10 +203,13 @@ class TUIRendererMixin:
 
     def _render_footer(self) -> str:
         """Render the footer help text."""
-        help_text = (
-            "Arrows navigate • Tab switches focus • Space toggles • Enter confirms • "
-            "F10 run • / filter • F1 help • Q quits"
-        )
+        if self.current_mode is None:
+            help_text = "↑↓ select mode • Enter confirm • Q quit"
+        else:
+            help_text = (
+                "Arrows navigate • Tab switches focus • Space toggles • Enter confirms • "
+                "F10 run • / filter • Esc back • Q quits"
+            )
         return help_text
 
     def _render_inventory_pane(self, width: int) -> list[str]:

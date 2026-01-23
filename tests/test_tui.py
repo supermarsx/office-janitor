@@ -97,6 +97,25 @@ def _make_app_state():
     return state, calls
 
 
+def _select_mode(interface, mode: str) -> None:
+    """Helper to select a mode in the TUI.
+
+    Args:
+        interface: The TUI interface
+        mode: One of 'install', 'repair', 'remove', 'diagnose'
+    """
+    mode_ids = [m[0] for m in interface.mode_options]
+    target_index = mode_ids.index(mode)
+    # Navigate to the mode
+    while interface.mode_index != target_index:
+        if interface.mode_index < target_index:
+            interface._handle_key("down")
+        else:
+            interface._handle_key("up")
+    # Select it
+    interface._handle_key("enter")
+
+
 def test_decode_key_windows_arrow_sequences():
     assert tui._decode_key("\x00H") == "up"
     assert tui._decode_key("\x00P") == "down"
@@ -108,17 +127,139 @@ def test_decode_key_windows_arrow_sequences():
     assert tui._decode_key("\xe0M") == "right"
 
 
+def test_mode_selection_initial_state(monkeypatch):
+    """Test TUI starts in mode selection screen."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    assert interface.current_mode is None
+    assert interface.mode_index == 0
+    assert interface.active_tab == "mode_select"
+    assert len(interface.mode_options) == 4
+    assert interface.navigation == []  # Navigation is empty until mode selected
+
+
+def test_mode_selection_navigation(monkeypatch):
+    """Test navigating through mode selection options."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    # Initially at index 0
+    assert interface.mode_index == 0
+
+    # Navigate down
+    interface._handle_key("down")
+    assert interface.mode_index == 1
+
+    interface._handle_key("down")
+    assert interface.mode_index == 2
+
+    # Navigate up
+    interface._handle_key("up")
+    assert interface.mode_index == 1
+
+    # Navigate back up to wrap
+    interface._handle_key("up")
+    interface._handle_key("up")  # Should wrap to bottom (index 3)
+    assert interface.mode_index == 3
+
+
+def test_mode_selection_enters_mode(monkeypatch):
+    """Test selecting a mode enters that mode's navigation."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    # Select install mode
+    _select_mode(interface, "install")
+    assert interface.current_mode == "install"
+    assert len(interface.navigation) > 0
+    assert any(item.name == "odt_presets" for item in interface.navigation)
+
+    # Return to mode selection
+    interface._return_to_mode_selection()
+    assert interface.current_mode is None
+    assert interface.active_tab == "mode_select"
+
+
+def test_escape_returns_to_mode_selection(monkeypatch):
+    """Test Escape key returns to mode selection from a mode."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    # Enter remove mode
+    _select_mode(interface, "remove")
+    assert interface.current_mode == "remove"
+
+    # Press escape to return to mode selection
+    interface._handle_key("escape")
+    assert interface.current_mode is None
+    assert interface.active_tab == "mode_select"
+
+
+def test_mode_specific_navigation(monkeypatch):
+    """Test each mode has its own specific navigation items."""
+    state, _ = _make_app_state()
+    monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
+    interface = tui.OfficeJanitorTUI(state)
+
+    # Install mode
+    _select_mode(interface, "install")
+    install_names = [item.name for item in interface.navigation]
+    assert "odt_presets" in install_names
+    assert "odt_locales" in install_names
+    assert "back" in install_names
+
+    # Repair mode
+    interface._return_to_mode_selection()
+    _select_mode(interface, "repair")
+    repair_names = [item.name for item in interface.navigation]
+    assert "repair_quick" in repair_names
+    assert "repair_full" in repair_names
+    assert "repair_odt" in repair_names
+
+    # Remove mode
+    interface._return_to_mode_selection()
+    _select_mode(interface, "remove")
+    remove_names = [item.name for item in interface.navigation]
+    assert "detect" in remove_names
+    assert "auto" in remove_names
+    assert "targeted" in remove_names
+
+    # Diagnose mode
+    interface._return_to_mode_selection()
+    _select_mode(interface, "diagnose")
+    diagnose_names = [item.name for item in interface.navigation]
+    assert "detect" in diagnose_names
+    assert "diagnostics" in diagnose_names
+    assert "plan" in diagnose_names
+
+
 def test_navigation_state_changes(monkeypatch):
     state, calls = _make_app_state()
 
     monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
     interface = tui.OfficeJanitorTUI(state)
 
-    # Navigate to the plan item (8 items down: detect, auto, targeted, cleanup, diagnostics,
-    # odt_install, odt_locales, odt_repair, plan)
-    for _ in range(8):
-        interface._handle_key("down")
-    assert interface.active_tab == "plan"
+    # First select "diagnose" mode to get access to detection and plan
+    _select_mode(interface, "diagnose")
+
+    # Navigate to the detect item (first item)
+    interface.nav_index = 0
+    interface.active_tab = interface.navigation[0].name
+    interface._handle_key("enter")
+    assert calls["detect"] == 1
+
+    # Navigate to plan by finding it
+    for idx, item in enumerate(interface.navigation):
+        if item.name == "plan":
+            interface.nav_index = idx
+            interface.active_tab = "plan"
+            break
+
     interface._handle_key("enter")
     assert interface.focus_area == "content"
 
@@ -127,14 +268,6 @@ def test_navigation_state_changes(monkeypatch):
     assert interface.plan_overrides["include_visio"] is True
     interface._handle_key("down")
     assert interface.panes["plan"].cursor == plan_cursor_before + 1
-
-    interface.focus_area = "nav"
-    for _ in range(len(interface.navigation)):
-        if interface.navigation[interface.nav_index].name == "detect":
-            break
-        interface._handle_key("up")
-    interface._handle_key("enter")
-    assert calls["detect"] == 1
 
 
 def test_plan_filter_limits_visible_options(monkeypatch):
@@ -382,14 +515,21 @@ def test_odt_repair_requires_selection(monkeypatch):
 
 
 def test_navigation_includes_odt_items(monkeypatch):
-    """Test navigation includes ODT Install and Repair items."""
+    """Test navigation includes ODT Install and Repair items in install/repair modes."""
     state, _ = _make_app_state()
     monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
     interface = tui.OfficeJanitorTUI(state)
 
-    nav_names = [item.name for item in interface.navigation]
-    assert "odt_install" in nav_names
-    assert "odt_repair" in nav_names
+    # Check install mode has odt_presets
+    _select_mode(interface, "install")
+    install_nav_names = [item.name for item in interface.navigation]
+    assert "odt_presets" in install_nav_names
+
+    # Check repair mode has repair_odt
+    interface._return_to_mode_selection()
+    _select_mode(interface, "repair")
+    repair_nav_names = [item.name for item in interface.navigation]
+    assert "repair_odt" in repair_nav_names
 
 
 def test_odt_pane_lines_populated(monkeypatch):
@@ -521,11 +661,13 @@ def test_odt_install_requires_locale(monkeypatch):
 
 
 def test_navigation_includes_odt_locales(monkeypatch):
-    """Test navigation includes ODT Locales item."""
+    """Test navigation includes ODT Locales item in install mode."""
     state, _ = _make_app_state()
     monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
     interface = tui.OfficeJanitorTUI(state)
 
+    # Check install mode has odt_locales
+    _select_mode(interface, "install")
     nav_names = [item.name for item in interface.navigation]
     assert "odt_locales" in nav_names
 
@@ -1009,21 +1151,43 @@ def test_odt_locales_displays_checkbox_state(monkeypatch):
 
 
 def test_odt_navigation_order(monkeypatch):
-    """Test ODT items appear in expected navigation order."""
+    """Test ODT items appear in expected navigation order within modes."""
     state, _ = _make_app_state()
     monkeypatch.setattr(tui, "_supports_ansi", lambda stream=None: True)
     interface = tui.OfficeJanitorTUI(state)
 
-    nav_names = [item.name for item in interface.navigation]
+    # Test install mode navigation order
+    _select_mode(interface, "install")
+    install_nav_names = [item.name for item in interface.navigation]
+    # Install mode should have: odt_presets, odt_locales, odt_custom, run_install, back
+    assert install_nav_names.index("odt_presets") < install_nav_names.index("odt_locales")
+    assert install_nav_names.index("odt_locales") < install_nav_names.index("odt_custom")
+    assert install_nav_names.index("odt_custom") < install_nav_names.index("run_install")
 
-    # ODT items should appear after diagnostics and before plan
-    diag_idx = nav_names.index("diagnostics")
-    plan_idx = nav_names.index("plan")
-    install_idx = nav_names.index("odt_install")
-    locales_idx = nav_names.index("odt_locales")
-    repair_idx = nav_names.index("odt_repair")
+    # Test repair mode navigation order
+    interface._return_to_mode_selection()
+    _select_mode(interface, "repair")
+    repair_nav_names = [item.name for item in interface.navigation]
+    # Repair mode should have: repair_quick, repair_full, repair_odt, run_repair, back
+    assert repair_nav_names.index("repair_quick") < repair_nav_names.index("repair_full")
+    assert repair_nav_names.index("repair_full") < repair_nav_names.index("repair_odt")
+    assert repair_nav_names.index("repair_odt") < repair_nav_names.index("run_repair")
 
-    assert diag_idx < install_idx < locales_idx < repair_idx < plan_idx
+    # Test remove mode navigation order
+    interface._return_to_mode_selection()
+    _select_mode(interface, "remove")
+    remove_nav_names = [item.name for item in interface.navigation]
+    # Remove mode should have: detect, auto, targeted, cleanup, settings, run_remove, back
+    assert remove_nav_names.index("detect") < remove_nav_names.index("auto")
+    assert remove_nav_names.index("auto") < remove_nav_names.index("targeted")
+
+    # Test diagnose mode navigation order
+    interface._return_to_mode_selection()
+    _select_mode(interface, "diagnose")
+    diagnose_nav_names = [item.name for item in interface.navigation]
+    # Diagnose mode should have: detect, diagnostics, plan, logs, back
+    assert diagnose_nav_names.index("detect") < diagnose_nav_names.index("diagnostics")
+    assert diagnose_nav_names.index("diagnostics") < diagnose_nav_names.index("plan")
 
 
 # ---------------------------------------------------------------------------

@@ -714,21 +714,13 @@ def test_tui_commands_drive_backends(monkeypatch) -> None:
 
     keys = iter(
         [
-            "enter",  # detect
-            "tab",
-            "down",  # auto
-            "down",  # targeted
-            "down",  # cleanup
-            "down",  # diagnostics
-            "down",  # odt_install
-            "down",  # odt_locales
-            "down",  # odt_repair
-            "down",  # plan
-            "enter",  # focus plan tab
-            "enter",  # execute plan
-            "tab",
-            "down",
-            "enter",  # run execution
+            # Mode selection: select "remove" (3rd option, index 2)
+            "down",  # repair
+            "down",  # remove
+            "enter",  # select remove mode
+            # Now in remove mode, go to auto and trigger it
+            "down",  # auto remove all
+            "enter",  # trigger auto (which does detect, plan, execute)
             "quit",
         ]
     )
@@ -813,7 +805,16 @@ def test_tui_auto_mode_invokes_overrides(monkeypatch) -> None:
     monkeypatch.setattr(tui_actions_module, "spinner", lambda duration, message: None)
     monkeypatch.setattr(tui_module.OfficeJanitorTUI, "_drain_events", lambda self: False)
 
-    keys = iter(["down", "enter", "quit"])
+    keys = iter([
+        # Mode selection: select "remove" (3rd option, index 2)
+        "down",  # repair
+        "down",  # remove
+        "enter",  # select remove mode
+        # Now in remove mode, navigate to auto
+        "down",  # auto remove all (2nd item)
+        "enter",  # trigger auto
+        "quit",
+    ])
 
     def reader() -> str:
         return next(keys)
@@ -870,7 +871,18 @@ def test_tui_targeted_collects_input(monkeypatch) -> None:
         tui_module.OfficeJanitorTUI, "_collect_plan_overrides", lambda self: {"include": "visio"}
     )
 
-    keys = iter(["down", "down", "enter", "f10", "quit"])
+    keys = iter([
+        # Mode selection: select "remove" (3rd option, index 2)
+        "down",  # repair
+        "down",  # remove
+        "enter",  # select remove mode
+        # Navigate to targeted remove (3rd item)
+        "down",  # auto
+        "down",  # targeted
+        "enter",  # activate targeted
+        "f10",   # run targeted
+        "quit",
+    ])
 
     def reader() -> str:
         return next(keys)

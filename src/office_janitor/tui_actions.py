@@ -459,6 +459,69 @@ class TUIActionsMixin:
         )
 
     # -----------------------------------------------------------------------
+    # Mode-Specific Action Handlers
+    # -----------------------------------------------------------------------
+
+    def _prepare_odt_custom(self) -> None:
+        """Prepare custom ODT configuration submenu."""
+        self.progress_message = "Custom ODT configuration"
+        self._append_status("Custom: Specify ODT XML path or create from template.")
+        self._append_status("Tip: Use bundled presets for standard configurations.")
+
+    def _handle_odt_install_run(self) -> None:
+        """Execute ODT installation from Install mode."""
+        self._handle_odt_install(execute=True)
+
+    def _prepare_repair_quick(self) -> None:
+        """Prepare quick repair action."""
+        self.progress_message = "Quick Repair (offline)"
+        self._append_status("Quick Repair: Fixes common issues without internet.")
+        self._append_status("Runs built-in Office repair. Press Enter/F10 to execute.")
+
+    def _prepare_repair_full(self) -> None:
+        """Prepare full online repair action."""
+        self.progress_message = "Full Online Repair"
+        self._append_status("Online Repair: Downloads fresh files from Microsoft.")
+        self._append_status("Requires internet. Press Enter/F10 to execute.")
+
+    def _handle_repair_run(self) -> None:
+        """Execute repair from Repair mode."""
+        # Determine which repair type based on active tab or selection
+        from . import repair
+
+        args = self.app_state.get("args")
+        dry_run = bool(getattr(args, "dry_run", False))
+        if "dry_run" in self.settings_overrides:
+            dry_run = self.settings_overrides["dry_run"]
+
+        # Check if a repair preset is selected, otherwise use quick repair
+        preset = self._get_selected_odt_repair_preset()
+        if preset:
+            self._handle_odt_repair(execute=True)
+            return
+
+        # Default to quick repair if no ODT preset selected
+        self.progress_message = "Running Quick Repair..."
+        self._notify("repair.start", "Starting quick repair", dry_run=dry_run)
+        self._render()
+
+        try:
+            result = repair.run_quick_repair(dry_run=dry_run)
+            if result.returncode == 0:
+                self._notify("repair.complete", "Quick repair completed successfully")
+                self._append_status("✓ Quick repair complete")
+                self.progress_message = "Repair complete"
+            else:
+                error_msg = result.stderr or result.error or f"Exit code {result.returncode}"
+                self._notify("repair.error", f"Quick repair failed: {error_msg}", level="error")
+                self._append_status(f"✗ Quick repair failed: {error_msg}")
+                self.progress_message = "Repair failed"
+        except Exception as exc:
+            self._notify("repair.error", f"Repair error: {exc}", level="error")
+            self._append_status(f"✗ Repair error: {exc}")
+            self.progress_message = "Repair failed"
+
+    # -----------------------------------------------------------------------
     # ODT Install/Repair Handlers
     # -----------------------------------------------------------------------
 

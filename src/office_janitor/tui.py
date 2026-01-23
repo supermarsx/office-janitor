@@ -135,27 +135,67 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             bool(getattr(args, "tui_compact", False)) if args is not None else False
         )
         self._running = True
-        self.navigation: list[NavigationItem] = [
-            NavigationItem("detect", "Detect inventory", action=self._handle_detect),
-            NavigationItem("auto", "Auto scrub everything", action=self._handle_auto_all),
-            NavigationItem("targeted", "Targeted scrub", action=self._prepare_targeted),
-            NavigationItem("cleanup", "Cleanup only", action=self._handle_cleanup_only),
-            NavigationItem("diagnostics", "Diagnostics only", action=self._handle_diagnostics),
-            NavigationItem("odt_install", "ODT Install", action=self._prepare_odt_install),
-            NavigationItem("odt_locales", "ODT Locales", action=self._prepare_odt_locales),
-            NavigationItem("odt_repair", "ODT Repair", action=self._prepare_odt_repair),
-            NavigationItem("plan", "Build plan", action=None),
-            NavigationItem("run", "Run plan", action=self._handle_run),
-            NavigationItem("logs", "Live logs", action=self._handle_logs),
-            NavigationItem("settings", "Settings", action=None),
-            NavigationItem("quit", "Quit", quit_on_activate=True),
+
+        # Mode selection - user picks a mode first, then sees relevant actions
+        # None = mode selection, else install/repair/remove/diagnose
+        self.current_mode: str | None = None
+        self.mode_options = [
+            ("install", "Install Office", "Deploy Office via ODT presets or custom configs"),
+            ("repair", "Repair Office", "Fix broken Office installations (quick or full)"),
+            ("remove", "Remove Office", "Uninstall Office and clean up residual artifacts"),
+            ("diagnose", "Diagnose", "Detect and report Office installations without changes"),
         ]
+        self.mode_index = 0
+
+        # Mode-specific navigation items
+        self._install_nav = [
+            NavigationItem("odt_presets", "Installation Presets", action=self._prepare_odt_install),
+            NavigationItem("odt_locales", "Language Selection", action=self._prepare_odt_locales),
+            NavigationItem("odt_custom", "Custom Configuration", action=self._prepare_odt_custom),
+            NavigationItem(
+                "run_install", "▶ Run Installation", action=self._handle_odt_install_run
+            ),
+            NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
+        ]
+        self._repair_nav = [
+            NavigationItem("repair_quick", "Quick Repair", action=self._prepare_repair_quick),
+            NavigationItem("repair_full", "Full Online Repair", action=self._prepare_repair_full),
+            NavigationItem("repair_odt", "ODT Repair Config", action=self._prepare_odt_repair),
+            NavigationItem("run_repair", "▶ Run Repair", action=self._handle_repair_run),
+            NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
+        ]
+        self._remove_nav = [
+            NavigationItem("detect", "Detect Inventory", action=self._handle_detect),
+            NavigationItem("auto", "Auto Remove All", action=self._handle_auto_all),
+            NavigationItem("targeted", "Targeted Remove", action=self._prepare_targeted),
+            NavigationItem("cleanup", "Cleanup Only", action=self._handle_cleanup_only),
+            NavigationItem("settings", "Scrub Settings", action=None),
+            NavigationItem("run_remove", "▶ Run Removal", action=self._handle_run),
+            NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
+        ]
+        self._diagnose_nav = [
+            NavigationItem("detect", "Detect Inventory", action=self._handle_detect),
+            NavigationItem("diagnostics", "Run Diagnostics", action=self._handle_diagnostics),
+            NavigationItem("plan", "View Plan", action=None),
+            NavigationItem("logs", "View Logs", action=self._handle_logs),
+            NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
+        ]
+        
+        # Current navigation (set when mode is selected)
+        self.navigation: list[NavigationItem] = []
         self.focus_area = "nav"
         self.nav_index = 0
-        self.active_tab = self.navigation[0].name
-        self.panes: dict[str, PaneContext] = {
-            item.name: PaneContext(item.name) for item in self.navigation
-        }
+        self.active_tab = "mode_select"  # Start at mode selection
+        
+        # Create panes for all possible tabs across all modes
+        all_tabs = [
+            "mode_select", "detect", "auto", "targeted", "cleanup", "diagnostics",
+            "odt_presets", "odt_locales", "odt_custom", "odt_install", "odt_repair",
+            "repair_quick", "repair_full", "repair_odt",
+            "plan", "run", "logs", "settings",
+            "run_install", "run_repair", "run_remove", "back",
+        ]
+        self.panes: dict[str, PaneContext] = {name: PaneContext(name) for name in all_tabs}
         self.plan_overrides: dict[str, bool] = {
             "include_visio": False,
             "include_project": False,
@@ -367,7 +407,18 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         @brief Interpret a normalized key command and update state.
         """
 
-        if command in {"quit", "escape"}:
+        if command == "quit":
+            self.progress_message = "Exiting..."
+            self._notify("tui.exit", "User requested exit from TUI.")
+            self._running = False
+            return
+
+        if command == "escape":
+            # Escape returns to mode selection if in a mode
+            if self.current_mode is not None:
+                self._return_to_mode_selection()
+                return
+            # Otherwise quit
             self.progress_message = "Exiting..."
             self._notify("tui.exit", "User requested exit from TUI.")
             self._running = False
@@ -375,6 +426,11 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
 
         if command == "f1":
             self._show_help()
+            return
+
+        # Mode selection screen handling
+        if self.current_mode is None:
+            self._handle_mode_selection_key(command)
             return
 
         if command == "tab":
@@ -479,6 +535,59 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             self._prompt_filter(pane)
             self._ensure_pane_lines(pane)
             return
+
+    # -----------------------------------------------------------------------
+    # Mode selection
+    # -----------------------------------------------------------------------
+
+    def _handle_mode_selection_key(self, command: str) -> None:
+        """!
+        @brief Handle key presses on the mode selection screen.
+        """
+        if command == "quit":
+            self._running = False
+            self.progress_message = "Exiting..."
+            self._notify("tui.exit", "User requested exit from TUI.")
+            return
+        if command == "down":
+            self.mode_index = (self.mode_index + 1) % len(self.mode_options)
+            return
+        if command == "up":
+            self.mode_index = (self.mode_index - 1) % len(self.mode_options)
+            return
+        if command in {"enter", "space"}:
+            self._select_mode(self.mode_index)
+            return
+
+    def _select_mode(self, index: int) -> None:
+        """!
+        @brief Enter the selected mode and load its navigation.
+        """
+        mode_id, _, _ = self.mode_options[index]
+        self.current_mode = mode_id
+
+        mode_nav_map = {
+            "install": self._install_nav,
+            "repair": self._repair_nav,
+            "remove": self._remove_nav,
+            "diagnose": self._diagnose_nav,
+        }
+
+        self.navigation = mode_nav_map.get(mode_id, self._remove_nav)
+        self.nav_index = 0
+        self.active_tab = self.navigation[0].name
+        self.focus_area = "nav"
+        self._append_status(f"Entered {mode_id.title()} mode")
+
+    def _return_to_mode_selection(self) -> None:
+        """!
+        @brief Return to the mode selection screen.
+        """
+        self.current_mode = None
+        self.mode_index = 0
+        self.active_tab = "mode_select"
+        self.focus_area = "nav"
+        self._append_status("Returned to mode selection")
 
     # -----------------------------------------------------------------------
     # Pane state management
