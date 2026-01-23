@@ -136,14 +136,16 @@ def _should_show_subcommand_help(args: argparse.Namespace) -> bool:
     command = getattr(args, "command", None)
     if command == "install":
         # Install needs a preset, product, or build/download action
-        has_action = any([
-            getattr(args, "odt_preset", None),
-            getattr(args, "odt_products", None),
-            getattr(args, "odt_output", None),
-            getattr(args, "odt_download", None),
-            getattr(args, "odt_goobler", False),
-            getattr(args, "odt_pupa", False),
-        ])
+        has_action = any(
+            [
+                getattr(args, "odt_preset", None),
+                getattr(args, "odt_products", None),
+                getattr(args, "odt_output", None),
+                getattr(args, "odt_download", None),
+                getattr(args, "odt_goobler", False),
+                getattr(args, "odt_pupa", False),
+            ]
+        )
         return not has_action
     elif command == "repair":
         # Repair can run with defaults (auto-repair all)

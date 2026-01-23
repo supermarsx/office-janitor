@@ -480,6 +480,7 @@ def _should_pause_on_exit() -> bool:
     """Determine if we should pause before exit (not in tests or piped input)."""
     import os
     import sys
+
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return False
     if not sys.stdin.isatty():

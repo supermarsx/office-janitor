@@ -617,9 +617,7 @@ class TUIActionsMixin:
                 if dry_run:
                     self._append_status("[DRY-RUN] Would run OffScrub for MSI")
                 else:
-                    off_scrub_native.run_msi_offscrub(
-                        targets="ALL", dry_run=dry_run, force=True
-                    )
+                    off_scrub_native.run_msi_offscrub(targets="ALL", dry_run=dry_run, force=True)
                     self._append_status("✓ OffScrub MSI completed")
 
             # Run OffScrub for C2R installations

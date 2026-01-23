@@ -28,15 +28,21 @@ class TestBuildArgParser:
         assert parser is not None
 
     def test_mode_arguments_mutually_exclusive(self) -> None:
-        """Mode arguments should be mutually exclusive."""
+        """Legacy mode arguments are no longer mutually exclusive (hidden from usage).
+
+        Note: These flags still work for backward compatibility but users
+        should use subcommands instead (e.g., 'remove --auto-all').
+        """
         parser = cli_help.build_arg_parser()
         # Should succeed with one mode
         args = parser.parse_args(["--diagnose"])
         assert args.diagnose is True
 
-        # Should fail with multiple modes
-        with pytest.raises(SystemExit):
-            parser.parse_args(["--diagnose", "--auto-all"])
+        # Legacy flags are no longer mutually exclusive to hide them from usage
+        # They can be combined at the parser level but behavior is undefined
+        args = parser.parse_args(["--diagnose", "--auto-all"])
+        assert args.diagnose is True
+        assert args.auto_all is True
 
     def test_auto_repair_mode(self) -> None:
         """--auto-repair should be recognized."""

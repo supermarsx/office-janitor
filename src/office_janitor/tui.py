@@ -186,21 +186,41 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             NavigationItem("logs", "View Logs", action=self._handle_logs),
             NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
         ]
-        
+
         # Current navigation (set when mode is selected)
         self.navigation: list[NavigationItem] = []
         self.focus_area = "nav"
         self.nav_index = 0
         self.active_tab = "mode_select"  # Start at mode selection
-        
+
         # Create panes for all possible tabs across all modes
         all_tabs = [
-            "mode_select", "detect", "auto", "targeted", "cleanup", "diagnostics",
-            "odt_presets", "odt_locales", "odt_custom", "odt_install", "odt_repair",
-            "repair_quick", "repair_full", "repair_odt",
-            "c2r_remove", "offscrub", "licensing", "license_status",
-            "plan", "run", "logs", "settings",
-            "run_install", "run_repair", "run_remove", "back",
+            "mode_select",
+            "detect",
+            "auto",
+            "targeted",
+            "cleanup",
+            "diagnostics",
+            "odt_presets",
+            "odt_locales",
+            "odt_custom",
+            "odt_install",
+            "odt_repair",
+            "repair_quick",
+            "repair_full",
+            "repair_odt",
+            "c2r_remove",
+            "offscrub",
+            "licensing",
+            "license_status",
+            "plan",
+            "run",
+            "logs",
+            "settings",
+            "run_install",
+            "run_repair",
+            "run_remove",
+            "back",
         ]
         self.panes: dict[str, PaneContext] = {name: PaneContext(name) for name in all_tabs}
         self.plan_overrides: dict[str, bool] = {
@@ -397,6 +417,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         Only pauses when running interactively (not in tests or piped input).
         """
         import os
+
         # Don't pause in test environments
         if os.environ.get("PYTEST_CURRENT_TEST"):
             return

@@ -805,16 +805,18 @@ def test_tui_auto_mode_invokes_overrides(monkeypatch) -> None:
     monkeypatch.setattr(tui_actions_module, "spinner", lambda duration, message: None)
     monkeypatch.setattr(tui_module.OfficeJanitorTUI, "_drain_events", lambda self: False)
 
-    keys = iter([
-        # Mode selection: select "remove" (3rd option, index 2)
-        "down",  # repair
-        "down",  # remove
-        "enter",  # select remove mode
-        # Now in remove mode, navigate to auto
-        "down",  # auto remove all (2nd item)
-        "enter",  # trigger auto
-        "quit",
-    ])
+    keys = iter(
+        [
+            # Mode selection: select "remove" (3rd option, index 2)
+            "down",  # repair
+            "down",  # remove
+            "enter",  # select remove mode
+            # Now in remove mode, navigate to auto
+            "down",  # auto remove all (2nd item)
+            "enter",  # trigger auto
+            "quit",
+        ]
+    )
 
     def reader() -> str:
         return next(keys)
@@ -871,18 +873,20 @@ def test_tui_targeted_collects_input(monkeypatch) -> None:
         tui_module.OfficeJanitorTUI, "_collect_plan_overrides", lambda self: {"include": "visio"}
     )
 
-    keys = iter([
-        # Mode selection: select "remove" (3rd option, index 2)
-        "down",  # repair
-        "down",  # remove
-        "enter",  # select remove mode
-        # Navigate to targeted remove (3rd item)
-        "down",  # auto
-        "down",  # targeted
-        "enter",  # activate targeted
-        "f10",   # run targeted
-        "quit",
-    ])
+    keys = iter(
+        [
+            # Mode selection: select "remove" (3rd option, index 2)
+            "down",  # repair
+            "down",  # remove
+            "enter",  # select remove mode
+            # Navigate to targeted remove (3rd item)
+            "down",  # auto
+            "down",  # targeted
+            "enter",  # activate targeted
+            "f10",  # run targeted
+            "quit",
+        ]
+    )
 
     def reader() -> str:
         return next(keys)
@@ -1064,11 +1068,17 @@ class TestCLIArgumentParsing:
         assert main._determine_mode(args) == "interactive"
 
     def test_modes_are_mutually_exclusive(self, capsys) -> None:
-        """Test that mode flags are mutually exclusive."""
+        """Test that legacy mode flags are accepted (but users should use subcommands).
+
+        Note: Legacy flags are no longer mutually exclusive at the parser level
+        to hide them from the usage line. Users should use subcommands like
+        'remove --auto-all' instead of top-level '--auto-all'.
+        """
         parser = main.build_arg_parser()
-        with pytest.raises(SystemExit) as exc_info:
-            parser.parse_args(["--auto-all", "--diagnose"])
-        assert exc_info.value.code != 0
+        # Legacy flags can be combined at the parser level (behavior undefined)
+        args = parser.parse_args(["--auto-all", "--diagnose"])
+        assert args.auto_all is True
+        assert args.diagnose is True
 
     def test_include_components(self) -> None:
         """Test --include accepts component list."""

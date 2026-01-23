@@ -140,18 +140,7 @@ PROGRAM_NAME = "office-janitor"
 PROGRAM_DESCRIPTION = """\
 Microsoft Office installation manager.
 
-Commands:
-  install    Deploy Office via ODT presets or custom configurations
-  repair     Fix broken Office installations (quick or full repair)
-  remove     Uninstall Office and clean up residual artifacts
-  diagnose   Detect and report Office installations
-  odt        Build and manage ODT XML configurations
-  offscrub   OffScrub-style deep removal operations
-  c2r        Direct Click-to-Run passthrough operations
-  license    Manage Office licensing and activation
-  config     Generate and manage configuration files
-
-Run 'office-janitor <command> --help' for command-specific options.
+Use 'office-janitor <command> --help' for command-specific options.
 """
 
 # ---------------------------------------------------------------------------
@@ -293,24 +282,21 @@ def add_legacy_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     # This maintains backward compatibility while keeping the main help clean.
 
     # Legacy Mode Arguments (moved from top-level to subcommands, kept hidden here)
-    # These are mutually exclusive in their original form
-    legacy_modes = parser.add_mutually_exclusive_group()
-    legacy_modes.add_argument("--auto-all", action="store_true", help=argparse.SUPPRESS)
-    legacy_modes.add_argument("--target", metavar="VER", help=argparse.SUPPRESS)
-    legacy_modes.add_argument("--diagnose", action="store_true", help=argparse.SUPPRESS)
-    legacy_modes.add_argument("--cleanup-only", action="store_true", help=argparse.SUPPRESS)
-    legacy_modes.add_argument(
+    # Note: Not using mutually exclusive group to avoid showing in usage line
+    parser.add_argument("--auto-all", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--target", metavar="VER", help=argparse.SUPPRESS)
+    parser.add_argument("--diagnose", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--cleanup-only", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
         "--repair", choices=["quick", "full"], metavar="TYPE", help=argparse.SUPPRESS
     )
-    legacy_modes.add_argument("--repair-config", metavar="XML", help=argparse.SUPPRESS)
-    legacy_modes.add_argument("--auto-repair", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--repair-config", metavar="XML", help=argparse.SUPPRESS)
+    parser.add_argument("--auto-repair", action="store_true", help=argparse.SUPPRESS)
 
     # Core Options (subset not already in global)
     parser.add_argument("--include", metavar="COMPONENTS", help=argparse.SUPPRESS)
     parser.add_argument("--force", "-f", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument(
-        "--allow-unsupported-windows", action="store_true", help=argparse.SUPPRESS
-    )
+    parser.add_argument("--allow-unsupported-windows", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--passes", type=int, default=None, metavar="N", help=argparse.SUPPRESS)
 
     # Repair Options
@@ -402,9 +388,7 @@ def add_legacy_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         dest="create_restore_point",
         help=argparse.SUPPRESS,
     )
-    restore_point.add_argument(
-        "--no-restore-point", action="store_true", help=argparse.SUPPRESS
-    )
+    restore_point.add_argument("--no-restore-point", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-license", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--keep-license", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--clean-spp", action="store_true", help=argparse.SUPPRESS)
