@@ -57,40 +57,40 @@ class TestBuildArgParser:
         assert args.repair == "full"
 
     def test_repair_odt_flag(self) -> None:
-        """--repair-odt should be recognized."""
+        """--odt in repair subcommand should be recognized."""
         parser = cli_help.build_arg_parser()
-        args = parser.parse_args(["--repair-odt"])
+        args = parser.parse_args(["repair", "--odt"])
         assert args.repair_odt is True
 
     def test_repair_c2r_flag(self) -> None:
-        """--repair-c2r should be recognized."""
+        """--c2r in repair subcommand should be recognized."""
         parser = cli_help.build_arg_parser()
-        args = parser.parse_args(["--repair-c2r"])
+        args = parser.parse_args(["repair", "--c2r"])
         assert args.repair_c2r is True
 
     def test_repair_culture(self) -> None:
-        """--repair-culture should accept language codes."""
+        """--culture in repair subcommand should accept language codes."""
         parser = cli_help.build_arg_parser()
-        args = parser.parse_args(["--repair-culture", "de-de"])
+        args = parser.parse_args(["repair", "--culture", "de-de"])
         assert args.repair_culture == "de-de"
 
     def test_repair_platform(self) -> None:
-        """--repair-platform should accept x86 and x64."""
+        """--platform in repair subcommand should accept x86 and x64."""
         parser = cli_help.build_arg_parser()
-        args = parser.parse_args(["--repair-platform", "x64"])
+        args = parser.parse_args(["repair", "--platform", "x64"])
         assert args.repair_platform == "x64"
 
-        args = parser.parse_args(["--repair-platform", "x86"])
+        args = parser.parse_args(["repair", "--platform", "x86"])
         assert args.repair_platform == "x86"
 
     def test_repair_visible(self) -> None:
-        """--repair-visible should be recognized."""
+        """--visible in repair subcommand should be recognized."""
         parser = cli_help.build_arg_parser()
-        args = parser.parse_args(["--repair-visible"])
+        args = parser.parse_args(["repair", "--visible"])
         assert args.repair_visible is True
 
     def test_dry_run_flag(self) -> None:
-        """--dry-run and -n should be recognized."""
+        """--dry-run and -n should be recognized (global option)."""
         parser = cli_help.build_arg_parser()
         args = parser.parse_args(["--dry-run"])
         assert args.dry_run is True
@@ -99,16 +99,16 @@ class TestBuildArgParser:
         assert args.dry_run is True
 
     def test_force_flag(self) -> None:
-        """--force and -f should be recognized."""
+        """--force and -f in subcommand should be recognized."""
         parser = cli_help.build_arg_parser()
-        args = parser.parse_args(["--force"])
+        args = parser.parse_args(["remove", "--force"])
         assert args.force is True
 
-        args = parser.parse_args(["-f"])
+        args = parser.parse_args(["remove", "-f"])
         assert args.force is True
 
     def test_verbose_counting(self) -> None:
-        """--verbose should count occurrences."""
+        """--verbose should count occurrences (global option)."""
         parser = cli_help.build_arg_parser()
         args = parser.parse_args(["-v"])
         assert args.verbose == 1
@@ -117,41 +117,40 @@ class TestBuildArgParser:
         assert args.verbose == 3
 
     def test_odt_build_flags(self) -> None:
-        """ODT build flags should be recognized."""
+        """ODT flags in install subcommand should be recognized."""
         parser = cli_help.build_arg_parser()
-        args = parser.parse_args(["--odt-build"])
-        assert args.odt_build is True
-
-        args = parser.parse_args(["--odt-install"])
-        assert args.odt_install is True
+        args = parser.parse_args(["install", "--build", "output.xml"])
+        assert args.odt_output == "output.xml"
 
     def test_odt_preset(self) -> None:
-        """--odt-preset should accept preset names."""
+        """--preset in install subcommand should accept preset names."""
         parser = cli_help.build_arg_parser()
-        args = parser.parse_args(["--odt-preset", "365-proplus-x64"])
+        args = parser.parse_args(["install", "--preset", "365-proplus-x64"])
         assert args.odt_preset == "365-proplus-x64"
 
     def test_odt_product_list(self) -> None:
-        """--odt-product should accumulate products."""
+        """--product in install subcommand should accumulate products."""
         parser = cli_help.build_arg_parser()
         args = parser.parse_args(
             [
-                "--odt-product",
+                "install",
+                "--product",
                 "O365ProPlusRetail",
-                "--odt-product",
+                "--product",
                 "VisioProRetail",
             ]
         )
         assert args.odt_products == ["O365ProPlusRetail", "VisioProRetail"]
 
     def test_odt_language_list(self) -> None:
-        """--odt-language should accumulate languages."""
+        """--language in install subcommand should accumulate languages."""
         parser = cli_help.build_arg_parser()
         args = parser.parse_args(
             [
-                "--odt-language",
+                "install",
+                "--language",
                 "en-us",
-                "--odt-language",
+                "--language",
                 "de-de",
             ]
         )

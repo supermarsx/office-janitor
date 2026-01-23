@@ -212,6 +212,343 @@ def add_mode_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     return parser
 
 
+def add_global_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """!
+    @brief Add truly global options that apply to all commands.
+    @param parser The ArgumentParser to add arguments to.
+    @returns The parser for chaining.
+    @details These are options that apply regardless of which command is used.
+    Subcommand-specific options should be shown only in their respective help.
+    """
+    global_opts = parser.add_argument_group("Global Options")
+    global_opts.add_argument(
+        "--dry-run",
+        "-n",
+        action="store_true",
+        help="Simulate actions without modifying the system.",
+    )
+    global_opts.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Skip confirmation prompts (assume yes).",
+    )
+    global_opts.add_argument(
+        "--config",
+        "-c",
+        metavar="JSON",
+        help="Load options from a JSON configuration file.",
+    )
+    global_opts.add_argument(
+        "--verbose",
+        "-v",
+        action="count",
+        default=0,
+        help="Increase output verbosity (-v, -vv, -vvv).",
+    )
+    global_opts.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Minimal console output (errors only).",
+    )
+    global_opts.add_argument(
+        "--json",
+        action="store_true",
+        help="Mirror structured events to stdout.",
+    )
+    global_opts.add_argument(
+        "--tui",
+        action="store_true",
+        help="Force the interactive text UI mode.",
+    )
+    global_opts.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable ANSI color codes.",
+    )
+    return parser
+
+
+def add_legacy_options(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """!
+    @brief Add legacy options for backward compatibility (hidden from help).
+    @param parser The ArgumentParser to add arguments to.
+    @returns The parser for chaining.
+    @details These options are added for backward compatibility with older scripts
+    and CLI usage patterns. They are suppressed from help output to keep the
+    main help clean. Users should use `<command> --help` for detailed options.
+    """
+    # We add all the option groups but with help=SUPPRESS to hide from main help.
+    # This maintains backward compatibility while keeping the main help clean.
+
+    # Core Options (subset not already in global)
+    parser.add_argument("--include", metavar="COMPONENTS", help=argparse.SUPPRESS)
+    parser.add_argument("--force", "-f", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--allow-unsupported-windows", action="store_true", help=argparse.SUPPRESS
+    )
+    parser.add_argument("--passes", type=int, default=None, metavar="N", help=argparse.SUPPRESS)
+
+    # Repair Options
+    parser.add_argument("--repair-odt", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--repair-c2r", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--repair-culture", metavar="LANG", default="en-us", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--repair-platform", choices=["x86", "x64"], metavar="ARCH", help=argparse.SUPPRESS
+    )
+    parser.add_argument("--repair-visible", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--repair-timeout", type=int, default=3600, metavar="SEC", help=argparse.SUPPRESS
+    )
+    parser.add_argument("--repair-all-products", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--repair-preset", metavar="NAME", help=argparse.SUPPRESS)
+
+    # Uninstall Method Options
+    parser.add_argument(
+        "--uninstall-method",
+        choices=["auto", "msi", "c2r", "odt", "offscrub"],
+        default=None,
+        metavar="METHOD",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--msi-only",
+        action="store_const",
+        const="msi",
+        dest="uninstall_method",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--c2r-only",
+        action="store_const",
+        const="c2r",
+        dest="uninstall_method",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--use-odt",
+        action="store_const",
+        const="odt",
+        dest="uninstall_method",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--force-app-shutdown", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--no-force-app-shutdown", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--product-code",
+        metavar="GUID",
+        action="append",
+        dest="product_codes",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--release-id",
+        metavar="ID",
+        action="append",
+        dest="release_ids",
+        help=argparse.SUPPRESS,
+    )
+
+    # Scrubbing Options
+    parser.add_argument(
+        "--scrub-level",
+        choices=["minimal", "standard", "aggressive", "nuclear"],
+        default=None,
+        metavar="LEVEL",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--max-passes", type=int, default=None, metavar="N", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-uninstall", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-processes", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-services", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-tasks", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-registry", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-filesystem", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--registry-only", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-msocache", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-appx", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-wi-metadata", action="store_true", help=argparse.SUPPRESS)
+
+    # License & Activation Options
+    restore_point = parser.add_mutually_exclusive_group()
+    restore_point.add_argument(
+        "--restore-point",
+        "--create-restore-point",
+        action="store_true",
+        dest="create_restore_point",
+        help=argparse.SUPPRESS,
+    )
+    restore_point.add_argument(
+        "--no-restore-point", action="store_true", help=argparse.SUPPRESS
+    )
+    parser.add_argument("--no-license", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--keep-license", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-spp", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-ospp", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-vnext", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-all-licenses", action="store_true", help=argparse.SUPPRESS)
+
+    # User Data Options
+    parser.add_argument("--keep-templates", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--keep-user-settings", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--delete-user-settings", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--keep-outlook-data", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--keep-outlook-signatures", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-shortcuts", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-shortcut-detection", action="store_true", help=argparse.SUPPRESS)
+
+    # Registry Cleanup Options
+    parser.add_argument("--clean-addin-registry", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-com-registry", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-shell-extensions", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-typelibs", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--clean-protocol-handlers", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--remove-vba", action="store_true", help=argparse.SUPPRESS)
+
+    # Output & Logging Options (subset not already in global)
+    parser.add_argument("--plan", metavar="OUT", help=argparse.SUPPRESS)
+    parser.add_argument("--logdir", metavar="DIR", help=argparse.SUPPRESS)
+    parser.add_argument("--backup", metavar="DIR", help=argparse.SUPPRESS)
+    parser.add_argument("--timeout", metavar="SEC", type=int, help=argparse.SUPPRESS)
+
+    # TUI Options (subset not already in global)
+    parser.add_argument("--tui-compact", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--tui-refresh", metavar="MS", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--limited-user", action="store_true", help=argparse.SUPPRESS)
+
+    # Retry & Resilience Options
+    parser.add_argument("--retries", type=int, default=None, metavar="N", help=argparse.SUPPRESS)
+    parser.add_argument("--retry-delay", type=int, default=3, metavar="SEC", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--retry-delay-max", type=int, default=30, metavar="SEC", help=argparse.SUPPRESS
+    )
+    parser.add_argument("--no-reboot", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--offline", action="store_true", help=argparse.SUPPRESS)
+
+    # ODT Build Options
+    parser.add_argument("--odt-build", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-install", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-preset", metavar="NAME", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--odt-product", metavar="ID", action="append", dest="odt_products", help=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--odt-language",
+        metavar="CODE",
+        action="append",
+        dest="odt_languages",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--odt-arch", choices=["32", "64"], default="64", metavar="BITS", help=argparse.SUPPRESS
+    )
+    parser.add_argument("--odt-channel", metavar="CHANNEL", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-output", metavar="FILE", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-shared-computer", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-remove-msi", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--odt-exclude-app",
+        metavar="APP",
+        action="append",
+        dest="odt_exclude_apps",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--odt-include-visio", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-include-project", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-removal", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-download", metavar="PATH", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-list-products", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-list-presets", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-list-channels", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-list-languages", action="store_true", help=argparse.SUPPRESS)
+
+    # Author Aliases
+    parser.add_argument("--goobler", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--pupa", action="store_true", help=argparse.SUPPRESS)
+
+    # OEM Configuration Presets
+    oem_configs = parser.add_mutually_exclusive_group()
+    oem_configs.add_argument(
+        "--oem-config",
+        metavar="NAME",
+        choices=[
+            "full-removal",
+            "quick-repair",
+            "full-repair",
+            "proplus-x64",
+            "proplus-x86",
+            "proplus-visio-project",
+            "business-x64",
+            "office2019-x64",
+            "office2021-x64",
+            "office2024-x64",
+            "multilang",
+            "shared-computer",
+            "interactive",
+        ],
+        help=argparse.SUPPRESS,
+    )
+    oem_configs.add_argument(
+        "--c2r-remove",
+        action="store_const",
+        const="full-removal",
+        dest="oem_config",
+        help=argparse.SUPPRESS,
+    )
+    oem_configs.add_argument(
+        "--c2r-repair-quick",
+        action="store_const",
+        const="quick-repair",
+        dest="oem_config",
+        help=argparse.SUPPRESS,
+    )
+    oem_configs.add_argument(
+        "--c2r-repair-full",
+        action="store_const",
+        const="full-repair",
+        dest="oem_config",
+        help=argparse.SUPPRESS,
+    )
+    oem_configs.add_argument(
+        "--c2r-proplus",
+        action="store_const",
+        const="proplus-x64",
+        dest="oem_config",
+        help=argparse.SUPPRESS,
+    )
+    oem_configs.add_argument(
+        "--c2r-business",
+        action="store_const",
+        const="business-x64",
+        dest="oem_config",
+        help=argparse.SUPPRESS,
+    )
+
+    # OffScrub Legacy Compatibility
+    parser.add_argument("--offscrub-all", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--offscrub-ose", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--offscrub-offline", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--offscrub-quiet", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--offscrub-test-rerun", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--offscrub-bypass", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--offscrub-fast-remove", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--offscrub-scan-components", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--offscrub-return-error", action="store_true", help=argparse.SUPPRESS)
+
+    # Advanced Options
+    parser.add_argument("--skip-preflight", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-backup", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-verification", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--schedule-reboot", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--no-schedule-delete", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--msiexec-args", metavar="ARGS", help=argparse.SUPPRESS)
+    parser.add_argument("--c2r-args", metavar="ARGS", help=argparse.SUPPRESS)
+    parser.add_argument("--odt-args", metavar="ARGS", help=argparse.SUPPRESS)
+
+    return parser
+
+
 def add_core_options(
     parser: argparse.ArgumentParser,
     *,
@@ -1168,25 +1505,19 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     add_tui_options(diagnose_parser)
 
     # ---------------------------------------------------------------------------
-    # Legacy/Global options (backward compatibility)
+    # Global options (shown in main help)
     # ---------------------------------------------------------------------------
-    # These options work without subcommands for backward compatibility
-    add_mode_arguments(parser)
-    add_core_options(parser)
-    add_repair_options(parser)
-    add_uninstall_options(parser)
-    add_scrub_options(parser)
-    add_license_options(parser)
-    add_data_options(parser)
-    add_registry_cleanup_options(parser)
-    add_output_options(parser)
-    add_tui_options(parser)
-    add_retry_options(parser)
-    add_odt_build_options(parser)
-    add_author_aliases(parser)
-    add_oem_config_options(parser)
-    add_offscrub_options(parser)
-    add_advanced_options(parser)
+    # Truly global options that apply to all modes/subcommands
+    add_mode_arguments(parser)  # Legacy mode flags (--auto-all, --diagnose, etc.)
+    add_global_options(parser)  # Truly global: --dry-run, --yes, --verbose, etc.
+
+    # ---------------------------------------------------------------------------
+    # Legacy options (hidden from main help, for backward compatibility)
+    # ---------------------------------------------------------------------------
+    # These options work without subcommands for backward compatibility.
+    # They are suppressed from help to keep the main help clean - users should
+    # use subcommand help for detailed options.
+    add_legacy_options(parser)
 
     return parser
 
