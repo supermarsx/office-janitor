@@ -79,12 +79,12 @@ def determine_mode(args: argparse.Namespace) -> str:
     @returns Mode string identifying the operation type.
     @details Supports both new subcommand syntax and legacy flags for
     backward compatibility.
-    
+
     Subcommand modes:
     - install: ODT installation
     - repair: Repair operations (quick, full, odt, c2r)
     - remove: Uninstall and scrub
-    
+
     Legacy modes (backward compatibility):
     - auto-all, target:VER, diagnose, cleanup-only
     - auto-repair, repair-odt, repair-c2r, repair:TYPE
@@ -92,10 +92,10 @@ def determine_mode(args: argparse.Namespace) -> str:
     """
     # Handle new subcommand-based syntax
     command = getattr(args, "command", None)
-    
+
     if command == "diagnose":
         return "diagnose"
-    
+
     if command == "install":
         # Check for author aliases
         if getattr(args, "goobler", False):
@@ -121,7 +121,7 @@ def determine_mode(args: argparse.Namespace) -> str:
         if getattr(args, "odt_list_languages", False):
             return "install:list-languages"
         return "install:interactive"
-    
+
     if command == "repair":
         # Check repair type
         repair_type = getattr(args, "repair_type", None)
@@ -135,7 +135,7 @@ def determine_mode(args: argparse.Namespace) -> str:
             return "repair-c2r"
         # Default to auto-repair if no specific type
         return "auto-repair"
-    
+
     if command == "remove":
         # Check target selection
         target = getattr(args, "target", None)
@@ -149,7 +149,7 @@ def determine_mode(args: argparse.Namespace) -> str:
             return "remove:c2r-only"
         # Default to full removal
         return "auto-all"
-    
+
     # ---------------------------------------------------------------------------
     # Legacy flag handling (backward compatibility)
     # ---------------------------------------------------------------------------

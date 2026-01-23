@@ -89,7 +89,7 @@ def handle_odt_build_commands(args: argparse.Namespace) -> bool:
     @returns True if an ODT command was handled (caller should exit), False otherwise.
     """
     command = getattr(args, "command", None)
-    
+
     # Handle author quick install aliases (works for both legacy and subcommand)
     if getattr(args, "goobler", False):
         return _run_author_install(

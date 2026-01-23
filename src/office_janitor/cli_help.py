@@ -1124,7 +1124,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     - install: Deploy Office via ODT presets or custom configurations
     - repair: Fix broken Office installations
     - remove: Uninstall Office and clean up residual artifacts
-    
+
     Legacy flags (--auto-all, --auto-repair, etc.) are preserved for backward compatibility.
     """
     parser = argparse.ArgumentParser(
