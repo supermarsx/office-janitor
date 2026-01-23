@@ -480,6 +480,9 @@ def _menu_exit(context: MutableMapping[str, object]) -> None:
     context["running"] = False
     _notify(context, "ui.exit", "Exiting Office Janitor interactive CLI.")
     print("Exiting Office Janitor.")
+    print("\nPress Enter to exit...")
+    input_func = cast(Callable[[str], str], context.get("input", input))
+    input_func("")
 
 
 def _plan_and_execute(

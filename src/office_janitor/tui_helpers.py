@@ -10,6 +10,7 @@ controller but have no dependencies on TUI state.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import re
 import sys
@@ -26,15 +27,58 @@ except ImportError:  # pragma: no cover - non-Windows hosts
 
 msvcrt: Any = _msvcrt
 
+# Track if we've already enabled ANSI on Windows
+_ansi_enabled: bool = False
+
 
 # ---------------------------------------------------------------------------
 # ANSI support and terminal utilities
 # ---------------------------------------------------------------------------
 
 
+def _enable_windows_ansi() -> bool:
+    """!
+    @brief Enable ANSI escape sequence processing on Windows console.
+    @details Uses the Windows Console API to enable virtual terminal processing.
+    This allows ANSI codes to work in cmd.exe and older PowerShell versions.
+    @return True if successfully enabled or already enabled, False otherwise.
+    """
+    global _ansi_enabled
+    if _ansi_enabled:
+        return True
+
+    if os.name != "nt":
+        _ansi_enabled = True
+        return True
+
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        # STD_OUTPUT_HANDLE = -11
+        handle = kernel32.GetStdHandle(-11)
+        if handle == -1:
+            return False
+
+        # Get current console mode
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+
+        # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        # ENABLE_PROCESSED_OUTPUT = 0x0001
+        new_mode = mode.value | 0x0004 | 0x0001
+        if kernel32.SetConsoleMode(handle, new_mode):
+            _ansi_enabled = True
+            return True
+        return False
+    except Exception:
+        return False
+
+
 def supports_ansi(stream: object | None = None) -> bool:
     """!
     @brief Determine whether the current stdout supports ANSI escape sequences.
+    @details On Windows, attempts to enable virtual terminal processing if not
+    already active. This allows ANSI codes to work in most Windows terminals.
     """
 
     target = stream if stream is not None else sys.stdout
@@ -48,18 +92,28 @@ def supports_ansi(stream: object | None = None) -> bool:
 
     if os.name != "nt":
         return True
-    return bool(
+
+    # Check if already known to support ANSI (Windows Terminal, VS Code, etc.)
+    if bool(
         os.environ.get("WT_SESSION")
         or os.environ.get("ANSICON")
         or os.environ.get("TERM_PROGRAM")
         or os.environ.get("ConEmuANSI")
-    )
+    ):
+        return True
+
+    # Try to enable ANSI via Windows Console API
+    return _enable_windows_ansi()
 
 
 def clear_screen() -> None:
     """Clear the terminal screen and move cursor to top-left."""
-    sys.stdout.write("\x1b[2J\x1b[H")
-    sys.stdout.flush()
+    if os.name == "nt":
+        # On Windows, use cls command as it's more reliable across console types
+        os.system("cls")
+    else:
+        sys.stdout.write("\x1b[2J\x1b[H")
+        sys.stdout.flush()
 
 
 def strip_ansi(text: str) -> str:
@@ -132,7 +186,10 @@ def decode_key(raw: str) -> str:
         "\xe0I": "page_up",
         "\xe0Q": "page_down",
         "\x00;": "f1",
+        "\xe0;": "f1",
+        "\x00D": "f10",
         "\x00h": "f10",
+        "\xe0D": "f10",
     }
     if raw in windows_sequences:
         return windows_sequences[raw]

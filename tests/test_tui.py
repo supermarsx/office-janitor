@@ -8,6 +8,52 @@ from collections import deque
 from types import SimpleNamespace
 
 from src.office_janitor import tui
+from src.office_janitor import tui_helpers
+
+
+def test_enable_windows_ansi_returns_bool(monkeypatch):
+    """Test that _enable_windows_ansi returns a boolean without crashing."""
+    # Reset the global state
+    monkeypatch.setattr(tui_helpers, "_ansi_enabled", False)
+    result = tui_helpers._enable_windows_ansi()
+    assert isinstance(result, bool)
+
+
+def test_supports_ansi_tries_enable_on_windows(monkeypatch):
+    """Test that supports_ansi attempts to enable ANSI on Windows."""
+    import os
+    import sys
+    from io import StringIO
+
+    # Simulate Windows without env vars
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.delenv("WT_SESSION", raising=False)
+    monkeypatch.delenv("ANSICON", raising=False)
+    monkeypatch.delenv("TERM_PROGRAM", raising=False)
+    monkeypatch.delenv("ConEmuANSI", raising=False)
+
+    # Mock a non-tty stream - should return False
+    fake_stream = StringIO()
+    assert tui_helpers.supports_ansi(fake_stream) is False
+
+    # Reset state and mock successful enable
+    monkeypatch.setattr(tui_helpers, "_ansi_enabled", False)
+    enable_called = []
+
+    def mock_enable():
+        enable_called.append(True)
+        return True
+
+    monkeypatch.setattr(tui_helpers, "_enable_windows_ansi", mock_enable)
+
+    # Create a fake tty stream
+    class FakeTTY:
+        def isatty(self):
+            return True
+
+    result = tui_helpers.supports_ansi(FakeTTY())
+    assert enable_called == [True]
+    assert result is True
 
 
 def _make_app_state():
@@ -36,6 +82,7 @@ def _make_app_state():
         "executor": executor,
         "event_queue": deque(),
         "confirm": lambda **kwargs: True,
+        "input": lambda prompt="": "",  # Mock input to avoid blocking in tests
         "args": SimpleNamespace(
             tui=True,
             quiet=False,

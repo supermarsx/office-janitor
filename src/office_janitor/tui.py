@@ -310,14 +310,19 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             self._notify("tui.suppressed", "TUI launch suppressed by CLI flags.")
             return
 
-        if not self.ansi_supported and not _supports_ansi():
+        # Re-check ANSI support (supports_ansi will try to enable it on Windows)
+        if not self.ansi_supported:
+            self.ansi_supported = _supports_ansi()
+
+        if not self.ansi_supported:
             self._notify("tui.fallback", "TUI unavailable (ANSI not supported).")
             print(
                 "\nTUI requires ANSI terminal support. Your terminal does not appear "
                 "to support ANSI escape sequences.\n"
-                "Try running from Windows Terminal, VS Code terminal, or set "
-                "WT_SESSION/ANSICON environment variable.\n"
+                "Try running from Windows Terminal, VS Code terminal, or a newer "
+                "version of PowerShell/cmd.exe (Windows 10 1511+).\n"
             )
+            self._wait_for_enter()
             return
 
         self._notify("tui.start", "Interactive TUI started.")
@@ -335,6 +340,24 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             self._handle_key(command)
             self._render()
 
+        # Prompt before closing so user can see final state
+        self._wait_for_enter()
+
+    def _wait_for_enter(self) -> None:
+        """!
+        @brief Wait for the user to press Enter before closing.
+        @details Used to prevent the console window from closing immediately.
+        """
+        print("\nPress Enter to exit...")
+        try:
+            input_func = self.app_state.get("input", input)
+            if callable(input_func):
+                input_func("")
+            else:
+                input()
+        except (EOFError, OSError):
+            pass  # Non-interactive context (tests, piped input)
+
     # -----------------------------------------------------------------------
     # Key handling
     # -----------------------------------------------------------------------
@@ -348,6 +371,10 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             self.progress_message = "Exiting..."
             self._notify("tui.exit", "User requested exit from TUI.")
             self._running = False
+            return
+
+        if command == "f1":
+            self._show_help()
             return
 
         if command == "tab":
@@ -366,9 +393,6 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 return
             if command == "f10":
                 self._handle_run()
-                return
-            if command == "f1":
-                self._show_help()
                 return
 
         self._handle_content_key(command)
