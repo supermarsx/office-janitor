@@ -125,6 +125,38 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return cli_help.build_arg_parser(version_info=metadata)
 
 
+def _should_show_subcommand_help(args: argparse.Namespace) -> bool:
+    """!
+    @brief Determine if a subcommand should show help due to lack of action args.
+    @details Each subcommand has specific arguments that indicate an action.
+             If none are provided, show help instead of proceeding.
+    @param args The parsed arguments namespace.
+    @returns True if subcommand help should be shown.
+    """
+    command = getattr(args, "command", None)
+    if command == "install":
+        # Install needs a preset, product, or build/download action
+        has_action = any([
+            getattr(args, "odt_preset", None),
+            getattr(args, "odt_products", None),
+            getattr(args, "odt_output", None),
+            getattr(args, "odt_download", None),
+            getattr(args, "odt_goobler", False),
+            getattr(args, "odt_pupa", False),
+        ])
+        return not has_action
+    elif command == "repair":
+        # Repair can run with defaults (auto-repair all)
+        return False
+    elif command == "remove":
+        # Remove can run with defaults (remove all detected)
+        return False
+    elif command == "diagnose":
+        # Diagnose can run with defaults (show inventory)
+        return False
+    return False
+
+
 def _bootstrap_logging(
     args: argparse.Namespace,
 ) -> tuple[logging.Logger, logging.Logger]:
@@ -222,6 +254,12 @@ def _main_impl(argv: Iterable[str] | None = None) -> int:
     # Phase 0: Pre-parse for ODT listing commands (no elevation needed)
     parser = build_arg_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
+
+    # Show subcommand help if invoked without action-specific arguments
+    show_help_parser = getattr(args, "show_help", None)
+    if show_help_parser is not None and _should_show_subcommand_help(args):
+        show_help_parser.print_help()
+        return 0
 
     # Handle ODT listing commands early (before elevation check)
     if handle_odt_list_commands(args):

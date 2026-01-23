@@ -133,13 +133,15 @@ class VersionActionWithPause(argparse.Action):
 
 PROGRAM_NAME = "office-janitor"
 PROGRAM_DESCRIPTION = """\
-Microsoft Office installation manager with three operation modes:
+Microsoft Office installation manager.
 
+Commands:
   install    Deploy Office via ODT presets or custom configurations
   repair     Fix broken Office installations (quick or full repair)
   remove     Uninstall Office and clean up residual artifacts
+  diagnose   Detect and report Office installations
 
-Run 'office-janitor <command> --help' for mode-specific options.
+Run 'office-janitor <command> --help' for command-specific options.
 """
 
 # ---------------------------------------------------------------------------
@@ -147,48 +149,16 @@ Run 'office-janitor <command> --help' for mode-specific options.
 # ---------------------------------------------------------------------------
 
 EPILOG_TEXT = """\
-================================================================================
-                           QUICK REFERENCE GUIDE
-================================================================================
-
-INSTALL MODE:
+EXAMPLES:
   office-janitor install --preset 365-proplus-x64
-  office-janitor install --preset ltsc2024-full-x64
-  office-janitor install --goobler           # Author preset: LTSC 2024 full
+  office-janitor repair --quick
+  office-janitor remove --dry-run
+  office-janitor diagnose --plan report.json
 
-REPAIR MODE:
-  office-janitor repair                      # Auto-repair all detected Office
-  office-janitor repair --quick              # Quick local repair (5-15 min)
-  office-janitor repair --full               # Full online repair (30-60 min)
-  office-janitor repair --c2r                # Repair via C2R client directly
-  office-janitor repair --odt                # Repair via ODT configuration
+LEGACY FLAGS:
+  --auto-all, --auto-repair, --repair quick (still supported)
 
-REMOVE MODE:
-  office-janitor remove                      # Full detection and removal
-  office-janitor remove --dry-run            # Preview removal (safe)
-  office-janitor remove --target 2019        # Target specific Office version
-  office-janitor remove --c2r-only           # Remove C2R Office only
-  office-janitor remove --scrub aggressive   # Aggressive cleanup level
-
-DIAGNOSE MODE:
-  office-janitor diagnose                    # Emit inventory without changes
-  office-janitor diagnose --plan out.json    # Save detailed plan to file
-
-================================================================================
-
-BACKWARD COMPATIBILITY:
-  Legacy flags like --auto-all, --auto-repair, --repair quick still work.
-  The new subcommand syntax is recommended for clarity.
-
-SUPPORTED LANGUAGES: en-us, de-de, fr-fr, es-es, pt-br, pt-pt, it-it, ja-jp,
-  ko-kr, zh-cn, zh-tw, ru-ru, pl-pl, nl-nl, ar-sa, he-il, tr-tr
-
-Use --odt-list-languages for the complete list of 60+ supported language codes.
-Use --odt-list-products for all available Office product IDs.
-Use --odt-list-channels for update channel options.
-Use --odt-list-presets for all installation presets.
-
-Full documentation: https://github.com/supermarsx/office-janitor
+Docs: https://github.com/supermarsx/office-janitor
 """
 
 # ---------------------------------------------------------------------------
@@ -1133,6 +1103,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
         add_help=False,
     )
     install_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    install_parser.set_defaults(show_help=install_parser)
     add_install_subcommand_options(install_parser)
     add_core_options(install_parser)
     add_output_options(install_parser)
@@ -1150,6 +1121,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
         add_help=False,
     )
     repair_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    repair_parser.set_defaults(show_help=repair_parser)
     add_repair_subcommand_options(repair_parser)
     add_core_options(repair_parser)
     add_output_options(repair_parser, include_timeout=False)  # Timeout already in repair opts
@@ -1167,6 +1139,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
         add_help=False,
     )
     remove_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    remove_parser.set_defaults(show_help=remove_parser)
     add_remove_subcommand_options(remove_parser)
     add_core_options(remove_parser, include_passes=False)  # Passes already in remove opts
     add_scrub_options(remove_parser)
@@ -1189,6 +1162,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
         add_help=False,
     )
     diagnose_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    diagnose_parser.set_defaults(show_help=diagnose_parser)
     add_diagnose_subcommand_options(diagnose_parser)
     add_output_options(diagnose_parser)
     add_tui_options(diagnose_parser)
