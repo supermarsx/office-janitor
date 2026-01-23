@@ -5,10 +5,10 @@
 from __future__ import annotations
 
 from collections import deque
+from io import StringIO
 from types import SimpleNamespace
 
-from src.office_janitor import tui
-from src.office_janitor import tui_helpers
+from src.office_janitor import tui, tui_helpers
 
 
 def test_enable_windows_ansi_returns_bool(monkeypatch):
@@ -22,8 +22,6 @@ def test_enable_windows_ansi_returns_bool(monkeypatch):
 def test_supports_ansi_tries_enable_on_windows(monkeypatch):
     """Test that supports_ansi attempts to enable ANSI on Windows."""
     import os
-    import sys
-    from io import StringIO
 
     # Simulate Windows without env vars
     monkeypatch.setattr(os, "name", "nt")
