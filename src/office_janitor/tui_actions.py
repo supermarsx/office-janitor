@@ -47,6 +47,7 @@ class TUIActionsMixin:
     - odt_install_presets: dict[str, tuple[str, bool]]
     - odt_repair_presets: dict[str, tuple[str, bool]]
     - odt_locales: dict[str, tuple[str, bool]]
+    - odt_products: dict[str, tuple[str, bool]]
     - c2r_channels: dict[str, tuple[str, bool]]
     - scrub_levels: dict[str, tuple[str, bool]]
     - selected_odt_preset: str | None
@@ -74,6 +75,7 @@ class TUIActionsMixin:
     odt_install_presets: dict[str, tuple[str, bool]]
     odt_repair_presets: dict[str, tuple[str, bool]]
     odt_locales: dict[str, tuple[str, bool]]
+    odt_products: dict[str, tuple[str, bool]]
     c2r_channels: dict[str, tuple[str, bool]]
     scrub_levels: dict[str, tuple[str, bool]]
     selected_odt_preset: str | None
@@ -901,10 +903,43 @@ class TUIActionsMixin:
         self.progress_message = f"Select Office languages ({selected_count} selected)"
         self._append_status("ODT Locales: Toggle languages with Space. Multiple allowed.")
 
+    def _prepare_odt_products(self) -> None:
+        """Prepare ODT products selection."""
+        selected_count = sum(1 for _, (_, sel) in self.odt_products.items() if sel)
+        self.progress_message = f"Select Office products ({selected_count} selected)"
+        self._append_status("ODT Products: Toggle products with Space. Multiple allowed.")
+
+    def _prepare_odt_import(self) -> None:
+        """Prepare ODT import submenu."""
+        self.progress_message = "Import ODT configuration file"
+        self._append_status("ODT Import: Press Enter/F10 to browse for XML file.")
+
     def _prepare_odt_repair(self) -> None:
         """Prepare ODT repair submenu."""
         self.progress_message = "Select ODT repair preset"
         self._append_status("ODT Repair: Select preset with Space, Enter/F10 to execute.")
+
+    def _toggle_odt_product(self, index: int) -> None:
+        """Toggle an ODT product selection (checkbox style - multiple allowed)."""
+        pane = self.panes.get("odt_products")
+        if pane is None:
+            return
+        self._ensure_pane_lines(pane)
+        keys = list(pane.lines) if pane.lines else []
+        if not keys:
+            self._append_status("No products available.")
+            return
+        safe_index = max(0, min(index, len(keys) - 1))
+        selected_key = keys[safe_index]
+        if selected_key not in self.odt_products:
+            self._append_status(f"Unknown product: {selected_key}")
+            return
+        # Toggle the selected state
+        desc, current_state = self.odt_products[selected_key]
+        self.odt_products[selected_key] = (desc, not current_state)
+        new_state = "selected" if not current_state else "deselected"
+        selected_count = sum(1 for _, (_, sel) in self.odt_products.items() if sel)
+        self._append_status(f"{desc} {new_state} — {selected_count} total")
 
     def _select_odt_install_preset(self, index: int) -> None:
         """Select an ODT install preset (radio-button style)."""

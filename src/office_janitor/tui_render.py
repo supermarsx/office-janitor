@@ -48,6 +48,7 @@ class TUIRendererMixin:
     - odt_install_presets: dict[str, tuple[str, bool]]
     - odt_repair_presets: dict[str, tuple[str, bool]]
     - odt_locales: dict[str, tuple[str, bool]]
+    - odt_products: dict[str, tuple[str, bool]]
     - c2r_channels: dict[str, tuple[str, bool]]
     - scrub_levels: dict[str, tuple[str, bool]]
     - app_state: MutableMapping
@@ -74,6 +75,7 @@ class TUIRendererMixin:
     odt_install_presets: dict[str, tuple[str, bool]]
     odt_repair_presets: dict[str, tuple[str, bool]]
     odt_locales: dict[str, tuple[str, bool]]
+    odt_products: dict[str, tuple[str, bool]]
     c2r_channels: dict[str, tuple[str, bool]]
     scrub_levels: dict[str, tuple[str, bool]]
     app_state: dict[str, object]
@@ -203,8 +205,12 @@ class TUIRendererMixin:
             return self._render_diagnostics_pane(width)
         if self.active_tab == "odt_install":
             return self._render_odt_install_pane(width)
+        if self.active_tab == "odt_products":
+            return self._render_odt_products_pane(width)
         if self.active_tab == "odt_locales":
             return self._render_odt_locales_pane(width)
+        if self.active_tab == "odt_import":
+            return self._render_odt_import_pane(width)
         if self.active_tab == "odt_repair":
             return self._render_odt_repair_pane(width)
         if self.active_tab == "c2r_remove":
@@ -535,6 +541,90 @@ class TUIRendererMixin:
         lines.append("Space to select, F10 to apply change.")
         return [line[:width] for line in lines]
 
+    def _render_scrub_level_pane(self, width: int) -> list[str]:
+        """Render the scrub level selection pane."""
+        lines = ["Scrub Level Selection:"]
+        lines.append("")
+        lines.append("Choose cleanup intensity for removal operations:")
+        lines.append("")
+        pane = self.panes["scrub_level"]
+        entries = self._ensure_pane_lines(pane)
+        if entries:
+            for index, (_, label) in enumerate(entries):
+                cursor = "►" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+        lines.append("")
+        lines.append("─" * 50)
+        lines.append("Level descriptions:")
+        lines.append("  • Minimal: Remove only installed products")
+        lines.append("  • Standard: Remove products + common artifacts (default)")
+        lines.append("  • Aggressive: Deep cleanup, more residual files")
+        lines.append("  • Nuclear: Maximum cleanup, may affect shared components")
+        lines.append("")
+        lines.append("Select level with Space, apply with Enter/F10.")
+        lines.append("")
+        return [line[:width] for line in lines]
+    def _render_odt_products_pane(self, width: int) -> list[str]:
+        """Render the ODT products selection pane."""
+        lines = ["Office Products Selection:"]
+        lines.append("")
+        pane = self.panes["odt_products"]
+        entries = self._ensure_pane_lines(pane)
+        active_filter = self._get_pane_filter(pane.name)
+        if active_filter:
+            lines.append(f"Filter: {active_filter}")
+
+        if not entries:
+            lines.append("No products available.")
+        else:
+            # Show visible window
+            max_visible = 12 if self.compact_layout else 15
+            start_idx = pane.scroll_offset
+            end_idx = start_idx + max_visible
+            visible_entries = entries[start_idx:end_idx]
+
+            # Add scroll indicators
+            if start_idx > 0:
+                lines.append("▲ Scroll up for more...")
+            for index, (_, label) in enumerate(visible_entries, start=start_idx):
+                cursor = "►" if pane.cursor == index else " "
+                lines.append(f"{cursor} {label}")
+            if end_idx < len(entries):
+                lines.append("▼ Scroll down for more...")
+
+        lines.append("")
+        lines.append("─" * min(width - 2, 50))
+        selected_count = sum(1 for _, (_, sel) in self.odt_products.items() if sel)
+        lines.append(f"Selected: {selected_count} product(s)")
+        lines.append("")
+        lines.append("Toggle products with Space. Multiple allowed.")
+        lines.append("/ to filter, Esc to clear filter.")
+        lines.append("")
+        return [line[:width] for line in lines]
+
+    def _render_odt_import_pane(self, width: int) -> list[str]:
+        """Render the ODT import configuration pane."""
+        lines = ["Import ODT Configuration:"]
+        lines.append("")
+        lines.append("Import an existing ODT XML configuration file.")
+        lines.append("")
+        lines.append("─" * 50)
+        lines.append("")
+        if hasattr(self, 'imported_odt_config') and self.imported_odt_config:
+            lines.append("✓ Configuration imported successfully")
+            config_preview = self.imported_odt_config[:200]
+            if len(self.imported_odt_config) > 200:
+                config_preview += "..."
+            lines.append("")
+            lines.append("Preview:")
+            for line in config_preview.split('\n')[:5]:
+                lines.append(f"  {line[:width-4]}")
+        else:
+            lines.append("No configuration imported yet.")
+        lines.append("")
+        lines.append("Press Enter/F10 to browse for XML file.")
+        lines.append("")
+        return [line[:width] for line in lines]
     def _render_offscrub_pane(self, width: int) -> list[str]:
         """Render the OffScrub scripts pane."""
         lines = ["OffScrub Scripts:"]

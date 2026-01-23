@@ -156,8 +156,10 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         # Mode-specific navigation items
         self._install_nav = [
             NavigationItem("odt_install", "Installation Presets", action=self._prepare_odt_install),
+            NavigationItem("odt_products", "Select Products", action=self._prepare_odt_products),
             NavigationItem("odt_locales", "Language Selection", action=self._prepare_odt_locales),
             NavigationItem("odt_custom", "Custom Configuration", action=self._prepare_odt_custom),
+            NavigationItem("odt_import", "Import ODT File", action=self._prepare_odt_import),
             NavigationItem(
                 "run_install", "▶ Run Installation", action=self._handle_odt_install_run
             ),
@@ -197,8 +199,10 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         # New specialized mode navigation
         self._odt_nav = [
             NavigationItem("odt_install", "Preset Templates", action=self._prepare_odt_install),
+            NavigationItem("odt_products", "Select Products", action=self._prepare_odt_products),
             NavigationItem("odt_locales", "Language Selection", action=self._prepare_odt_locales),
             NavigationItem("odt_custom", "Custom XML Editor", action=self._prepare_odt_custom),
+            NavigationItem("odt_import", "Import Config File", action=self._prepare_odt_import),
             NavigationItem("odt_export", "Export Config", action=self._handle_odt_export),
             NavigationItem("back", "← Back to Modes", action=self._return_to_mode_selection),
         ]
@@ -253,8 +257,10 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             "cleanup",
             "diagnostics",
             "odt_presets",
+            "odt_products",
             "odt_locales",
             "odt_custom",
+            "odt_import",
             "odt_install",
             "odt_repair",
             "odt_export",
@@ -372,6 +378,28 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         }
         # Add locale pane
         self.panes["odt_locales"] = PaneContext("odt_locales")
+
+        # ODT Products selection (product_id -> (display_name, selected))
+        self.odt_products: dict[str, tuple[str, bool]] = {
+            "O365ProPlusRetail": ("Microsoft 365 Apps for enterprise", False),
+            "O365BusinessRetail": ("Microsoft 365 Apps for business", False),
+            "ProPlus2024Volume": ("Office LTSC Professional Plus 2024", False),
+            "ProPlus2021Volume": ("Office LTSC Professional Plus 2021", False),
+            "ProPlus2019Volume": ("Office Professional Plus 2019", False),
+            "VisioProRetail": ("Visio Professional (subscription)", False),
+            "VisioPro2024Volume": ("Visio Professional 2024", False),
+            "VisioPro2021Volume": ("Visio Professional 2021", False),
+            "VisioPro2019Volume": ("Visio Professional 2019", False),
+            "ProjectProRetail": ("Project Professional (subscription)", False),
+            "ProjectPro2024Volume": ("Project Professional 2024", False),
+            "ProjectPro2021Volume": ("Project Professional 2021", False),
+            "ProjectPro2019Volume": ("Project Professional 2019", False),
+            "AccessRetail": ("Access (standalone)", False),
+            "Access2024Retail": ("Access 2024", False),
+            "Access2021Retail": ("Access 2021", False),
+            "Access2019Retail": ("Access 2019", False),
+        }
+        self.imported_odt_config: str | None = None
 
         # C2R Update Channel options (channel_id -> (display_name, selected))
         self.c2r_channels: dict[str, tuple[str, bool]] = {
@@ -680,6 +708,8 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                 self._select_odt_repair_preset(pane.cursor)
             elif self.active_tab == "odt_locales":
                 self._toggle_odt_locale(pane.cursor)
+            elif self.active_tab == "odt_products":
+                self._toggle_odt_product(pane.cursor)
             elif self.active_tab == "c2r_channel":
                 self._select_c2r_channel(pane.cursor)
             elif self.active_tab == "scrub_level":
@@ -809,6 +839,14 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
                     f"{'[x]' if selected else '[ ]'} {desc} ({key})",
                 )
                 for key, (desc, selected) in self.odt_locales.items()
+            ]
+        elif pane.name == "odt_products":
+            entries = [
+                (
+                    key,
+                    f"{'[x]' if selected else '[ ]'} {desc}",
+                )
+                for key, (desc, selected) in self.odt_products.items()
             ]
         elif pane.name == "c2r_channel":
             entries = [
