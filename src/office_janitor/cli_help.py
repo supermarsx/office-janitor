@@ -12,8 +12,13 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 # Import subcommand-specific options
+from .cli_c2r import C2R_EPILOG, add_c2r_subcommand_options
+from .cli_config import CONFIG_EPILOG, add_config_subcommand_options
 from .cli_diagnose import DIAGNOSE_EPILOG, add_diagnose_subcommand_options
 from .cli_install import INSTALL_EPILOG, add_install_subcommand_options
+from .cli_license import LICENSE_EPILOG, add_license_subcommand_options
+from .cli_odt import ODT_EPILOG, add_odt_subcommand_options
+from .cli_offscrub import OFFSCRUB_EPILOG, add_offscrub_subcommand_options
 from .cli_remove import REMOVE_EPILOG, add_remove_subcommand_options
 from .cli_repair import REPAIR_EPILOG, add_repair_subcommand_options
 
@@ -140,6 +145,11 @@ Commands:
   repair     Fix broken Office installations (quick or full repair)
   remove     Uninstall Office and clean up residual artifacts
   diagnose   Detect and report Office installations
+  odt        Build and manage ODT XML configurations
+  offscrub   OffScrub-style deep removal operations
+  c2r        Direct Click-to-Run passthrough operations
+  license    Manage Office licensing and activation
+  config     Generate and manage configuration files
 
 Run 'office-janitor <command> --help' for command-specific options.
 """
@@ -942,12 +952,15 @@ def add_output_options(
     parser: argparse.ArgumentParser,
     *,
     include_timeout: bool = True,
+    include_quiet: bool = True,
 ) -> argparse.ArgumentParser:
     """!
     @brief Add output and logging options.
     @param parser The ArgumentParser to add arguments to.
     @param include_timeout Whether to include the --timeout option (default True).
         Set to False when the subparser already has a timeout option.
+    @param include_quiet Whether to include the --quiet option (default True).
+        Set to False when the subparser already defines its own quiet option.
     @returns The parser for chaining.
     """
     output = parser.add_argument_group("Output & Logging Options")
@@ -973,12 +986,13 @@ def add_output_options(
             type=int,
             help="Per-step timeout in seconds.",
         )
-    output.add_argument(
-        "--quiet",
-        "-q",
-        action="store_true",
-        help="Minimal console output (errors only).",
-    )
+    if include_quiet:
+        output.add_argument(
+            "--quiet",
+            "-q",
+            action="store_true",
+            help="Minimal console output (errors only).",
+        )
     output.add_argument(
         "--json",
         action="store_true",
@@ -1503,6 +1517,82 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
     add_diagnose_subcommand_options(diagnose_parser)
     add_output_options(diagnose_parser)
     add_tui_options(diagnose_parser)
+
+    # ----- ODT subcommand -----
+    odt_parser = subparsers.add_parser(
+        "odt",
+        help="Build and manage Office Deployment Tool XML configurations",
+        description="Generate ODT configuration files for Office installation/removal.",
+        epilog=ODT_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    odt_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    odt_parser.set_defaults(show_help=odt_parser)
+    add_odt_subcommand_options(odt_parser)
+    add_output_options(odt_parser)
+    add_tui_options(odt_parser)
+
+    # ----- OFFSCRUB subcommand -----
+    offscrub_parser = subparsers.add_parser(
+        "offscrub",
+        help="OffScrub-style deep removal of Office installations",
+        description="Perform thorough Office removal using OffScrub techniques.",
+        epilog=OFFSCRUB_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    offscrub_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    offscrub_parser.set_defaults(show_help=offscrub_parser)
+    add_offscrub_subcommand_options(offscrub_parser)
+    add_output_options(offscrub_parser, include_quiet=False)  # offscrub defines own -Q/--quiet
+    add_tui_options(offscrub_parser)
+    add_advanced_options(offscrub_parser)
+
+    # ----- C2R subcommand -----
+    c2r_parser = subparsers.add_parser(
+        "c2r",
+        help="Direct Click-to-Run operations passthrough",
+        description="Execute Click-to-Run operations directly via OfficeClickToRun.exe.",
+        epilog=C2R_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    c2r_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    c2r_parser.set_defaults(show_help=c2r_parser)
+    add_c2r_subcommand_options(c2r_parser)
+    add_output_options(c2r_parser, include_timeout=False)  # c2r defines own --timeout
+    add_tui_options(c2r_parser)
+
+    # ----- LICENSE subcommand -----
+    license_parser = subparsers.add_parser(
+        "license",
+        help="Manage Office licensing and activation",
+        description="View, clean, and manage Office licensing information.",
+        epilog=LICENSE_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    license_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    license_parser.set_defaults(show_help=license_parser)
+    add_license_subcommand_options(license_parser)
+    add_output_options(license_parser)
+    add_tui_options(license_parser)
+
+    # ----- CONFIG subcommand -----
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Generate and manage configuration files",
+        description="Generate Office Janitor configuration files interactively or from templates.",
+        epilog=CONFIG_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    config_parser.add_argument("-h", "--help", action=HelpActionWithPause)
+    config_parser.set_defaults(show_help=config_parser)
+    add_config_subcommand_options(config_parser)
+    add_output_options(config_parser)
+    add_tui_options(config_parser)
 
     # ---------------------------------------------------------------------------
     # Global options (shown in main help)
