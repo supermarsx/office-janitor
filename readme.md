@@ -898,10 +898,3 @@ def my_function(arg: str) -> bool:
 ## License
 
 See [license.md](license.md) for licensing information.
-
-## Support
-
-- Bug reports: Reference relevant sections of [`spec.md`](spec.md)
-- Feature requests: Discuss alignment with intended architecture
-- Documentation: See `docs/` for detailed guides
-
