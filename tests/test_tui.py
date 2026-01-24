@@ -209,7 +209,6 @@ def test_navigation_right_arrow_activates_item(monkeypatch):
     # Navigate to odt_install and activate with right arrow
     interface.focus_area = "nav"
     interface.nav_index = 0  # odt_install is first
-    prev_tab = interface.active_tab
     interface._handle_key("right")
     # Should activate the navigation item (odt_install has an action)
     assert interface.active_tab == "odt_install"
@@ -1384,9 +1383,9 @@ def test_new_modes_have_navigation(monkeypatch):
         _select_mode(interface, mode)
         assert interface.current_mode == mode, f"Mode {mode} not set"
         assert len(interface.navigation) > 0, f"Mode {mode} has no navigation"
-        assert any(item.name == "back" for item in interface.navigation), (
-            f"Mode {mode} missing back item"
-        )
+        assert any(
+            item.name == "back" for item in interface.navigation
+        ), f"Mode {mode} missing back item"
         interface._return_to_mode_selection()
 
 

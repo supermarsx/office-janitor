@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import argparse
 
-import pytest
-
 from office_janitor import cli_help
 
 

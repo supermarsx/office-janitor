@@ -11,8 +11,6 @@ import pathlib
 import sys
 from collections.abc import Iterable
 
-import pytest
-
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
