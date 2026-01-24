@@ -1413,6 +1413,7 @@ def build_arg_parser(version_info: dict[str, str] | None = None) -> argparse.Arg
         description=PROGRAM_DESCRIPTION,
         epilog=EPILOG_TEXT,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,  # Disable prefix matching to avoid ambiguous flags
     )
 
     # Add custom help action that pauses before exit
