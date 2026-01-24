@@ -707,7 +707,7 @@ class TUIActionsMixin:
                 self._append_status("[DRY-RUN] Would remove SPP tokens")
                 self._append_status("[DRY-RUN] Would clear OSPP cache")
             else:
-                licensing.cleanup_licenses(extended=True)
+                licensing.cleanup_licenses({"clean_all_licenses": True, "dry_run": False})
                 self._append_status("✓ Office licenses removed")
                 self._append_status("✓ SPP tokens cleaned")
                 self._append_status("✓ OSPP cache cleared")
@@ -849,8 +849,8 @@ class TUIActionsMixin:
             self._append_status(f"✗ Channel change error: {exc}")
             self.progress_message = "Channel change failed"
 
-    def _prepare_license_install(self) -> None:
-        """Prepare product key installation."""
+    def _handle_license_install_run(self) -> None:
+        """Handle license key installation execution."""
         self.progress_message = "Install product key"
         self._append_status("License Install: Enter product key to install.")
         self.active_tab = "license_install"
@@ -1005,9 +1005,8 @@ class TUIActionsMixin:
         desc, current_state = self.odt_exclusions[selected_key]
         self.odt_exclusions[selected_key] = (desc, not current_state)
         excluded_count = sum(1 for _, (_, excluded) in self.odt_exclusions.items() if excluded)
-        self._append_status(
-            f"{desc}: {'Excluded' if not current_state else 'Included'}  ({excluded_count} excluded)"
-        )
+        action = "Excluded" if not current_state else "Included"
+        self._append_status(f"{desc}: {action}  ({excluded_count} excluded)")
         new_state = "selected" if not current_state else "deselected"
         selected_count = sum(1 for _, (_, sel) in self.odt_products.items() if sel)
         self._append_status(f"{desc} {new_state} — {selected_count} total")

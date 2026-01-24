@@ -168,7 +168,8 @@ def _build_powershell_command(description: str) -> Sequence[str]:
     """
 
     description_literal = json.dumps(description)
-    script = textwrap.dedent(f"""
+    script = textwrap.dedent(
+        f"""
         $description = {description_literal}
         $restorePointType = 0
         $eventType = 100
@@ -196,7 +197,8 @@ def _build_powershell_command(description: str) -> Sequence[str]:
                 exit 1
             }}
         }}
-        """).strip()
+        """
+    ).strip()
 
     return [
         _POWERSHELL_EXECUTABLE,

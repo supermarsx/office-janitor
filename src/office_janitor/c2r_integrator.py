@@ -8,10 +8,11 @@ Based on functionality from OffScrubC2R.vbs and OfficeScrubber.cmd.
 from __future__ import annotations
 
 import glob
+import os
 import winreg
 from pathlib import Path
 
-from . import command_runner, logging_ext
+from . import command_runner, exec_utils, logging_ext
 
 # ---------------------------------------------------------------------------
 # Integrator.exe Locations

@@ -153,7 +153,8 @@ def _print_menu(menu: list[tuple[str, MenuHandler]]) -> None:
     else:
         labels = labels[: len(_DEFAULT_MENU_LABELS)]
 
-    header = textwrap.dedent(f"""
+    header = textwrap.dedent(
+        f"""
         ================= Office Janitor =================
         Version {metadata["version"]} (build {metadata["build"]})
         --------------------------------------------------
@@ -168,7 +169,8 @@ def _print_menu(menu: list[tuple[str, MenuHandler]]) -> None:
         9. {labels[8]}
         10. {labels[9]}
         --------------------------------------------------
-        """).strip("\n")
+        """
+    ).strip("\n")
     print(header)
 
 
