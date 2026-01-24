@@ -336,15 +336,23 @@ def perform_registry_cleanup(
     else:
         if step_backup is not None:
             _scrub_progress(f"Exporting {len(keys)} registry keys to backup...", indent=3)
-            registry_tools.export_keys(keys, step_backup)
-            backup_performed = True
-            _scrub_progress(f"Registry backup complete: {step_backup}", indent=3)
+            try:
+                registry_tools.export_keys(keys, step_backup)
+                backup_performed = True
+                _scrub_progress(f"Registry backup complete: {step_backup}", indent=3)
+            except Exception as exc:  # pragma: no cover - defensive
+                human_logger.warning("Registry backup failed: %s (continuing without backup)", exc)
+                extended_cleanups["backup_error"] = str(exc)
         else:
             human_logger.warning("Proceeding without registry backup; no destination available.")
 
     _scrub_progress(f"Deleting {len(keys)} registry keys...", indent=3)
-    registry_tools.delete_keys(keys, dry_run=dry_run)
-    _scrub_progress("Registry key deletion complete", indent=3)
+    try:
+        registry_tools.delete_keys(keys, dry_run=dry_run)
+        _scrub_progress("Registry key deletion complete", indent=3)
+    except Exception as exc:  # pragma: no cover - defensive
+        human_logger.warning("Registry deletion encountered errors: %s (some keys may remain)", exc)
+        extended_cleanups["deletion_error"] = str(exc)
 
     return {
         "backup_destination": step_backup,

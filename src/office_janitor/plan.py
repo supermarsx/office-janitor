@@ -419,8 +419,8 @@ def build_plan(
         else collect_registry_paths(planning_inventory.get("registry", []))
     )
 
-    # Include uninstall registry entries in cleanup
-    if not diagnose_mode and not skip_registry:
+    # Include uninstall registry entries (Control Panel) in cleanup for nuclear mode
+    if not diagnose_mode and not skip_registry and is_nuclear:
         uninstall_handles = collect_uninstall_handles(
             planning_inventory.get("uninstall_entries", [])
         )

@@ -108,15 +108,18 @@ def test_delete_keys_dry_run_skips_execution(monkeypatch) -> None:
     assert calls and all(calls)
 
 
-def test_delete_keys_rejects_disallowed_paths(monkeypatch) -> None:
+def test_delete_keys_rejects_disallowed_paths(monkeypatch, caplog) -> None:
     """!
-    @brief Guardrails should reject deletions outside the whitelist.
+    @brief Guardrails should skip deletions outside the whitelist without raising.
     """
 
     monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "reg.exe")
 
-    with pytest.raises(registry_tools.RegistryError):
-        registry_tools.delete_keys(["HKLM\\Software\\Contoso"], dry_run=False, logger=_Recorder())
+    # Should not raise, just skip the invalid key
+    registry_tools.delete_keys(["HKLM\\Software\\Contoso"], dry_run=False)
+
+    # Verify warning was logged about skipping the non-whitelisted key
+    assert "non-whitelisted" in caplog.text
 
 
 def test_export_keys_creates_placeholder_when_reg_missing(tmp_path, monkeypatch) -> None:

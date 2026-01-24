@@ -858,10 +858,10 @@ class TestExtendedCleanupOptions:
 
     def test_uninstall_entries_included_in_registry_cleanup(self) -> None:
         """!
-        @brief Detected uninstall entries should be included in registry cleanup keys.
+        @brief Detected uninstall entries should be included in registry cleanup keys for nuclear mode.
         @details The VBS scrubber explicitly removes Control Panel uninstall entries
         like ``HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{guid}``.
-        Our planner should include these in the registry-cleanup step.
+        Our planner should include these in the registry-cleanup step when using nuclear scrub level.
         """
         inventory: dict[str, list[dict]] = {
             "uninstall_entries": [
@@ -884,7 +884,7 @@ class TestExtendedCleanupOptions:
                 {"path": r"HKLM\SOFTWARE\Microsoft\Office\16.0"},
             ],
         }
-        options = {"auto_all": True}
+        options = {"auto_all": True, "scrub_level": "nuclear"}
 
         plan_steps = plan.build_plan(inventory, options)
         reg_step = next((s for s in plan_steps if s["category"] == "registry-cleanup"), None)

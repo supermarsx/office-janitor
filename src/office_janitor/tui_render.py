@@ -251,7 +251,7 @@ class TUIRendererMixin:
         if self.status_lines:
             lines.append("Status:")
             # Show last 3-4 status messages in full width
-            recent_status = self.status_lines[-(3 if self.compact_layout else 4):]
+            recent_status = self.status_lines[-(3 if self.compact_layout else 4) :]
             for status in recent_status:
                 lines.append(status[:width])
         return lines
@@ -576,6 +576,7 @@ class TUIRendererMixin:
         lines.append("Select level with Space, apply with Enter/F10.")
         lines.append("")
         return [line[:width] for line in lines]
+
     def _render_odt_products_pane(self, width: int) -> list[str]:
         """Render the ODT products selection pane."""
         lines = ["Office Products Selection:"]
@@ -626,6 +627,7 @@ class TUIRendererMixin:
         lines.append("Space toggle • / filter • PgUp/PgDn scroll")
         lines.append("")
         return [line[:width] for line in lines]
+
     def _render_license_install_pane(self, width: int) -> list[str]:
         """Render the license key installation pane."""
         lines = ["Install Product Key:"]
@@ -638,7 +640,7 @@ class TUIRendererMixin:
         lines.append("  1. Enter custom product key (25-character format)")
         lines.append("  2. Use KMS activation (requires KMS server)")
         lines.append("")
-        if hasattr(self, 'license_key_input') and self.license_key_input:
+        if hasattr(self, "license_key_input") and self.license_key_input:
             lines.append(f"Current key: {self.license_key_input[:5]}-****-****-****-*****")
         else:
             lines.append("No key entered yet.")
@@ -647,6 +649,7 @@ class TUIRendererMixin:
         lines.append("Press K for KMS activation setup.")
         lines.append("")
         return [line[:width] for line in lines]
+
     def _render_odt_import_pane(self, width: int) -> list[str]:
         """Render the ODT import configuration pane."""
         lines = ["Import ODT Configuration:"]
@@ -655,15 +658,15 @@ class TUIRendererMixin:
         lines.append("")
         lines.append("─" * 50)
         lines.append("")
-        if hasattr(self, 'imported_odt_config') and self.imported_odt_config:
+        if hasattr(self, "imported_odt_config") and self.imported_odt_config:
             lines.append("✓ Configuration imported successfully")
             config_preview = self.imported_odt_config[:200]
             if len(self.imported_odt_config) > 200:
                 config_preview += "..."
             lines.append("")
             lines.append("Preview:")
-            for line in config_preview.split('\n')[:5]:
-                lines.append(f"  {line[:width-4]}")
+            for line in config_preview.split("\n")[:5]:
+                lines.append(f"  {line[: width - 4]}")
         else:
             lines.append("No configuration imported yet.")
         lines.append("")
@@ -721,6 +724,7 @@ class TUIRendererMixin:
         lines.append("Space toggle • / filter • PgUp/PgDn scroll")
         lines.append("")
         return [line[:width] for line in lines]
+
     def _render_offscrub_pane(self, width: int) -> list[str]:
         """Render the OffScrub scripts pane."""
         lines = ["OffScrub Scripts:"]

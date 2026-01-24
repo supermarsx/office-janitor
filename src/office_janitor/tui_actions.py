@@ -1005,7 +1005,9 @@ class TUIActionsMixin:
         desc, current_state = self.odt_exclusions[selected_key]
         self.odt_exclusions[selected_key] = (desc, not current_state)
         excluded_count = sum(1 for _, (_, excluded) in self.odt_exclusions.items() if excluded)
-        self._append_status(f"{desc}: {'Excluded' if not current_state else 'Included'}  ({excluded_count} excluded)")
+        self._append_status(
+            f"{desc}: {'Excluded' if not current_state else 'Included'}  ({excluded_count} excluded)"
+        )
         new_state = "selected" if not current_state else "deselected"
         selected_count = sum(1 for _, (_, sel) in self.odt_products.items() if sel)
         self._append_status(f"{desc} {new_state} — {selected_count} total")

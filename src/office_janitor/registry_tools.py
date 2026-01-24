@@ -135,13 +135,19 @@ def _is_registry_path_allowed(key: str) -> bool:
 def _validate_registry_keys(keys: Iterable[str]) -> list[str]:
     """!
     @brief Ensure all keys fall within the allowed registry scope.
+    @details Skips invalid keys instead of failing completely to improve resilience.
     """
+    _logger = logging.getLogger(__name__)
     canonical_keys: list[str] = []
     for key in keys:
-        canonical = _normalize_registry_key(key)
-        if not _is_registry_path_allowed(canonical):
-            raise RegistryError(f"Refusing to operate on non-whitelisted registry key: {key}")
-        canonical_keys.append(canonical)
+        try:
+            canonical = _normalize_registry_key(key)
+            if not _is_registry_path_allowed(canonical):
+                _logger.warning("Skipping non-whitelisted registry key: %s", key)
+                continue
+            canonical_keys.append(canonical)
+        except Exception as exc:
+            _logger.warning("Skipping invalid registry key %s: %s", key, exc)
     return canonical_keys
 
 
@@ -428,6 +434,9 @@ def export_keys(
     dest_path.mkdir(parents=True, exist_ok=True)
 
     canonical_keys = _validate_registry_keys(keys)
+    if not canonical_keys:
+        logger.debug("No valid registry keys to export after validation")
+        return []
     reg_executable = shutil.which("reg")
     exported: list[Path] = []
 
@@ -485,9 +494,13 @@ def delete_keys(
     """!
     @brief Remove registry keys while respecting dry-run safeguards.
     @details Continues processing remaining keys even if individual deletions fail.
+    Invalid keys are automatically skipped during validation.
     """
     logger = logger or _LOGGER
     canonical_keys = _validate_registry_keys(keys)
+    if not canonical_keys:
+        logger.debug("No valid registry keys to delete after validation")
+        return
     reg_executable = shutil.which("reg")
 
     for key in canonical_keys:
