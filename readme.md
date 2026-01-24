@@ -86,14 +86,17 @@ The resulting `dist/office-janitor.exe` is a single-file admin-elevated executab
 
 ```bash
 # Install Office LTSC 2024 with Visio and Project (no bloatware)
-office-janitor --goobler
+office-janitor install --goobler
 
 # Repair Office Click-to-Run (quick repair)
-office-janitor --repair quick
+office-janitor repair --quick
 
 # Remove all Office installations (preview first!)
-office-janitor --auto-all --dry-run
-office-janitor --auto-all --backup C:\Backups
+office-janitor remove --dry-run
+office-janitor remove --backup C:\Backups
+
+# Diagnose Office installations without making changes
+office-janitor diagnose --plan report.json
 
 # Interactive mode - launches menu
 office-janitor
@@ -111,20 +114,20 @@ Use presets for one-command installations:
 
 ```bash
 # Install Office LTSC 2024 Professional Plus (64-bit)
-office-janitor --odt-install --odt-preset office2024-x64
+office-janitor install --preset office2024-x64
 
 # Install full suite: Office 2024 + Visio + Project
-office-janitor --odt-install --odt-preset ltsc2024-full-x64
+office-janitor install --preset ltsc2024-full-x64
 
 # Install clean version without OneDrive/Skype bloatware
-office-janitor --odt-install --odt-preset ltsc2024-full-x64-clean
+office-janitor install --preset ltsc2024-full-x64-clean
 
 # Add multiple languages
-office-janitor --odt-install --odt-preset ltsc2024-full-x64 \
-  --odt-language en-us --odt-language de-de --odt-language es-mx
+office-janitor install --preset ltsc2024-full-x64 \
+  --language en-us --language de-de --language es-mx
 
 # Preview without installing
-office-janitor --odt-install --odt-preset office2024-x64 --dry-run
+office-janitor install --preset office2024-x64 --dry-run
 ```
 
 #### Microsoft 365 Presets
@@ -175,13 +178,13 @@ Author-defined shortcuts for common installations:
 
 ```bash
 # Goobler: Full Office 2024 suite, no bloatware, Portuguese + English
-office-janitor --goobler
+office-janitor install --goobler
 
 # Pupa: ProPlus only, no bloatware, Portuguese + English  
-office-janitor --pupa
+office-janitor install --pupa
 
 # Both support dry-run
-office-janitor --goobler --dry-run
+office-janitor install --goobler --dry-run
 ```
 
 | Alias | Preset | Products | Languages |
@@ -195,24 +198,24 @@ Build custom configurations when presets don't fit:
 
 ```bash
 # Custom product selection
-office-janitor --odt-install \
-  --odt-product ProPlus2024Volume \
-  --odt-product VisioPro2024Volume \
-  --odt-channel PerpetualVL2024 \
-  --odt-language en-us \
-  --odt-exclude-app OneDrive \
-  --odt-exclude-app Lync
+office-janitor install \
+  --product ProPlus2024Volume \
+  --product VisioPro2024Volume \
+  --channel PerpetualVL2024 \
+  --language en-us \
+  --exclude-app OneDrive \
+  --exclude-app Lync
 
 # Generate XML without installing
-office-janitor --odt-build --odt-preset office2024-x64 --odt-output install.xml
+office-janitor odt --build --preset office2024-x64 --output install.xml
 
 # Download for offline installation
-office-janitor --odt-download "D:\OfficeSource" \
-  --odt-preset 365-proplus-x64 \
-  --odt-language en-us --odt-language es-es
+office-janitor odt --download "D:\OfficeSource" \
+  --preset 365-proplus-x64 \
+  --language en-us --language es-es
 
 # Generate removal XML
-office-janitor --odt-removal --odt-remove-msi --odt-output remove.xml
+office-janitor odt --removal --remove-msi --output remove.xml
 ```
 
 ### Progress Monitoring
@@ -252,13 +255,13 @@ Fast local repair using cached installation files:
 
 ```bash
 # Quick repair (runs silently)
-office-janitor --repair quick
+office-janitor repair --quick
 
 # Show repair UI
-office-janitor --repair quick --repair-visible
+office-janitor repair --quick --visible
 
 # Preview without executing
-office-janitor --repair quick --dry-run
+office-janitor repair --quick --dry-run
 ```
 
 Quick repair:
@@ -273,13 +276,13 @@ Complete repair that re-downloads Office from CDN:
 
 ```bash
 # Full online repair
-office-janitor --repair full
+office-janitor repair --full
 
 # With visible progress UI
-office-janitor --repair full --repair-visible
+office-janitor repair --full --visible
 
 # Specify architecture
-office-janitor --repair full --repair-platform x64
+office-janitor repair --full --platform x64
 ```
 
 Full repair:
@@ -294,25 +297,25 @@ Use bundled configuration presets for repair/reconfiguration:
 
 ```bash
 # List available OEM presets
-office-janitor --oem-config --help
+office-janitor repair --help
 
 # Quick repair preset
-office-janitor --oem-config quick-repair
+office-janitor repair --config quick-repair
 
 # Full repair preset  
-office-janitor --oem-config full-repair
+office-janitor repair --config full-repair
 
 # Repair specific products
-office-janitor --oem-config proplus-x64
-office-janitor --oem-config business-x64
-office-janitor --oem-config office2024-x64
+office-janitor repair --config proplus-x64
+office-janitor repair --config business-x64
+office-janitor repair --config office2024-x64
 
 # Remove all C2R products
-office-janitor --c2r-remove
+office-janitor c2r --remove
 
 # Quick aliases
-office-janitor --c2r-repair-quick
-office-janitor --c2r-repair-full
+office-janitor repair --quick
+office-janitor repair --full
 ```
 
 Available OEM presets:
@@ -334,7 +337,7 @@ Available OEM presets:
 Use your own XML configuration:
 
 ```bash
-office-janitor --repair-config "C:\Configs\custom_repair.xml"
+office-janitor repair --config-file "C:\Configs\custom_repair.xml"
 ```
 
 ---
@@ -349,16 +352,16 @@ Remove all detected Office installations:
 
 ```bash
 # ALWAYS preview first!
-office-janitor --auto-all --dry-run
+office-janitor remove --dry-run
 
 # Execute with backup
-office-janitor --auto-all --backup "C:\Backups\Office"
+office-janitor remove --backup "C:\Backups\Office"
 
 # Silent unattended removal
-office-janitor --auto-all --yes --quiet
+office-janitor remove --yes --quiet
 
 # Keep user data during removal
-office-janitor --auto-all --keep-templates --keep-user-settings --keep-license
+office-janitor remove --keep-templates --keep-user-settings --keep-license
 ```
 
 ### Targeted Removal
@@ -367,25 +370,25 @@ Remove specific Office versions:
 
 ```bash
 # Remove only Office 2016
-office-janitor --target 2016
+office-janitor remove --target 2016
 
 # Remove Microsoft 365 only
-office-janitor --target 365
+office-janitor remove --target 365
 
 # Remove Office 2019 including Visio/Project
-office-janitor --target 2019 --include visio,project
+office-janitor remove --target 2019 --include visio,project
 
 # Remove only MSI-based Office
-office-janitor --msi-only --auto-all
+office-janitor remove --msi-only
 
 # Remove only Click-to-Run Office
-office-janitor --c2r-only --auto-all
+office-janitor remove --c2r-only
 
 # Remove specific MSI product by GUID
-office-janitor --product-code "{90160000-0011-0000-0000-0000000FF1CE}"
+office-janitor remove --product-code "{90160000-0011-0000-0000-0000000FF1CE}"
 
 # Remove specific C2R release
-office-janitor --release-id O365ProPlusRetail
+office-janitor remove --release-id O365ProPlusRetail
 ```
 
 ### Scrub Levels
@@ -394,16 +397,16 @@ Control cleanup intensity:
 
 ```bash
 # Minimal - uninstall only
-office-janitor --auto-all --scrub-level minimal
+office-janitor remove --scrub-level minimal
 
 # Standard - uninstall + residue cleanup (default)
-office-janitor --auto-all --scrub-level standard
+office-janitor remove --scrub-level standard
 
 # Aggressive - deep registry/filesystem cleanup
-office-janitor --auto-all --scrub-level aggressive
+office-janitor remove --scrub-level aggressive
 
 # Nuclear - remove everything possible
-office-janitor --auto-all --scrub-level nuclear
+office-janitor remove --scrub-level nuclear
 ```
 
 | Level | Uninstall | Files | Registry | Services | Tasks | Licenses |
@@ -419,51 +422,51 @@ Skip uninstall, clean residue only:
 
 ```bash
 # Clean leftover files/registry after manual uninstall
-office-janitor --cleanup-only
+office-janitor remove --cleanup-only
 
 # Aggressive residue cleanup
-office-janitor --cleanup-only --scrub-level aggressive
+office-janitor remove --cleanup-only --scrub-level aggressive
 
 # Registry cleanup only
-office-janitor --registry-only
+office-janitor remove --registry-only
 ```
 
 ### License Management
 
 ```bash
 # Clean all Office licenses
-office-janitor --cleanup-only --clean-all-licenses
+office-janitor license --clean-all
 
 # Clean SPP tokens only (KMS/MAK)
-office-janitor --cleanup-only --clean-spp
+office-janitor license --clean-spp
 
 # Clean OSPP tokens
-office-janitor --cleanup-only --clean-ospp
+office-janitor license --clean-ospp
 
 # Clean vNext/device-based licensing
-office-janitor --cleanup-only --clean-vnext
+office-janitor license --clean-vnext
 
 # Preserve licenses during removal
-office-janitor --auto-all --keep-license
+office-janitor remove --keep-license
 ```
 
 ### Additional Cleanup Options
 
 ```bash
 # Clean MSOCache installation files
-office-janitor --auto-all --clean-msocache
+office-janitor remove --clean-msocache
 
 # Remove Office AppX/MSIX packages
-office-janitor --auto-all --clean-appx
+office-janitor remove --clean-appx
 
 # Clean Windows Installer metadata
-office-janitor --auto-all --clean-wi-metadata
+office-janitor remove --clean-wi-metadata
 
 # Clean Office shortcuts
-office-janitor --auto-all --clean-shortcuts
+office-janitor remove --clean-shortcuts
 
 # Clean registry add-ins, COM, shell extensions
-office-janitor --cleanup-only --clean-addin-registry --clean-com-registry --clean-shell-extensions
+office-janitor remove --cleanup-only --clean-addin-registry --clean-com-registry --clean-shell-extensions
 ```
 
 ### Multiple Passes
@@ -472,95 +475,182 @@ For stubborn installations:
 
 ```bash
 # Run 3 uninstall passes
-office-janitor --auto-all --passes 3
+office-janitor remove --passes 3
 
 # Or use max-passes
-office-janitor --auto-all --max-passes 5
+office-janitor remove --max-passes 5
 ```
 
 ---
 
 ## CLI Reference
 
-### Modes (mutually exclusive)
+Office Janitor uses a subcommand-based interface. Run `office-janitor <command> --help` for command-specific options.
 
-| Flag | Description |
-|------|-------------|
-| `--auto-all` | Detect and scrub all Office installations |
-| `--target VER` | Target specific version (2003-2024, 365) |
-| `--diagnose` | Detection and planning only, no changes |
-| `--cleanup-only` | Skip uninstall, clean residue only |
-| `--repair TYPE` | Repair C2R Office (quick/full) |
-| `--repair-config XML` | Repair using custom XML |
-| `--odt-install` | Install Office via ODT |
-| `--odt-build` | Generate ODT XML configuration |
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `install` | Install Office via ODT with presets or custom configurations |
+| `repair` | Repair Click-to-Run Office installations |
+| `remove` | Remove and scrub Office installations |
+| `diagnose` | Detection and planning only, no changes |
+| `odt` | Generate ODT XML configurations |
+| `offscrub` | Legacy OffScrub compatibility mode |
+| `c2r` | Click-to-Run management operations |
+| `license` | Office license management |
+| `config` | Manage configuration files |
 | (none) | Launch interactive menu |
 
-### Core Options
+### Global Options
+
+Available with all commands:
 
 | Flag | Description |
 |------|-------------|
 | `-n, --dry-run` | Simulate without changes |
 | `-y, --yes` | Skip confirmations |
-| `-f, --force` | Bypass guardrails |
-| `--backup DIR` | Backup registry/files |
-| `--plan FILE` | Export plan to JSON |
+| `--config JSON` | Load options from file |
 | `--logdir DIR` | Custom log directory |
 | `--timeout SEC` | Per-step timeout |
-| `--config JSON` | Load options from file |
+| `-v, -vv, -vvv` | Increase verbosity |
+| `--quiet` | Reduce output |
+| `--no-color` | Disable colors |
 
-### ODT Options
+### Install Command
 
-| Flag | Description |
-|------|-------------|
-| `--odt-preset NAME` | Use installation preset |
-| `--odt-product ID` | Add product (repeatable) |
-| `--odt-language CODE` | Add language (repeatable) |
-| `--odt-arch 32/64` | Architecture (default: 64) |
-| `--odt-channel CHANNEL` | Update channel |
-| `--odt-exclude-app APP` | Exclude app (repeatable) |
-| `--odt-shared-computer` | Enable shared licensing |
-| `--odt-remove-msi` | Include RemoveMSI element |
-| `--odt-output FILE` | Output XML path |
-| `--odt-list-presets` | List available presets |
-| `--odt-list-products` | List product IDs |
-| `--odt-list-channels` | List update channels |
-| `--odt-list-languages` | List language codes |
+Install Office using Office Deployment Tool:
 
-### Repair Options
+```bash
+office-janitor install [OPTIONS]
+```
 
 | Flag | Description |
 |------|-------------|
-| `--repair-culture LANG` | Language for repair (default: en-us) |
-| `--repair-platform ARCH` | Architecture (x86/x64) |
-| `--repair-visible` | Show repair UI |
-| `--repair-timeout SEC` | Timeout (default: 3600) |
+| `--preset NAME` | Use installation preset |
+| `--product ID` | Add product (repeatable) |
+| `--language CODE` | Add language (repeatable) |
+| `--arch 32/64` | Architecture (default: 64) |
+| `--channel CHANNEL` | Update channel |
+| `--exclude-app APP` | Exclude app (repeatable) |
+| `--shared-computer` | Enable shared licensing |
+| `--goobler` | Full LTSC 2024 suite, no bloatware (pt-pt, en-us) |
+| `--pupa` | ProPlus 2024 only, no bloatware (pt-pt, en-us) |
+| `--list-presets` | List available presets |
+| `--list-products` | List product IDs |
+| `--list-channels` | List update channels |
+| `--list-languages` | List language codes |
 
-### Scrub Options
+### Repair Command
+
+Repair Click-to-Run Office installations:
+
+```bash
+office-janitor repair [OPTIONS]
+```
 
 | Flag | Description |
 |------|-------------|
+| `--quick` | Quick local repair |
+| `--full` | Full online repair from CDN |
+| `--config NAME` | Use OEM configuration preset |
+| `--config-file XML` | Custom XML configuration |
+| `--culture LANG` | Language for repair (default: en-us) |
+| `--platform ARCH` | Architecture (x86/x64) |
+| `--visible` | Show repair UI |
+| `--timeout SEC` | Timeout (default: 3600) |
+
+### Remove Command
+
+Remove and scrub Office installations:
+
+```bash
+office-janitor remove [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--target VER` | Target specific version (2003-2024, 365) |
+| `--msi-only` | Remove only MSI-based Office |
+| `--c2r-only` | Remove only Click-to-Run Office |
+| `--product-code GUID` | Remove specific MSI product |
+| `--release-id ID` | Remove specific C2R release |
 | `--scrub-level LEVEL` | minimal/standard/aggressive/nuclear |
 | `--passes N` | Uninstall passes |
+| `--backup DIR` | Backup registry/files |
+| `--cleanup-only` | Skip uninstall, clean residue only |
+| `--registry-only` | Only registry cleanup |
 | `--skip-uninstall` | Skip uninstall phase |
 | `--skip-processes` | Don't terminate Office processes |
 | `--skip-services` | Don't stop Office services |
 | `--skip-tasks` | Don't remove scheduled tasks |
 | `--skip-registry` | Don't clean registry |
 | `--skip-filesystem` | Don't clean files |
-| `--registry-only` | Only registry cleanup |
 
-### License Options
+### Diagnose Command
+
+Detection and planning without changes:
+
+```bash
+office-janitor diagnose [OPTIONS]
+```
 
 | Flag | Description |
 |------|-------------|
-| `--keep-license` | Preserve licenses |
-| `--clean-spp` | Clean SPP tokens |
+| `--plan FILE` | Export plan to JSON |
+| `--json` | JSON output to stdout |
+
+### ODT Command
+
+Generate ODT XML configurations:
+
+```bash
+office-janitor odt [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--build` | Generate configuration XML |
+| `--download DIR` | Download Office source files |
+| `--removal` | Generate removal XML |
+| `--remove-msi` | Include RemoveMSI element |
+| `--output FILE` | Output XML path |
+| `--preset NAME` | Use preset configuration |
+| `--product ID` | Add product (repeatable) |
+| `--language CODE` | Add language (repeatable) |
+
+### License Command
+
+Office license management:
+
+```bash
+office-janitor license [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--clean-all` | Clean all license types |
+| `--clean-spp` | Clean SPP tokens (KMS/MAK) |
 | `--clean-ospp` | Clean OSPP tokens |
-| `--clean-vnext` | Clean vNext cache |
-| `--clean-all-licenses` | Clean all license types |
+| `--clean-vnext` | Clean vNext/device licensing |
+| `--keep-license` | Preserve licenses during removal |
+
+### C2R Command
+
+Click-to-Run management:
+
+```bash
+office-janitor c2r [OPTIONS]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--remove` | Remove all C2R products |
+| `--repair` | Repair C2R installation |
 
 ### User Data Options
+
+Available with `remove` command:
 
 | Flag | Description |
 |------|-------------|
@@ -569,6 +659,30 @@ office-janitor --auto-all --max-passes 5
 | `--keep-outlook-data` | Preserve Outlook data |
 | `--delete-user-settings` | Remove settings |
 | `--clean-shortcuts` | Remove shortcuts |
+
+### Cleanup Options
+
+Available with `remove` command:
+
+| Flag | Description |
+|------|-------------|
+| `--clean-msocache` | Clean MSOCache files |
+| `--clean-appx` | Remove AppX/MSIX packages |
+| `--clean-wi-metadata` | Clean Windows Installer metadata |
+| `--clean-addin-registry` | Clean add-in registry |
+| `--clean-com-registry` | Clean COM registry |
+| `--clean-shell-extensions` | Clean shell extensions |
+
+### Legacy Flags
+
+For backward compatibility, some legacy flags are still supported:
+
+| Legacy Flag | New Syntax |
+|-------------|------------|
+| `--auto-all` | `remove` |
+| `--repair quick` | `repair --quick` |
+| `--odt-install` | `install` |
+| `--diagnose` | `diagnose` |
 
 ---
 
@@ -590,7 +704,7 @@ Save common options in JSON:
 
 Use with:
 ```bash
-office-janitor --config settings.json --auto-all
+office-janitor remove --config settings.json
 ```
 
 CLI flags override config file values.
@@ -603,17 +717,17 @@ CLI flags override config file values.
 
 ```bash
 # Preview what will happen
-office-janitor --auto-all --dry-run --plan preview.json
+office-janitor remove --dry-run --plan preview.json
 
 # Review the plan file, then execute
-office-janitor --auto-all --backup "C:\Backups"
+office-janitor remove --backup "C:\Backups"
 ```
 
 ### Create Backups
 
 ```bash
 # Automatic backup to specified directory
-office-janitor --auto-all --backup "C:\Backups\Office"
+office-janitor remove --backup "C:\Backups\Office"
 
 # System restore points are created by default
 # Disable with --no-restore-point if needed
@@ -623,7 +737,7 @@ office-janitor --auto-all --backup "C:\Backups\Office"
 
 ```bash
 # Keep everything the user might want
-office-janitor --auto-all \
+office-janitor remove \
   --keep-templates \
   --keep-user-settings \
   --keep-outlook-data \
@@ -634,10 +748,10 @@ office-janitor --auto-all \
 
 ```bash
 # Silent unattended for SCCM/Intune
-office-janitor --auto-all --yes --quiet --no-restore-point
+office-janitor remove --yes --quiet --no-restore-point
 
 # Log to network share
-office-janitor --auto-all --logdir "\\server\logs\%COMPUTERNAME%"
+office-janitor remove --logdir "\\server\logs\%COMPUTERNAME%"
 ```
 
 ---
@@ -657,26 +771,26 @@ Override with `--logdir` or `OFFICE_JANITOR_LOGDIR` environment variable.
 
 ```bash
 # Full diagnostic without changes
-office-janitor --diagnose --dry-run --plan report.json -vvv
+office-janitor diagnose --plan report.json -vvv
 
 # JSON output to stdout
-office-janitor --diagnose --json
+office-janitor diagnose --json
 
 # Maximum verbosity
-office-janitor --diagnose -vvv
+office-janitor diagnose -vvv
 ```
 
 ### Troubleshooting
 
 ```bash
 # Skip phases to isolate issues
-office-janitor --auto-all --skip-processes --skip-services --dry-run
+office-janitor remove --skip-processes --skip-services --dry-run
 
 # Force through guardrails (use with caution)
-office-janitor --auto-all --force --skip-preflight
+office-janitor remove --force --skip-preflight
 
 # Registry-only cleanup
-office-janitor --registry-only
+office-janitor remove --registry-only
 ```
 
 ---
@@ -686,7 +800,7 @@ office-janitor --registry-only
 Launch the interactive terminal UI:
 
 ```bash
-office-janitor --tui
+office-janitor
 ```
 
 The TUI provides:
@@ -705,9 +819,9 @@ Legacy OffScrub VBS switches are mapped to native behaviors. See `docs/CLI_COMPA
 
 ```bash
 # OffScrub-style flags
-office-janitor --offscrub-all          # Remove all
-office-janitor --offscrub-quiet        # Reduce output
-office-janitor --offscrub-test-rerun   # Double-pass
+office-janitor offscrub --all          # Remove all
+office-janitor offscrub --quiet        # Reduce output
+office-janitor offscrub --test-rerun   # Double-pass
 ```
 
 ---

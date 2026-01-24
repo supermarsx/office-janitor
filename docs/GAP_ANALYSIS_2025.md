@@ -165,11 +165,20 @@ Per spec.md Section 21, workflows are now split into:
 The CLI now supports 100+ arguments across 10 organized groups:
 
 ### Mode Selection
-- `--auto-all` - Full detection and scrub
-- `--target VER` - Target specific Office version
-- `--diagnose` - Emit inventory without changes
-- `--cleanup-only` - Skip uninstalls, clean residue only
-- `--repair quick|full` - Repair Office C2R
+Office Janitor now uses subcommand-based CLI:
+- `install` - Install Office via ODT
+- `repair` - Repair Office C2R
+- `remove` - Detect and scrub Office installations
+- `diagnose` - Emit inventory without changes
+- `license` - License management
+- `odt` - ODT configuration management
+- `c2r` - Click-to-Run operations
+- `offscrub` - Legacy OffScrub compatibility
+- `config` - Configuration management
+
+Legacy flags still supported for backward compatibility:
+- `--auto-all` → `remove`
+- `--repair quick|full` → `repair --quick|--full`
 
 ### Uninstall Method Options
 - `--uninstall-method auto|msi|c2r|odt|offscrub` - Choose uninstall method

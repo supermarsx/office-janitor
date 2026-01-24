@@ -10,7 +10,7 @@ Office Janitor supports automated repair of Microsoft Office Click-to-Run (C2R) 
 
 ### Quick Repair
 
-**Command:** `office-janitor --repair quick`
+**Command:** `office-janitor repair --quick`
 
 Quick Repair is the recommended first-line approach for most Office issues. It:
 
@@ -28,7 +28,7 @@ Quick Repair is the recommended first-line approach for most Office issues. It:
 
 ### Full Online Repair
 
-**Command:** `office-janitor --repair full`
+**Command:** `office-janitor repair --full`
 
 Full Online Repair is a more thorough repair option that reinstalls Office from Microsoft's CDN. It:
 
@@ -50,49 +50,50 @@ Full Online Repair is a more thorough repair option that reinstalls Office from 
 
 ```powershell
 # Quick Repair (recommended first)
-office-janitor --repair quick
+office-janitor repair --quick
 
 # Full Online Repair
-office-janitor --repair full
+office-janitor repair --full
 
 # Dry-run mode (preview without executing)
-office-janitor --repair quick --dry-run
+office-janitor repair --quick --dry-run
 ```
 
 ### Advanced Options
 
 ```powershell
 # Specify language/culture
-office-janitor --repair quick --repair-culture de-de
+office-janitor repair --quick --culture de-de
 
 # Force specific architecture
-office-janitor --repair quick --repair-platform x64
+office-janitor repair --quick --platform x64
 
 # Show repair UI instead of silent mode
-office-janitor --repair full --repair-visible
+office-janitor repair --full --visible
 
 # Use custom XML configuration
-office-janitor --repair-config "C:\path\to\config.xml"
+office-janitor repair --config-file "C:\path\to\config.xml"
 
 # Skip confirmation prompts
-office-janitor --repair quick --force
+office-janitor repair --quick --yes
 ```
 
 ### Option Reference
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--repair TYPE` | Repair type: `quick` or `full` | - |
-| `--repair-config XML` | Custom XML configuration file | - |
-| `--repair-culture LANG` | Language code (e.g., `en-us`, `de-de`) | `en-us` |
-| `--repair-platform ARCH` | Architecture: `x86` or `x64` | Auto-detected |
-| `--repair-visible` | Show repair progress UI | Silent |
+| `--quick` | Quick local repair | - |
+| `--full` | Full online repair from CDN | - |
+| `--config-file XML` | Custom XML configuration file | - |
+| `--culture LANG` | Language code (e.g., `en-us`, `de-de`) | `en-us` |
+| `--platform ARCH` | Architecture: `x86` or `x64` | Auto-detected |
+| `--visible` | Show repair progress UI | Silent |
 | `--dry-run` | Simulate without executing | Disabled |
-| `--force` | Skip confirmation prompts | Disabled |
+| `--yes` | Skip confirmation prompts | Disabled |
 
 ## Supported Languages/Cultures
 
-The following language codes are supported for the `--repair-culture` option:
+The following language codes are supported for the `--culture` option:
 
 | Code | Language |
 |------|----------|
