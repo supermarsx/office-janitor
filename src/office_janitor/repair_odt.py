@@ -12,10 +12,10 @@ import glob
 import os
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from . import command_runner, constants, logging_ext, registry_tools
+from . import constants, logging_ext, registry_tools
 from .exec_utils import CommandResult
 
 # ---------------------------------------------------------------------------
@@ -335,32 +335,138 @@ def reconfigure_office(
         },
     )
 
-    # Use log tailer to stream ODT logs to console
-    if not dry_run:
-        log.info("Tailing ODT logs from %temp%...")
-        # Combine callbacks: send output to both log_callback and progress_callback
-        combined_callback = None
-        if log_callback or progress_callback:
-            def combined_callback(line: str) -> None:
-                if log_callback:
-                    log_callback(line)
-                if progress_callback:
-                    progress_callback(line)
-        
-        with LogTailer(output_callback=combined_callback):
-            result = command_runner.run_command(
-                command,
-                event="reconfigure_exec",
-                timeout=timeout,
-                dry_run=dry_run,
-            )
-        return result
-    else:
-        return command_runner.run_command(
+    if dry_run:
+        log.info("[DRY-RUN] Would execute: %s", " ".join(command))
+        return CommandResult(
+            command=command,
+            returncode=0,
+            stdout="",
+            stderr="",
+            duration=0.0,
+        )
+
+    # Import here to avoid circular dependency
+    import subprocess
+
+    from . import odt_build
+
+    log.info("Starting ODT reconfiguration...")
+    
+    # Combine callbacks: send output to both log_callback and progress_callback
+    combined_log_callback: Callable[[str], None] | None = None
+    if log_callback or progress_callback:
+        def _combined_log_callback(line: str) -> None:
+            if log_callback:
+                log_callback(line)
+        combined_log_callback = _combined_log_callback
+    
+    # Start log tailer and process monitoring
+    start_time = time.time()
+    stop_event = threading.Event()
+    monitor_thread = None
+    proc = None
+    
+    # Send initial progress update
+    if progress_callback:
+        progress_callback("ODT: Starting configuration...")
+    
+    try:
+        # Start the ODT process with DEVNULL to prevent pipe blocking
+        proc = subprocess.Popen(
             command,
-            event="reconfigure_exec",
-            timeout=timeout,
-            dry_run=dry_run,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        
+        if progress_callback:
+            progress_callback(f"ODT: Process started (PID {proc.pid})")
+        
+        # Start log tailer in background
+        log_tailer = (
+            LogTailer(output_callback=combined_log_callback)
+            if combined_log_callback
+            else None
+        )
+        if log_tailer:
+            log_tailer.__enter__()
+        
+        # Start progress monitoring thread if callback provided
+        if progress_callback:
+            try:
+                monitor_thread = threading.Thread(
+                    target=odt_build._monitor_odt_progress,
+                    args=(proc, stop_event, ["Office"], progress_callback),
+                    daemon=True,
+                    name="reconfigure-progress",
+                )
+                monitor_thread.start()
+                progress_callback("ODT: Monitoring thread started")
+            except Exception as e:
+                log.warning(f"Failed to start progress monitoring: {e}")
+        
+        # Wait for process to complete
+        return_code = None
+        deadline = time.time() + timeout if timeout else None
+        while return_code is None:
+            return_code = proc.poll()
+            if return_code is None:
+                if deadline and time.time() > deadline:
+                    proc.kill()
+                    proc.wait()
+                    raise subprocess.TimeoutExpired(command, timeout)
+                time.sleep(0.1)
+        
+        duration = time.time() - start_time
+        
+        # Stop monitoring
+        stop_event.set()
+        if monitor_thread and monitor_thread.is_alive():
+            monitor_thread.join(timeout=1.0)
+        
+        # Stop log tailer
+        if log_tailer:
+            log_tailer.__exit__(None, None, None)
+        
+        if progress_callback:
+            if return_code == 0:
+                progress_callback("ODT: Configuration complete ✓")
+            else:
+                progress_callback(f"ODT: Configuration failed (exit {return_code})")
+        
+        return CommandResult(
+            command=command,
+            returncode=return_code,
+            stdout="",
+            stderr="" if return_code == 0 else f"Exit code {return_code}",
+            duration=duration,
+            error=None if return_code == 0 else f"Exit code {return_code}",
+        )
+        
+    except Exception as e:
+        # Stop monitoring
+        stop_event.set()
+        if monitor_thread and monitor_thread.is_alive():
+            monitor_thread.join(timeout=0.5)
+        
+        # Clean up process
+        if proc:
+            try:
+                proc.kill()
+                proc.wait()
+            except Exception:
+                pass
+        
+        duration = time.time() - start_time
+        error_msg = str(e)
+        log.error(f"Reconfiguration failed: {error_msg}")
+        return CommandResult(
+            command=command,
+            returncode=-1,
+            stdout="",
+            stderr=error_msg,
+            duration=duration,
+            error=error_msg,
         )
 
 

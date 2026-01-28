@@ -1001,9 +1001,16 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
 
     def _append_status(self, message: str) -> None:
         """Append a message to the status log."""
-        if self.status_lines and self.status_lines[-1] == message:
-            return
-        self.status_lines.append(message)
+        # Don't deduplicate progress updates (contain metrics that may update frequently)
+        if "ODT:" in message or "[" in message or "%" in message:
+            # Progress/metrics message - always append
+            self.status_lines.append(message)
+        else:
+            # Regular message - avoid duplicates
+            if self.status_lines and self.status_lines[-1] == message:
+                return
+            self.status_lines.append(message)
+        
         limit = 24 if self.compact_layout else 32
         if len(self.status_lines) > limit:
             self.status_lines[:] = self.status_lines[-limit:]
