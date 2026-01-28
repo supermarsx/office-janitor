@@ -1224,7 +1224,10 @@ class TUIActionsMixin:
             # The bundled XML configs have predefined language settings.
             # For custom language configuration, users should use the ODT with custom XML.
             result = repair.run_oem_config(
-                preset, dry_run=dry_run, log_callback=self._append_status
+                preset,
+                dry_run=dry_run,
+                log_callback=self._append_status,
+                progress_callback=self._append_status,
             )
 
             if result.returncode == 0:
@@ -1295,7 +1298,10 @@ class TUIActionsMixin:
         try:
             spinner(0.2, "Preparing ODT...")
             result = repair.run_oem_config(
-                preset, dry_run=dry_run, log_callback=self._append_status
+                preset,
+                dry_run=dry_run,
+                log_callback=self._append_status,
+                progress_callback=self._append_status,
             )
 
             if result.returncode == 0:

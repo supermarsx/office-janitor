@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -1785,15 +1785,18 @@ def _monitor_odt_progress(
     proc: subprocess.Popen[str],
     stop_event: threading.Event,
     products: list[str],
+    progress_callback: Callable[[str], None] | None = None,
 ) -> None:
     """!
     @brief Background thread to monitor ODT installation progress.
-    @details Uses a dedicated poller thread for I/O, this thread only updates spinner.
+    @details Uses a dedicated poller thread for I/O, this thread only updates spinner or callback.
     @param proc The ODT subprocess being monitored.
     @param stop_event Event to signal when monitoring should stop.
     @param products List of product names being installed.
+    @param progress_callback Optional callback for progress updates (replaces spinner in TUI mode).
     """
-    if _spinner is None:
+    # If callback provided, use it; otherwise require spinner
+    if progress_callback is None and _spinner is None:
         return
 
     product_str = ", ".join(products[:2])
@@ -1853,8 +1856,12 @@ def _monitor_odt_progress(
             if metrics:
                 parts.append(f"[{', '.join(metrics)}]")
 
-            # Update spinner text (non-blocking)
-            _spinner.update_task(" ".join(parts))
+            # Update progress display (spinner or callback)
+            progress_text = " ".join(parts)
+            if progress_callback:
+                progress_callback(progress_text)
+            elif _spinner is not None:
+                _spinner.update_task(progress_text)
 
             # Short sleep to keep responsive
             stop_event.wait(0.2)
@@ -1867,6 +1874,7 @@ def _monitor_odt_progress(
 def _monitor_clicktorun_progress(
     stop_event: threading.Event,
     products: list[str],
+    progress_callback: Callable[[str], None] | None = None,
 ) -> None:
     """!
     @brief Background thread to monitor ClickToRun process progress.
@@ -1874,8 +1882,10 @@ def _monitor_clicktorun_progress(
     Monitors disk usage, file count, registry keys, and C2R process stats.
     @param stop_event Event to signal when monitoring should stop.
     @param products List of product names being installed.
+    @param progress_callback Optional callback for progress updates (replaces spinner in TUI mode).
     """
-    if _spinner is None:
+    # If callback provided, use it; otherwise require spinner
+    if progress_callback is None and _spinner is None:
         return
 
     product_str = ", ".join(products[:2])
@@ -1939,8 +1949,12 @@ def _monitor_clicktorun_progress(
             if metrics:
                 parts.append(f"[{', '.join(metrics)}]")
 
-            # Update spinner text (non-blocking)
-            _spinner.update_task(" ".join(parts))
+            # Update progress display (spinner or callback)
+            progress_text = " ".join(parts)
+            if progress_callback:
+                progress_callback(progress_text)
+            elif _spinner is not None:
+                _spinner.update_task(progress_text)
 
             # Short sleep to keep responsive
             stop_event.wait(0.2)
@@ -2051,6 +2065,7 @@ def run_odt_install(
     dry_run: bool = False,
     timeout: float | None = None,
     show_progress: bool = True,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ODTResult:
     """!
     @brief Run ODT setup.exe to install Office with the given configuration.
@@ -2058,6 +2073,7 @@ def run_odt_install(
     @param dry_run If True, only generate the XML and print the command.
     @param timeout Optional timeout in seconds.
     @param show_progress If True, display spinner with progress updates.
+    @param progress_callback Optional callback for progress updates (used in TUI mode).
     @returns ODTResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -2137,10 +2153,10 @@ def run_odt_install(
             _spinner.register_process(proc)
 
         # Start progress monitoring thread
-        if show_progress and (_spinner is not None):
+        if show_progress and (_spinner is not None or progress_callback is not None):
             monitor_thread = threading.Thread(
                 target=_monitor_odt_progress,
-                args=(proc, stop_event, product_names),
+                args=(proc, stop_event, product_names, progress_callback),
                 daemon=True,
                 name="odt-progress",
             )
@@ -2184,10 +2200,10 @@ def run_odt_install(
 
                 # Start new monitor for ClickToRun processes
                 c2r_stop_event = threading.Event()
-                if show_progress and (_spinner is not None):
+                if show_progress and (_spinner is not None or progress_callback is not None):
                     c2r_monitor_thread = threading.Thread(
                         target=_monitor_clicktorun_progress,
-                        args=(c2r_stop_event, product_names),
+                        args=(c2r_stop_event, product_names, progress_callback),
                         daemon=True,
                         name="c2r-progress",
                     )
@@ -2287,15 +2303,18 @@ def _monitor_odt_download_progress(
     proc: subprocess.Popen[str],
     stop_event: threading.Event,
     download_path: Path,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> None:
     """!
     @brief Background thread to monitor ODT download progress.
-    @details Uses a dedicated poller thread for I/O, this thread only updates spinner.
+    @details Uses a dedicated poller thread for I/O, this thread only updates spinner or callback.
     @param proc The ODT subprocess being monitored.
     @param stop_event Event to signal when monitoring should stop.
     @param download_path Path where files are being downloaded.
+    @param progress_callback Optional callback for progress updates (replaces spinner in TUI mode).
     """
-    if _spinner is None:
+    # If callback provided, use it; otherwise require spinner
+    if progress_callback is None and _spinner is None:
         return
 
     # Shared stats object for non-blocking reads
@@ -2349,8 +2368,12 @@ def _monitor_odt_download_progress(
             if metrics:
                 parts.append(f"[{', '.join(metrics)}]")
 
-            # Update spinner text (non-blocking)
-            _spinner.update_task(" ".join(parts))
+            # Update progress display (spinner or callback)
+            progress_text = " ".join(parts)
+            if progress_callback:
+                progress_callback(progress_text)
+            elif _spinner is not None:
+                _spinner.update_task(progress_text)
 
             # Short sleep to keep responsive
             stop_event.wait(0.2)
@@ -2367,6 +2390,7 @@ def run_odt_download(
     dry_run: bool = False,
     timeout: float | None = None,
     show_progress: bool = True,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ODTResult:
     """!
     @brief Run ODT setup.exe to download Office installation files.
@@ -2375,6 +2399,7 @@ def run_odt_download(
     @param dry_run If True, only generate the XML and print the command.
     @param timeout Optional timeout in seconds.
     @param show_progress If True, display spinner with progress updates.
+    @param progress_callback Optional callback for progress updates (used in TUI mode).
     @returns ODTResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -2454,10 +2479,10 @@ def run_odt_download(
             _spinner.register_process(proc)
 
         # Start progress monitoring thread
-        if show_progress and (_spinner is not None):
+        if show_progress and (_spinner is not None or progress_callback is not None):
             monitor_thread = threading.Thread(
                 target=_monitor_odt_download_progress,
-                args=(proc, stop_event, download_path),
+                args=(proc, stop_event, download_path, progress_callback),
                 daemon=True,
                 name="odt-download-progress",
             )
@@ -2539,6 +2564,7 @@ def run_odt_remove(
     dry_run: bool = False,
     timeout: float | None = None,
     show_progress: bool = True,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ODTResult:
     """!
     @brief Run ODT setup.exe to remove Office installations.
@@ -2548,6 +2574,7 @@ def run_odt_remove(
     @param dry_run If True, only generate the XML and print the command.
     @param timeout Optional timeout in seconds.
     @param show_progress If True, display spinner with progress updates.
+    @param progress_callback Optional callback for progress updates (used in TUI mode).
     @returns ODTResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -2625,10 +2652,10 @@ def run_odt_remove(
             _spinner.register_process(proc)
 
         # Start progress monitoring thread (reuse install monitor)
-        if show_progress and (_spinner is not None):
+        if show_progress and (_spinner is not None or progress_callback is not None):
             monitor_thread = threading.Thread(
                 target=_monitor_odt_progress,
-                args=(proc, stop_event, ["Removing Office"]),
+                args=(proc, stop_event, ["Removing Office"], progress_callback),
                 daemon=True,
                 name="odt-remove-progress",
             )

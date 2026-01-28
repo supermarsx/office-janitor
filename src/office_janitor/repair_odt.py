@@ -285,6 +285,7 @@ def reconfigure_office(
     dry_run: bool = False,
     timeout: int = 3600,
     log_callback: object | None = None,
+    progress_callback: object | None = None,
 ) -> CommandResult:
     """!
     @brief Reconfigure Office installation using ODT setup.exe.
@@ -294,6 +295,7 @@ def reconfigure_office(
     @param dry_run Simulate without executing.
     @param timeout Command timeout in seconds.
     @param log_callback Optional callback function(str) to receive log output.
+    @param progress_callback Optional callback function(str) to receive progress updates.
     @returns CommandResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -336,7 +338,16 @@ def reconfigure_office(
     # Use log tailer to stream ODT logs to console
     if not dry_run:
         log.info("Tailing ODT logs from %temp%...")
-        with LogTailer(output_callback=log_callback):
+        # Combine callbacks: send output to both log_callback and progress_callback
+        combined_callback = None
+        if log_callback or progress_callback:
+            def combined_callback(line: str) -> None:
+                if log_callback:
+                    log_callback(line)
+                if progress_callback:
+                    progress_callback(line)
+        
+        with LogTailer(output_callback=combined_callback):
             result = command_runner.run_command(
                 command,
                 event="reconfigure_exec",
@@ -467,6 +478,7 @@ def run_oem_config(
     dry_run: bool = False,
     timeout: int = 3600,
     log_callback: object | None = None,
+    progress_callback: object | None = None,
 ) -> CommandResult:
     """!
     @brief Execute an OEM configuration preset or custom XML config.
@@ -476,6 +488,7 @@ def run_oem_config(
     @param dry_run Simulate without executing.
     @param timeout Command timeout in seconds.
     @param log_callback Optional callback function(str) to receive log output.
+    @param progress_callback Optional callback function(str) to receive progress updates.
     @returns CommandResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -515,6 +528,7 @@ def run_oem_config(
         dry_run=dry_run,
         timeout=timeout,
         log_callback=log_callback,
+        progress_callback=progress_callback,
     )
 
 
