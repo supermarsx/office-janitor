@@ -86,6 +86,26 @@ class _SpinnerAwareStreamHandler(logging.StreamHandler):  # type: ignore[type-ar
             spinner.resume_after_output()
 
 
+class TUILogHandler(logging.Handler):
+    """!
+    @brief Logging handler that routes log messages to a TUI callback.
+    @details This handler is used by the TUI to capture human logger output
+    and display it in the status pane instead of stdout.
+    """
+
+    def __init__(self, callback: object) -> None:
+        super().__init__()
+        self._callback = callback
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            if self._callback is not None:
+                self._callback(msg)
+        except Exception:
+            self.handleError(record)
+
+
 class _ChannelFilter(logging.Filter):
     """!
     @brief Inject a fixed ``channel`` attribute on log records.
@@ -367,6 +387,31 @@ def get_machine_logger() -> logging.Logger:
     """
 
     return logging.getLogger(MACHINE_LOGGER_NAME)
+
+
+def add_tui_handler(callback: object) -> logging.Handler:
+    """!
+    @brief Add a TUI handler to the human logger to capture output.
+    @param callback Function to call with formatted log messages.
+    @returns The created handler so it can be removed later.
+    """
+    human_logger = get_human_logger()
+    handler = TUILogHandler(callback)
+    handler.setLevel(logging.INFO)
+    # Use a simple formatter for TUI
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    human_logger.addHandler(handler)
+    return handler
+
+
+def remove_handler(handler: logging.Handler) -> None:
+    """!
+    @brief Remove a handler from the human logger.
+    @param handler The handler to remove.
+    """
+    human_logger = get_human_logger()
+    human_logger.removeHandler(handler)
+    handler.close()
 
 
 def register_ui_event_sink(

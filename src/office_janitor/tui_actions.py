@@ -524,13 +524,13 @@ class TUIActionsMixin:
         self._render()
 
         try:
-            result = repair.run_quick_repair(dry_run=dry_run)
-            if result.returncode == 0:
+            result = repair.quick_repair(dry_run=dry_run, log_callback=self._append_status)
+            if result.success:
                 self._notify("repair.complete", "Quick repair completed successfully")
                 self._append_status("✓ Quick repair complete")
                 self.progress_message = "Repair complete"
             else:
-                error_msg = result.stderr or result.error or f"Exit code {result.returncode}"
+                error_msg = result.error_message or f"Exit code {result.return_code}"
                 self._notify("repair.error", f"Quick repair failed: {error_msg}", level="error")
                 self._append_status(f"✗ Quick repair failed: {error_msg}")
                 self.progress_message = "Repair failed"
@@ -1223,7 +1223,7 @@ class TUIActionsMixin:
             # Note: The selected locales are logged for informational purposes.
             # The bundled XML configs have predefined language settings.
             # For custom language configuration, users should use the ODT with custom XML.
-            result = repair.run_oem_config(preset, dry_run=dry_run)
+            result = repair.run_oem_config(preset, dry_run=dry_run, log_callback=self._append_status)
 
             if result.returncode == 0:
                 self._notify(
@@ -1292,7 +1292,7 @@ class TUIActionsMixin:
 
         try:
             spinner(0.2, "Preparing ODT...")
-            result = repair.run_oem_config(preset, dry_run=dry_run)
+            result = repair.run_oem_config(preset, dry_run=dry_run, log_callback=self._append_status)
 
             if result.returncode == 0:
                 self._notify(

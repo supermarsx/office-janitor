@@ -425,6 +425,7 @@ def run_repair(
     *,
     dry_run: bool = False,
     close_office_apps: bool = True,
+    log_callback: object | None = None,
 ) -> RepairResult:
     """!
     @brief Execute an Office repair operation.
@@ -434,6 +435,7 @@ def run_repair(
     @param config RepairConfig instance with repair parameters.
     @param dry_run If True, log actions without executing.
     @param close_office_apps If True, terminate Office processes first.
+    @param log_callback Optional callback function(str) to receive log output.
     @returns RepairResult with outcome information.
     """
     log = logging_ext.get_human_logger()
@@ -491,7 +493,7 @@ def run_repair(
 
     # Execute repair with log tailing
     log.info("Tailing Office repair logs from %temp%...")
-    with LogTailer():
+    with LogTailer(output_callback=log_callback):
         result = command_runner.run_command(
             command,
             event="repair_exec",
@@ -536,6 +538,7 @@ def quick_repair(
     culture: str | None = None,
     silent: bool = True,
     dry_run: bool = False,
+    log_callback: object | None = None,
 ) -> RepairResult:
     """!
     @brief Convenience function to run a Quick Repair.
@@ -544,13 +547,14 @@ def quick_repair(
     @param culture Language code (auto-detected if None).
     @param silent Run without UI.
     @param dry_run Simulate without executing.
+    @param log_callback Optional callback function(str) to receive log output.
     @returns RepairResult with outcome information.
     """
     config = RepairConfig.quick_repair(
         culture=culture or _detect_office_culture(),
         silent=silent,
     )
-    return run_repair(config, dry_run=dry_run)
+    return run_repair(config, dry_run=dry_run, log_callback=log_callback)
 
 
 def full_repair(
@@ -558,6 +562,7 @@ def full_repair(
     culture: str | None = None,
     silent: bool = True,
     dry_run: bool = False,
+    log_callback: object | None = None,
 ) -> RepairResult:
     """!
     @brief Convenience function to run a Full Online Repair.
@@ -567,13 +572,14 @@ def full_repair(
     @param culture Language code (auto-detected if None).
     @param silent Run without UI.
     @param dry_run Simulate without executing.
+    @param log_callback Optional callback function(str) to receive log output.
     @returns RepairResult with outcome information.
     """
     config = RepairConfig.full_repair(
         culture=culture or _detect_office_culture(),
         silent=silent,
     )
-    return run_repair(config, dry_run=dry_run)
+    return run_repair(config, dry_run=dry_run, log_callback=log_callback)
 
 
 def _close_office_applications() -> None:

@@ -145,11 +145,16 @@ def list_oem_configs() -> list[tuple[str, str, bool]]:
 class LogTailer:
     """!
     @brief Background log file tailer for Office setup operations.
-    @details Monitors log files in %temp% and streams new content to console.
+    @details Monitors log files in %temp% and streams new content to console or a callback.
     """
 
-    def __init__(self, patterns: list[str] | None = None):
+    def __init__(
+        self,
+        patterns: list[str] | None = None,
+        output_callback: object | None = None,
+    ):
         self._patterns = patterns or ODT_LOG_PATTERNS
+        self._output_callback = output_callback
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._seen_files: set[str] = set()
@@ -190,10 +195,17 @@ class LogTailer:
                     f.seek(pos)
                     new_content = f.read()
                     if new_content.strip():
-                        # Print with log prefix
+                        # Send output via callback or print
                         for line in new_content.splitlines():
                             if line.strip():
-                                print(f"  [ODT] {line}")
+                                output_line = f"  [ODT] {line}"
+                                if self._output_callback is not None:
+                                    try:
+                                        self._output_callback(output_line)
+                                    except Exception:
+                                        pass  # Ignore callback errors
+                                else:
+                                    print(output_line)
                     self._file_positions[str_path] = f.tell()
 
         except OSError:
@@ -272,6 +284,7 @@ def reconfigure_office(
     *,
     dry_run: bool = False,
     timeout: int = 3600,
+    log_callback: object | None = None,
 ) -> CommandResult:
     """!
     @brief Reconfigure Office installation using ODT setup.exe.
@@ -280,6 +293,7 @@ def reconfigure_office(
     @param config_xml_path Path to the configuration XML file.
     @param dry_run Simulate without executing.
     @param timeout Command timeout in seconds.
+    @param log_callback Optional callback function(str) to receive log output.
     @returns CommandResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -322,7 +336,7 @@ def reconfigure_office(
     # Use log tailer to stream ODT logs to console
     if not dry_run:
         log.info("Tailing ODT logs from %temp%...")
-        with LogTailer():
+        with LogTailer(output_callback=log_callback):
             result = command_runner.run_command(
                 command,
                 event="reconfigure_exec",
@@ -452,6 +466,7 @@ def run_oem_config(
     *,
     dry_run: bool = False,
     timeout: int = 3600,
+    log_callback: object | None = None,
 ) -> CommandResult:
     """!
     @brief Execute an OEM configuration preset or custom XML config.
@@ -460,6 +475,7 @@ def run_oem_config(
     @param preset_or_path Preset name (from OEM_CONFIG_PRESETS) or path to XML file.
     @param dry_run Simulate without executing.
     @param timeout Command timeout in seconds.
+    @param log_callback Optional callback function(str) to receive log output.
     @returns CommandResult with execution details.
     """
     log = logging_ext.get_human_logger()
@@ -498,6 +514,7 @@ def run_oem_config(
         config_path,
         dry_run=dry_run,
         timeout=timeout,
+        log_callback=log_callback,
     )
 
 

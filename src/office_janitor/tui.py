@@ -22,7 +22,7 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import constants
+from . import constants, logging_ext
 from .tui_actions import TUIActionsMixin
 from .tui_helpers import (
     decode_key,
@@ -248,6 +248,9 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         self.navigation: list[NavigationItem] = []
         self.focus_area = "nav"
         self.nav_index = 0
+
+        # Install TUI logging handler to capture human logger output
+        self._tui_log_handler = logging_ext.add_tui_handler(self._append_status)
         self.active_tab = "mode_select"  # Start at mode selection
 
         # Create panes for all possible tabs across all modes
@@ -553,6 +556,10 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
 
         # Prompt before closing so user can see final state
         self._wait_for_enter()
+
+        # Clean up TUI logging handler
+        if hasattr(self, "_tui_log_handler") and self._tui_log_handler is not None:
+            logging_ext.remove_handler(self._tui_log_handler)
 
     def _wait_for_enter(self) -> None:
         """!
