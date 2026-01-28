@@ -1819,6 +1819,7 @@ def _monitor_odt_progress(
 
     try:
         # Update spinner with stats every 200ms (non-blocking reads only)
+        update_count = 0
         while not stop_event.is_set() and proc.poll() is None:
             # Read cached stats (non-blocking, thread-safe)
             cpu, mem, size_bytes, files, reg_keys, log_status, log_pct = stats.get_install()
@@ -1855,6 +1856,9 @@ def _monitor_odt_progress(
 
             if metrics:
                 parts.append(f"[{', '.join(metrics)}]")
+            elif progress_callback and update_count % 5 == 0:
+                # No metrics yet, send periodic "working" indicator
+                parts.append("[Working...]")
 
             # Update progress display (spinner or callback)
             progress_text = " ".join(parts)
@@ -1863,6 +1867,7 @@ def _monitor_odt_progress(
             elif _spinner is not None:
                 _spinner.update_task(progress_text)
 
+            update_count += 1
             # Short sleep to keep responsive
             stop_event.wait(0.2)
     finally:

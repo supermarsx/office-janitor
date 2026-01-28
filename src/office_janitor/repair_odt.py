@@ -408,6 +408,7 @@ def reconfigure_office(
         # Wait for process to complete
         return_code = None
         deadline = time.time() + timeout if timeout else None
+        elapsed_updates = 0
         while return_code is None:
             return_code = proc.poll()
             if return_code is None:
@@ -415,6 +416,13 @@ def reconfigure_office(
                     proc.kill()
                     proc.wait()
                     raise subprocess.TimeoutExpired(command, timeout)
+                
+                # Send periodic status updates if monitoring isn't showing progress
+                if progress_callback and elapsed_updates % 50 == 0:  # Every 5 seconds
+                    elapsed = int(time.time() - start_time)
+                    progress_callback(f"ODT: Running... ({elapsed}s elapsed)")
+                elapsed_updates += 1
+                
                 time.sleep(0.1)
         
         duration = time.time() - start_time

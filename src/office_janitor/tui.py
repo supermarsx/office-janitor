@@ -1014,6 +1014,11 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         limit = 24 if self.compact_layout else 32
         if len(self.status_lines) > limit:
             self.status_lines[:] = self.status_lines[-limit:]
+    
+    def _append_status_live(self, message: str) -> None:
+        """Append status and immediately render - for live progress updates."""
+        self._append_status(message)
+        self._render()
 
     def _notify(self, event: str, message: str, *, level: str = "info", **payload: object) -> None:
         """Send a notification through loggers and event queue."""

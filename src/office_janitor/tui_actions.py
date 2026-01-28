@@ -524,7 +524,7 @@ class TUIActionsMixin:
         self._render()
 
         try:
-            result = repair.quick_repair(dry_run=dry_run, log_callback=self._append_status)
+            result = repair.quick_repair(dry_run=dry_run, log_callback=self._append_status_live)
             if result.success:
                 self._notify("repair.complete", "Quick repair completed successfully")
                 self._append_status("✓ Quick repair complete")
@@ -1226,8 +1226,8 @@ class TUIActionsMixin:
             result = repair.run_oem_config(
                 preset,
                 dry_run=dry_run,
-                log_callback=self._append_status,
-                progress_callback=self._append_status,
+                log_callback=self._append_status_live,
+                progress_callback=self._append_status_live,
             )
 
             if result.returncode == 0:
@@ -1300,8 +1300,8 @@ class TUIActionsMixin:
             result = repair.run_oem_config(
                 preset,
                 dry_run=dry_run,
-                log_callback=self._append_status,
-                progress_callback=self._append_status,
+                log_callback=self._append_status_live,
+                progress_callback=self._append_status_live,
             )
 
             if result.returncode == 0:
