@@ -121,6 +121,7 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
         self.last_license_status: dict[str, object] | None = None
         self.status_lines: list[str] = []
         self.progress_message = "Ready"
+        self._last_render_time: float = 0.0  # For render throttling
         self.log_lines: list[str] = []
         self.ansi_supported = _supports_ansi() and not bool(
             getattr(self.app_state.get("args"), "no_color", False)
@@ -1016,9 +1017,14 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             self.status_lines[:] = self.status_lines[-limit:]
     
     def _append_status_live(self, message: str) -> None:
-        """Append status and immediately render - for live progress updates."""
+        """Append status and render if enough time has passed - for live progress updates."""
+        import time
         self._append_status(message)
-        self._render()
+        # Throttle renders to max once per second to prevent flickering
+        now = time.time()
+        if now - self._last_render_time >= 1.0:
+            self._last_render_time = now
+            self._render()
 
     def _notify(self, event: str, message: str, *, level: str = "info", **payload: object) -> None:
         """Send a notification through loggers and event queue."""
