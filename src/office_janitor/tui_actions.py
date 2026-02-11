@@ -13,6 +13,7 @@ from collections.abc import Mapping, MutableMapping
 from typing import TYPE_CHECKING, Callable
 
 from . import plan as plan_module
+from . import spinner as spinner_module
 from .tui_helpers import (
     format_inventory,
     format_plan,
@@ -300,14 +301,20 @@ class TUIActionsMixin:
         self._notify("execution.start", f"Executing {label} run.")
         self._render()
 
+        # Start persistent spinner for the execution
+        spinner_module.start_spinner_thread()
+        spinner_module.set_task(f"Executing: {label}")
+
         try:
-            spinner(0.2, "Preparing")
             execution_result = self.executor(plan_data, payload)
         except Exception as exc:  # pragma: no cover - defensive logging
             message = f"Execution failed: {exc}"
             self._notify("execution.error", message, level="error")
             self.progress_message = f"{label.title()} execution failed"
             return
+        finally:
+            # Clear spinner when operation completes
+            spinner_module.clear_task()
 
         if execution_result is False:
             message = f"{label.title()} run cancelled."
@@ -523,6 +530,10 @@ class TUIActionsMixin:
         self._notify("repair.start", "Starting quick repair", dry_run=dry_run)
         self._render()
 
+        # Start persistent spinner
+        spinner_module.start_spinner_thread()
+        spinner_module.set_task("Quick Repair")
+
         try:
             result = repair.quick_repair(dry_run=dry_run, log_callback=self._append_status_live)
             if result.success:
@@ -538,6 +549,8 @@ class TUIActionsMixin:
             self._notify("repair.error", f"Repair error: {exc}", level="error")
             self._append_status(f"✗ Repair error: {exc}")
             self.progress_message = "Repair failed"
+        finally:
+            spinner_module.clear_task()
 
     # -----------------------------------------------------------------------
     # Special Remove Actions: C2R, OffScrub, Licensing
@@ -607,8 +620,11 @@ class TUIActionsMixin:
         self._notify("c2r_remove.start", "Starting C2R removal", dry_run=dry_run)
         self._render()
 
+        # Start persistent spinner
+        spinner_module.start_spinner_thread()
+        spinner_module.set_task("C2R Detection")
+
         try:
-            spinner(0.2, "Scanning for C2R...")
             inventory = detect.gather_office_inventory()
             c2r_items = inventory.get("c2r", [])
 
@@ -619,6 +635,7 @@ class TUIActionsMixin:
 
             self._append_status(f"Found {len(c2r_items)} C2R installation(s)")
 
+            spinner_module.update_task("C2R Removal")
             for item in c2r_items:
                 config = c2r_uninstall.build_uninstall_config(item)
                 if dry_run:
@@ -633,6 +650,8 @@ class TUIActionsMixin:
             self._notify("c2r_remove.error", f"C2R removal error: {exc}", level="error")
             self._append_status(f"✗ C2R removal error: {exc}")
             self.progress_message = "C2R removal failed"
+        finally:
+            spinner_module.clear_task()
 
     def _handle_offscrub(self) -> None:
         """Execute OffScrub scripts action."""
@@ -647,8 +666,11 @@ class TUIActionsMixin:
         self._notify("offscrub.start", "Starting OffScrub", dry_run=dry_run)
         self._render()
 
+        # Start persistent spinner
+        spinner_module.start_spinner_thread()
+        spinner_module.set_task("OffScrub Detection")
+
         try:
-            spinner(0.2, "Scanning for Office...")
             inventory = detect.gather_office_inventory()
 
             msi_items = inventory.get("msi", [])
@@ -685,6 +707,8 @@ class TUIActionsMixin:
             self._notify("offscrub.error", f"OffScrub error: {exc}", level="error")
             self._append_status(f"✗ OffScrub error: {exc}")
             self.progress_message = "OffScrub failed"
+        finally:
+            spinner_module.clear_task()
 
     def _handle_licensing_cleanup(self) -> None:
         """Execute licensing cleanup action."""
@@ -699,9 +723,11 @@ class TUIActionsMixin:
         self._notify("licensing.start", "Starting licensing cleanup", dry_run=dry_run)
         self._render()
 
-        try:
-            spinner(0.2, "Removing licenses...")
+        # Start persistent spinner
+        spinner_module.start_spinner_thread()
+        spinner_module.set_task("Licensing Cleanup")
 
+        try:
             if dry_run:
                 self._append_status("[DRY-RUN] Would clean Office licenses")
                 self._append_status("[DRY-RUN] Would remove SPP tokens")
@@ -718,6 +744,8 @@ class TUIActionsMixin:
             self._notify("licensing.error", f"Licensing cleanup error: {exc}", level="error")
             self._append_status(f"✗ Licensing cleanup error: {exc}")
             self.progress_message = "Licensing cleanup failed"
+        finally:
+            spinner_module.clear_task()
 
     def _handle_license_status(self) -> None:
         """Display licensing status information."""
@@ -727,8 +755,11 @@ class TUIActionsMixin:
         self._notify("license_status.start", "Querying license status")
         self._render()
 
+        # Start persistent spinner
+        spinner_module.start_spinner_thread()
+        spinner_module.set_task("License Status Query")
+
         try:
-            spinner(0.2, "Querying licenses...")
             status = licensing.get_license_status()
 
             # Store the results for display in the pane
@@ -762,6 +793,8 @@ class TUIActionsMixin:
             self._notify("license_status.error", f"License status error: {exc}", level="error")
             self._append_status(f"✗ License status error: {exc}")
             self.progress_message = "License status failed"
+        finally:
+            spinner_module.clear_task()
 
     # -----------------------------------------------------------------------
     # New Mode Handlers (ODT Builder, OffScrub, C2R, License, Config)
@@ -1218,8 +1251,11 @@ class TUIActionsMixin:
         )
         self._render()
 
+        # Start persistent spinner for the installation
+        spinner_module.start_spinner_thread()
+        spinner_module.set_task(f"ODT Install: {desc}")
+
         try:
-            spinner(0.2, "Preparing ODT...")
             # Note: The selected locales are logged for informational purposes.
             # The bundled XML configs have predefined language settings.
             # For custom language configuration, users should use the ODT with custom XML.
@@ -1260,6 +1296,9 @@ class TUIActionsMixin:
             )
             self._append_status(f"✗ ODT Install error: {exc}")
             self.progress_message = "ODT Install failed"
+        finally:
+            # Clear spinner when operation completes
+            spinner_module.clear_task()
 
     def _handle_odt_repair(self, *, execute: bool) -> None:
         """Handle ODT repair action."""
@@ -1295,8 +1334,11 @@ class TUIActionsMixin:
         )
         self._render()
 
+        # Start persistent spinner for the repair
+        spinner_module.start_spinner_thread()
+        spinner_module.set_task(f"ODT Repair: {desc}")
+
         try:
-            spinner(0.2, "Preparing ODT...")
             result = repair.run_oem_config(
                 preset,
                 dry_run=dry_run,
@@ -1332,6 +1374,9 @@ class TUIActionsMixin:
             )
             self._append_status(f"✗ ODT Repair error: {exc}")
             self.progress_message = "ODT Repair failed"
+        finally:
+            # Clear spinner when operation completes
+            spinner_module.clear_task()
 
     def _confirm_odt_execution(self, label: str, dry_run: bool) -> bool:
         """Request confirmation for ODT execution."""
