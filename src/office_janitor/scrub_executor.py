@@ -24,6 +24,7 @@ from . import (
     msi_uninstall,
     processes,
     registry_tools,
+    safety,
     spinner,
     tasks_services,
 )
@@ -163,6 +164,7 @@ class StepExecutor:
         dry_run = bool(self._dry_run or metadata.get("dry_run", False))
         retries = self._resolve_retry_count(step, metadata)
         delay = self._resolve_retry_delay(step, metadata)
+        delay_max = self._resolve_retry_delay_max(step, metadata)
         attempts_allowed = retries + 1
 
         progress = min(1.0, max(0.0, index / self._total_steps))
@@ -243,7 +245,11 @@ class StepExecutor:
                     # Print RETRY status with error reason
                     self._emit_result(False, f"retry: {error_reason}")
                     # Calculate progressive delay with backoff
-                    actual_delay = self._calculate_progressive_delay(delay, attempt)
+                    actual_delay = self._calculate_progressive_delay(
+                        delay,
+                        attempt,
+                        delay_max=delay_max,
+                    )
                     # Enable force mode after FORCE_ESCALATION_ATTEMPT
                     if attempt >= FORCE_ESCALATION_ATTEMPT:
                         metadata["force"] = True
@@ -465,6 +471,30 @@ class StepExecutor:
         metadata: Mapping[str, object],
         dry_run: bool,
     ) -> Mapping[str, object] | None:
+        category = str(category)
+        force = bool(metadata.get("force", False))
+
+        destructive_actions = {
+            "msi-uninstall": "MSI uninstall",
+            "c2r-uninstall": "Click-to-Run uninstall",
+            "licensing-cleanup": "licensing cleanup",
+            "task-cleanup": "scheduled task cleanup",
+            "service-cleanup": "service cleanup",
+            "filesystem-cleanup": "filesystem cleanup",
+            "registry-cleanup": "registry cleanup",
+            "vnext-identity-cleanup": "vNext identity cleanup",
+            "taskband-cleanup": "Taskband cleanup",
+            "published-components-cleanup": "published components cleanup",
+            "ose-service-validation": "OSE service remediation",
+        }
+        action_label = destructive_actions.get(category)
+        if action_label and not safety.should_execute_destructive_action(
+            action_label,
+            dry_run=dry_run,
+            force=force,
+        ):
+            dry_run = True
+
         if category == "context":
             self._human_logger.info("Context: %s", metadata)
             return None
@@ -589,12 +619,19 @@ class StepExecutor:
             )
             return dict(backup_info)
         if category == "vnext-identity-cleanup":
-            result = registry_tools.cleanup_vnext_identity_registry(dry_run=dry_run)
+            result = registry_tools.cleanup_vnext_identity_registry(
+                dry_run=dry_run,
+                backup_destination=self._backup_destination,
+                default_logdir=self._log_directory,
+            )
             return dict(result)
         if category == "taskband-cleanup":
             include_all_users = bool(metadata.get("include_all_users", False))
             result = registry_tools.cleanup_taskband_registry(
-                include_all_users=include_all_users, dry_run=dry_run
+                include_all_users=include_all_users,
+                dry_run=dry_run,
+                backup_destination=self._backup_destination,
+                default_logdir=self._log_directory,
             )
             return dict(result)
         if category == "published-components-cleanup":
@@ -648,14 +685,33 @@ class StepExecutor:
         return DEFAULT_RETRY_DELAY_BASE
 
     @staticmethod
-    def _calculate_progressive_delay(base_delay: int, attempt: int) -> int:
+    def _resolve_retry_delay_max(step: Mapping[str, object], metadata: Mapping[str, object]) -> int:
+        """!
+        @brief Resolve maximum retry delay cap from step/metadata.
+        """
+        values = [
+            step.get("retry_delay_max"),
+            metadata.get("retry_delay_max"),
+        ]
+        for value in values:
+            if value is None:
+                continue
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                continue
+            return int(max(0, parsed))
+        return DEFAULT_RETRY_DELAY_MAX
+
+    @staticmethod
+    def _calculate_progressive_delay(base_delay: int, attempt: int, *, delay_max: int) -> int:
         """!
         @brief Calculate progressive delay with exponential backoff.
         @details Uses formula: base_delay * (1.5 ^ (attempt - 1)), capped at MAX.
         """
         factor = 1.5 ** (attempt - 1)
         calculated = int(base_delay * factor)
-        return min(calculated, DEFAULT_RETRY_DELAY_MAX)
+        return min(calculated, max(0, int(delay_max)))
 
 
 # ---------------------------------------------------------------------------

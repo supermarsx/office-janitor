@@ -106,6 +106,35 @@ def test_delete_keys_dry_run_skips_execution(monkeypatch) -> None:
     assert calls and all(calls)
 
 
+def test_delete_keys_respects_safety_guard(monkeypatch) -> None:
+    """!
+    @brief Dry-run safety guard should force simulated registry deletion.
+    """
+
+    monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "reg.exe")
+    monkeypatch.setattr(
+        registry_tools.safety,
+        "should_execute_destructive_action",
+        lambda action, *, dry_run, force=False: False,
+    )
+
+    calls: list[bool] = []
+
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        calls.append(bool(dry_run))
+        return _command_result(command, skipped=dry_run)
+
+    monkeypatch.setattr(registry_tools.exec_utils, "run_command", fake_run)
+
+    registry_tools.delete_keys(
+        ["HKCU\\Software\\Microsoft\\Office\\Tailspin"],
+        dry_run=False,
+        logger=_Recorder(),
+    )
+
+    assert calls and all(calls)
+
+
 def test_delete_keys_rejects_disallowed_paths(monkeypatch, caplog) -> None:
     """!
     @brief Guardrails should skip deletions outside the whitelist without raising.

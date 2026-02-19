@@ -15,7 +15,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from office_janitor import logging_ext, scrub  # noqa: E402
+from office_janitor import logging_ext, scrub, scrub_executor  # noqa: E402
 
 
 def _context(dry_run: bool = False, options: dict | None = None, pass_index: int = 1) -> dict:
@@ -601,3 +601,79 @@ def test_registry_cleanup_sorts_child_paths_first(monkeypatch, tmp_path) -> None
         "HKLM\\SOFTWARE\\Microsoft\\Office\\16.0",
         "HKLM\\SOFTWARE\\Microsoft\\Office",
     ]
+
+
+def test_step_executor_retry_delay_max_is_tunable(monkeypatch) -> None:
+    """!
+    @brief Retry backoff should honor per-step ``retry_delay_max`` metadata.
+    """
+
+    sleep_calls: list[int] = []
+    attempts = {"count": 0}
+
+    def fake_dispatch(self, *, category, metadata, dry_run):  # noqa: ANN001
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise RuntimeError("transient failure")
+        return None
+
+    monkeypatch.setattr(scrub.StepExecutor, "_dispatch", fake_dispatch)
+    monkeypatch.setattr(
+        scrub_executor.time,
+        "sleep",
+        lambda seconds: sleep_calls.append(int(seconds)),
+    )
+
+    executor = scrub.StepExecutor(dry_run=False, total_steps=1)
+    step = {
+        "id": "retry-step",
+        "category": "task-cleanup",
+        "metadata": {
+            "retries": 2,
+            "retry_delay": 10,
+            "retry_delay_max": 11,
+        },
+    }
+
+    result = executor.run_step(step, index=1)
+
+    assert result.status == "success"
+    assert sleep_calls == [10, 11]
+
+
+def test_execute_plan_alerts_when_pass_limit_reached(monkeypatch, tmp_path) -> None:
+    """!
+    @brief Hitting max passes should emit an alert while continuing cleanup.
+    """
+
+    logging_ext.setup_logging(tmp_path)
+
+    monkeypatch.setattr(scrub.processes, "terminate_office_processes", lambda names: None)
+    monkeypatch.setattr(scrub.processes, "terminate_process_patterns", lambda patterns: None)
+    monkeypatch.setattr(scrub.tasks_services, "stop_services", lambda services, timeout=30: None)
+    monkeypatch.setattr(scrub.tasks_services, "disable_tasks", lambda tasks, dry_run=False: None)
+
+    monkeypatch.setattr(
+        scrub,
+        "_execute_steps",
+        lambda plan_steps, categories, dry_run, continue_on_failure=False: [],
+    )
+
+    plan = [
+        _context(False, {"max_passes": 1}, 1),
+        {
+            "id": "msi-1-0",
+            "category": "msi-uninstall",
+            "metadata": {"product": {"product_code": "{CODE}", "version": "2016"}},
+        },
+        {
+            "id": "filesystem-1-0",
+            "category": "filesystem-cleanup",
+            "metadata": {"paths": []},
+        },
+    ]
+
+    scrub.execute_plan(plan)
+
+    human_log = (tmp_path / "human.log").read_text(encoding="utf-8")
+    assert "ALERT: Reached maximum scrub passes" in human_log

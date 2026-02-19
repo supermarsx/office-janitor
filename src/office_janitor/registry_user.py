@@ -7,13 +7,14 @@ OffScrubC2R.vbs LoadUsersReg and OfficeScrubber.cmd :vNextREG subroutines.
 
 from __future__ import annotations
 
+import datetime
 import logging
 import re
 import shutil
 from pathlib import Path
 from typing import Any
 
-from . import exec_utils, registry_tools
+from . import exec_utils, logging_ext, registry_tools, safety
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +57,136 @@ _VNEXT_IDENTITY_VALUE_PATTERNS: list[str] = [
 """
 
 
+def _resolve_registry_backup_destination(
+    backup_destination: str | Path | None,
+    default_logdir: str | Path | None,
+) -> Path | None:
+    """!
+    @brief Resolve the backup directory used for registry safety exports.
+    """
+
+    candidate = backup_destination if backup_destination not in {"", None} else None
+    if candidate is not None:
+        return Path(candidate)
+
+    if default_logdir not in {"", None}:
+        return Path(default_logdir) / "registry-backups"
+
+    configured = logging_ext.get_log_directory()
+    if configured is not None:
+        return configured / "registry-backups"
+
+    return None
+
+
+def _sanitize_backup_filename(key_path: str, index: int) -> str:
+    """!
+    @brief Create a filesystem-safe filename for registry key exports.
+    """
+
+    token = re.sub(r"[^A-Za-z0-9._-]+", "_", key_path).strip("_") or f"key_{index}"
+    return f"{token}.reg"
+
+
+def _export_registry_backups(
+    key_paths: list[str],
+    *,
+    dry_run: bool,
+    backup_destination: str | Path | None,
+    default_logdir: str | Path | None,
+    logger: logging.Logger,
+) -> dict[str, Any]:
+    """!
+    @brief Export registry keys before mutation.
+    @details Uses ``reg.exe export`` when available and writes placeholder files
+    otherwise so every cleanup run produces an auditable backup trail.
+    """
+
+    unique_paths: list[str] = []
+    seen: set[str] = set()
+    for key in key_paths:
+        text = str(key).strip()
+        if not text:
+            continue
+        normalized = text.upper()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_paths.append(text)
+
+    if not unique_paths:
+        return {
+            "backup_requested": False,
+            "backup_performed": False,
+            "backup_destination": None,
+            "backup_artifacts": [],
+            "backup_errors": [],
+        }
+
+    destination = _resolve_registry_backup_destination(backup_destination, default_logdir)
+    if destination is None:
+        warning = "No registry backup destination available; continuing without exports."
+        logger.warning(warning)
+        return {
+            "backup_requested": True,
+            "backup_performed": False,
+            "backup_destination": None,
+            "backup_artifacts": [],
+            "backup_errors": [warning],
+        }
+
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    run_directory = destination / f"registry-user-{timestamp}"
+
+    artifacts: list[str] = []
+    errors: list[str] = []
+
+    if not dry_run:
+        run_directory.mkdir(parents=True, exist_ok=True)
+
+    reg_executable = shutil.which("reg")
+    for index, key_path in enumerate(unique_paths, 1):
+        export_path = run_directory / _sanitize_backup_filename(key_path, index)
+        if dry_run:
+            artifacts.append(str(export_path))
+            continue
+
+        if reg_executable:
+            try:
+                result = exec_utils.run_command(
+                    [reg_executable, "export", key_path, str(export_path), "/y"],
+                    event="registry_backup_export",
+                    dry_run=False,
+                    check=False,
+                    extra={"key": key_path, "path": str(export_path)},
+                )
+                if result.returncode != 0:
+                    errors.append(f"{key_path}: export failed with code {result.returncode}")
+                    continue
+                artifacts.append(str(export_path))
+                continue
+            except Exception as exc:  # pragma: no cover - defensive
+                errors.append(f"{key_path}: export error ({exc})")
+                continue
+
+        try:
+            export_path.write_text(
+                f"; Placeholder backup for {key_path}\n",
+                encoding="utf-8",
+            )
+            artifacts.append(str(export_path))
+        except OSError as exc:
+            errors.append(f"{key_path}: placeholder backup failed ({exc})")
+
+    return {
+        "backup_requested": True,
+        "backup_performed": bool(artifacts) and not dry_run,
+        "backup_destination": str(run_directory),
+        "backup_artifacts": artifacts,
+        "backup_errors": errors,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Registry Value Deletion
 # ---------------------------------------------------------------------------
@@ -93,6 +224,12 @@ def delete_registry_value(
         },
     )
 
+    if not safety.should_execute_destructive_action(
+        "registry value deletion",
+        dry_run=dry_run,
+    ):
+        return True
+
     if dry_run:
         return True
 
@@ -115,6 +252,8 @@ def delete_registry_value(
 def cleanup_vnext_identity_registry(
     *,
     dry_run: bool = False,
+    backup_destination: str | Path | None = None,
+    default_logdir: str | Path | None = None,
     logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
     """!
@@ -124,6 +263,8 @@ def cleanup_vnext_identity_registry(
         2. Delete specific C2R configuration values
         3. Delete identity-related values matching patterns (*.EmailAddress, etc.)
     @param dry_run If True, only log what would be deleted.
+    @param backup_destination Optional backup root for registry exports.
+    @param default_logdir Optional fallback log directory when backup root is not provided.
     @param logger Optional logger.
     @returns Dictionary with cleanup results.
     """
@@ -134,6 +275,23 @@ def cleanup_vnext_identity_registry(
         "patterns_matched": [],
         "errors": [],
     }
+
+    c2r_config_paths = [
+        r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
+        r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Office\ClickToRun\Configuration",
+    ]
+    spp_key = (
+        r"HKU\S-1-5-20\Software\Microsoft\OfficeSoftwareProtectionPlatform"
+        r"\Policies\0ff1ce15-a989-479d-af46-f275c6370663"
+    )
+    backup_info = _export_registry_backups(
+        [*_VNEXT_IDENTITY_KEYS, *c2r_config_paths, spp_key],
+        dry_run=dry_run,
+        backup_destination=backup_destination,
+        default_logdir=default_logdir,
+        logger=logger,
+    )
+    results.update(backup_info)
 
     # Step 1: Delete vNext identity keys
     logger.info("Cleaning vNext identity registry keys...")
@@ -148,11 +306,6 @@ def cleanup_vnext_identity_registry(
             results["errors"].append({"key": key_path, "error": str(e)})
 
     # Step 2: Delete specific C2R configuration values
-    c2r_config_paths = [
-        r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-        r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Office\ClickToRun\Configuration",
-    ]
-
     for config_path in c2r_config_paths:
         if not registry_tools.key_exists(config_path):
             continue
@@ -186,10 +339,6 @@ def cleanup_vnext_identity_registry(
             logger.debug("Failed to enumerate values in %s: %s", config_path, e)
 
     # Step 4: Clean SPP policies in Network Service SID (S-1-5-20)
-    spp_key = (
-        r"HKU\S-1-5-20\Software\Microsoft\OfficeSoftwareProtectionPlatform"
-        r"\Policies\0ff1ce15-a989-479d-af46-f275c6370663"
-    )
     if registry_tools.key_exists(spp_key):
         try:
             registry_tools.delete_keys([spp_key], dry_run=dry_run, logger=logger)
@@ -424,6 +573,8 @@ def cleanup_taskband_registry(
     *,
     include_all_users: bool = False,
     dry_run: bool = False,
+    backup_destination: str | Path | None = None,
+    default_logdir: str | Path | None = None,
     logger: logging.Logger | None = None,
 ) -> dict[str, Any]:
     """!
@@ -432,6 +583,8 @@ def cleanup_taskband_registry(
         Removes Favorites* values from Taskband key to clear pinned items.
     @param include_all_users If True, also clean all user profiles in HKU.
     @param dry_run If True, only log what would be deleted.
+    @param backup_destination Optional backup root for registry exports.
+    @param default_logdir Optional fallback log directory when backup root is not provided.
     @param logger Optional logger.
     @returns Dictionary with cleanup results.
     """
@@ -445,8 +598,39 @@ def cleanup_taskband_registry(
     taskband_path = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband"
     hku = registry_tools._WINREG_HKU
 
-    # Step 1: Clean HKCU taskband
+    sid_entries: list[str] = []
+    loaded_hives: list[str] = []
+
     hkcu_full_path = f"HKCU\\{taskband_path}"
+    backup_keys = [hkcu_full_path]
+
+    if include_all_users:
+        logger.info("Cleaning taskband for all user profiles...")
+        loaded_hives = load_user_registry_hives(dry_run=dry_run, logger=logger)
+        if loaded_hives:
+            results["users_processed"].extend(loaded_hives)
+
+        try:
+            for sid in registry_tools.iter_subkeys(hku, "", view="native"):
+                if sid in ("S-1-5-18", "S-1-5-19", "S-1-5-20", ".DEFAULT"):
+                    continue
+                if sid.endswith("_Classes"):
+                    continue
+                sid_entries.append(sid)
+                backup_keys.append(f"HKU\\{sid}\\{taskband_path}")
+        except (FileNotFoundError, OSError) as exc:
+            logger.debug("Failed to enumerate HKU for taskband backup: %s", exc)
+
+    backup_info = _export_registry_backups(
+        backup_keys,
+        dry_run=dry_run,
+        backup_destination=backup_destination,
+        default_logdir=default_logdir,
+        logger=logger,
+    )
+    results.update(backup_info)
+
+    # Step 1: Clean HKCU taskband
     logger.info("Cleaning HKCU taskband registry...")
 
     for value_name in _TASKBAND_VALUES_TO_DELETE:
@@ -458,40 +642,21 @@ def cleanup_taskband_registry(
 
     # Step 2: If requested, clean all user profiles in HKU
     if include_all_users:
-        logger.info("Cleaning taskband for all user profiles...")
+        for sid in sid_entries:
+            hku_taskband_path = f"HKU\\{sid}\\{taskband_path}"
 
-        # First load user hives if not already loaded
-        loaded_hives = load_user_registry_hives(dry_run=dry_run, logger=logger)
-        if loaded_hives:
-            results["users_processed"].extend(loaded_hives)
+            for value_name in _TASKBAND_VALUES_TO_DELETE:
+                try:
+                    if delete_registry_value(
+                        hku_taskband_path, value_name, dry_run=dry_run, logger=logger
+                    ):
+                        results["values_deleted"].append(f"{hku_taskband_path}\\{value_name}")
+                except Exception:
+                    pass  # Value may not exist, which is fine
 
-        # Enumerate all SIDs in HKU
-        try:
-            for sid in registry_tools.iter_subkeys(hku, "", view="native"):
-                # Skip well-known SIDs that don't have user profiles
-                if sid in ("S-1-5-18", "S-1-5-19", "S-1-5-20", ".DEFAULT"):
-                    continue
-                if sid.endswith("_Classes"):
-                    continue
+            if sid not in results["users_processed"]:
+                results["users_processed"].append(sid)
 
-                hku_taskband_path = f"HKU\\{sid}\\{taskband_path}"
-
-                for value_name in _TASKBAND_VALUES_TO_DELETE:
-                    try:
-                        if delete_registry_value(
-                            hku_taskband_path, value_name, dry_run=dry_run, logger=logger
-                        ):
-                            results["values_deleted"].append(f"{hku_taskband_path}\\{value_name}")
-                    except Exception:
-                        pass  # Value may not exist, which is fine
-
-                if sid not in results["users_processed"]:
-                    results["users_processed"].append(sid)
-
-        except (FileNotFoundError, OSError) as e:
-            logger.debug("Failed to enumerate HKU: %s", e)
-
-        # Unload hives we loaded
         if loaded_hives:
             unload_user_registry_hives(dry_run=dry_run, logger=logger)
 

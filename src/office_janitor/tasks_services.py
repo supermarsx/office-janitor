@@ -12,7 +12,7 @@ import time
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 
-from . import constants, exec_utils, logging_ext
+from . import constants, exec_utils, logging_ext, safety
 
 
 def disable_tasks(task_names: Iterable[str], *, dry_run: bool = False) -> None:
@@ -24,6 +24,11 @@ def disable_tasks(task_names: Iterable[str], *, dry_run: bool = False) -> None:
     """
 
     human_logger = logging_ext.get_human_logger()
+    if not safety.should_execute_destructive_action(
+        "scheduled task disable",
+        dry_run=dry_run,
+    ):
+        dry_run = True
 
     tasks: list[str] = [name for name in (str(name).strip() for name in task_names) if name]
     for task in tasks:
@@ -62,6 +67,11 @@ def delete_tasks(task_names: Sequence[str], *, dry_run: bool = False) -> None:
     """
 
     human_logger = logging_ext.get_human_logger()
+    if not safety.should_execute_destructive_action(
+        "scheduled task deletion",
+        dry_run=dry_run,
+    ):
+        dry_run = True
 
     for task in (str(name).strip() for name in task_names if str(name).strip()):
         result = exec_utils.run_command(
@@ -287,6 +297,11 @@ def delete_services(service_names: Sequence[str], *, dry_run: bool = False) -> N
     """
 
     human_logger = logging_ext.get_human_logger()
+    if not safety.should_execute_destructive_action(
+        "service deletion",
+        dry_run=dry_run,
+    ):
+        dry_run = True
 
     for service in (str(name).strip() for name in service_names if str(name).strip()):
         result = exec_utils.run_command(
@@ -450,6 +465,11 @@ def validate_ose_service_state(
     """
     human_logger = logging_ext.get_human_logger()
     machine_logger = logging_ext.get_machine_logger()
+    if not safety.should_execute_destructive_action(
+        "OSE service remediation",
+        dry_run=dry_run,
+    ):
+        dry_run = True
 
     disabled_fixed: list[str] = []
     account_fixed: list[str] = []

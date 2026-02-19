@@ -202,6 +202,30 @@ def guard_destructive_action(action: str, *, dry_run: bool, force: bool = False)
         )
 
 
+def should_execute_destructive_action(
+    action: str,
+    *,
+    dry_run: bool,
+    force: bool = False,
+) -> bool:
+    """!
+    @brief Evaluate whether a destructive operation should execute.
+    @details Wraps :func:`guard_destructive_action` to provide a boolean result
+    for callers that want to downgrade to simulation mode instead of raising an
+    exception when dry-run protections are active.
+    @param action Human readable description of the operation.
+    @param dry_run Indicates whether dry-run mode is active.
+    @param force When ``True`` bypasses the dry-run block.
+    @returns ``True`` when execution is allowed, otherwise ``False``.
+    """
+
+    try:
+        guard_destructive_action(action, dry_run=dry_run, force=force)
+    except RuntimeError:
+        return False
+    return True
+
+
 def _extract_context(plan_steps: Sequence[Mapping[str, object]]) -> Mapping[str, object]:
     for step in plan_steps:
         if step.get("category") == "context":

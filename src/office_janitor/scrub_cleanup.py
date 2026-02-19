@@ -14,7 +14,7 @@ import datetime
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from . import constants, fs_tools, logging_ext, registry_tools
+from . import constants, fs_tools, logging_ext, registry_tools, safety
 
 # ---------------------------------------------------------------------------
 # Progress output helper (imported from parent)
@@ -150,6 +150,13 @@ def perform_filesystem_cleanup(
 
     paths = normalize_string_sequence(metadata.get("paths", []))
     options = dict(context_metadata.get("options", {})) if context_metadata else {}
+    force = bool(metadata.get("force", options.get("force", False)))
+    if not safety.should_execute_destructive_action(
+        "filesystem cleanup",
+        dry_run=dry_run,
+        force=force,
+    ):
+        dry_run = True
 
     # Handle extended filesystem cleanup options
     clean_msocache = bool(metadata.get("clean_msocache", False))
@@ -269,6 +276,13 @@ def perform_registry_cleanup(
     """
 
     human_logger = logging_ext.get_human_logger()
+    force = bool(metadata.get("force", False))
+    if not safety.should_execute_destructive_action(
+        "registry cleanup",
+        dry_run=dry_run,
+        force=force,
+    ):
+        dry_run = True
 
     keys = normalize_string_sequence(metadata.get("keys", []))
     keys = sort_registry_paths_deepest_first(keys)

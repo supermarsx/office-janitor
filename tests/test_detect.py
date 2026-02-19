@@ -418,6 +418,84 @@ def test_detect_msi_installations_with_registry(monkeypatch: pytest.MonkeyPatch)
     assert found.version == "16.0.1234.5678"
 
 
+def test_inventory_reruns_inline_msi_probes_when_probe_metadata_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """!
+    @brief Empty precomputed probe metadata should trigger inline MSI probing.
+    """
+
+    captured_kwargs: list[dict[str, object]] = []
+
+    monkeypatch.setattr(detect, "_probe_msi_wmi", lambda: {})
+    monkeypatch.setattr(detect, "_probe_msi_powershell", lambda: {})
+
+    def fake_detect_msi_installations(**kwargs):
+        captured_kwargs.append(dict(kwargs))
+        return []
+
+    monkeypatch.setattr(detect, "detect_msi_installations", fake_detect_msi_installations)
+    monkeypatch.setattr(detect, "detect_c2r_installations", lambda: [])
+    monkeypatch.setattr(detect, "gather_running_office_processes", lambda: [])
+    monkeypatch.setattr(detect, "gather_office_services", lambda: [])
+    monkeypatch.setattr(detect, "gather_office_tasks", lambda: [])
+    monkeypatch.setattr(detect, "detect_appx_packages", lambda: [])
+    monkeypatch.setattr(detect, "detect_uninstall_entries", lambda: [])
+    monkeypatch.setattr(detect, "gather_activation_state", lambda: {})
+    monkeypatch.setattr(detect, "gather_registry_residue", lambda: [])
+    monkeypatch.setattr(detect.Path, "exists", lambda self: False, raising=False)
+
+    detect.gather_office_inventory(parallel=False, fast_mode=False)
+
+    assert captured_kwargs
+    assert captured_kwargs[-1]["skip_slow_probes"] is False
+    assert captured_kwargs[-1]["precomputed_fallbacks"] is None
+
+
+def test_inventory_uses_precomputed_msi_probe_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """!
+    @brief Non-empty probe metadata should be passed through without re-probing.
+    """
+
+    captured_kwargs: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        detect,
+        "_probe_msi_wmi",
+        lambda: {
+            "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}": {
+                "product": "Office Test",
+                "version": "16.0",
+                "probe": "wmic",
+            }
+        },
+    )
+    monkeypatch.setattr(detect, "_probe_msi_powershell", lambda: {})
+
+    def fake_detect_msi_installations(**kwargs):
+        captured_kwargs.append(dict(kwargs))
+        return []
+
+    monkeypatch.setattr(detect, "detect_msi_installations", fake_detect_msi_installations)
+    monkeypatch.setattr(detect, "detect_c2r_installations", lambda: [])
+    monkeypatch.setattr(detect, "gather_running_office_processes", lambda: [])
+    monkeypatch.setattr(detect, "gather_office_services", lambda: [])
+    monkeypatch.setattr(detect, "gather_office_tasks", lambda: [])
+    monkeypatch.setattr(detect, "detect_appx_packages", lambda: [])
+    monkeypatch.setattr(detect, "detect_uninstall_entries", lambda: [])
+    monkeypatch.setattr(detect, "gather_activation_state", lambda: {})
+    monkeypatch.setattr(detect, "gather_registry_residue", lambda: [])
+    monkeypatch.setattr(detect.Path, "exists", lambda self: False, raising=False)
+
+    detect.gather_office_inventory(parallel=False, fast_mode=False)
+
+    assert captured_kwargs
+    assert captured_kwargs[-1]["skip_slow_probes"] is True
+    assert captured_kwargs[-1]["precomputed_fallbacks"]
+
+
 def test_detect_c2r_installations_with_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     """!
     @brief Test C2R detection with fake registry entries.

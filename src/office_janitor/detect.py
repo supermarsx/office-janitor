@@ -1134,6 +1134,8 @@ def gather_office_inventory(
     # Define detection tasks for parallel execution
     def _detect_msi(
         precomputed_fallbacks: dict[str, dict[str, Any]] | None = None,
+        *,
+        probes_attempted: bool = False,
     ) -> list[dict[str, object]]:
         if fast_mode:
             _report("Scanning MSI-based installations (fast mode)")
@@ -1141,11 +1143,23 @@ def gather_office_inventory(
             _report("Scanning MSI-based installations (fast mode)", "ok")
         else:
             _report("Scanning MSI-based installations")
+            fallback_payload = precomputed_fallbacks if precomputed_fallbacks else None
+            skip_slow_probes = fallback_payload is not None
+
+            # If probes were attempted but returned no metadata, run inline fallback
+            # probes to avoid false negatives for unknown MSI product codes.
+            if probes_attempted and fallback_payload is None:
+                human_logger.warning(
+                    "WMI/PowerShell probe metadata was empty; rerunning inline MSI probes "
+                    "to avoid false negatives."
+                )
+                skip_slow_probes = False
+
             result = [
                 entry.to_dict()
                 for entry in detect_msi_installations(
-                    skip_slow_probes=True,  # We handle probes externally
-                    precomputed_fallbacks=precomputed_fallbacks,
+                    skip_slow_probes=skip_slow_probes,
+                    precomputed_fallbacks=fallback_payload if skip_slow_probes else None,
                 )
             ]
             _report("Scanning MSI-based installations", "ok")
@@ -1340,7 +1354,10 @@ def gather_office_inventory(
                         raise
 
                 # Now run MSI detection with probe results
-                msi_list = _detect_msi(probe_fallbacks if probe_fallbacks else None)
+                msi_list = _detect_msi(
+                    probe_fallbacks if probe_fallbacks else None,
+                    probes_attempted=wmi_future is not None and ps_future is not None,
+                )
 
         except KeyboardInterrupt:
             _LOGGER.info("Detection interrupted by user")
@@ -1358,7 +1375,10 @@ def gather_office_inventory(
         if not fast_mode:
             _merge_fallback_metadata(probe_fallbacks_seq, _probe_msi_wmi())
             _merge_fallback_metadata(probe_fallbacks_seq, _probe_msi_powershell())
-        msi_list = _detect_msi(probe_fallbacks_seq if probe_fallbacks_seq else None)
+        msi_list = _detect_msi(
+            probe_fallbacks_seq if probe_fallbacks_seq else None,
+            probes_attempted=not fast_mode,
+        )
         c2r_list = _detect_c2r()
         processes_list = _detect_processes()
         services_list = _detect_services()

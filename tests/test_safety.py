@@ -654,3 +654,29 @@ class TestSafetyRuntimeEnvironment:
             "delete files",
             dry_run=False,
         )
+
+    def test_should_execute_destructive_action_returns_false_for_dry_run(self) -> None:
+        """!
+        @brief Boolean helper should block dry-run destructive actions.
+        """
+
+        assert (
+            safety.should_execute_destructive_action(
+                "delete files",
+                dry_run=True,
+            )
+            is False
+        )
+
+    def test_should_execute_destructive_action_returns_true_for_live_run(self) -> None:
+        """!
+        @brief Boolean helper should allow non dry-run destructive actions.
+        """
+
+        assert (
+            safety.should_execute_destructive_action(
+                "delete files",
+                dry_run=False,
+            )
+            is True
+        )

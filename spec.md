@@ -37,10 +37,11 @@
 
 ```
 Project Root
-│  office_janitor.py        # ROOT SHIM (entrypoint) — keeps imports clean
+│  oj_entry.py              # ROOT SHIM (entrypoint) — keeps imports clean
 │  readme.md
 │  license.md
 │  pyproject.toml           # optional; not required for PyInstaller
+│  office-janitor.spec      # PyInstaller build specification
 │  .gitignore
 │
 ├─ src/
@@ -85,10 +86,10 @@ Project Root
 # (optional) build/, dist/ — artifacts output only; not committed
 ```
 
-**Root shim** (`office_janitor.py`) ensures simple launching and keeps the package under `src/`:
+**Root shim** (`oj_entry.py`) ensures simple launching and keeps the package under `src/`:
 
 ```python
-# office_janitor.py
+# oj_entry.py
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from office_janitor.main import main
@@ -100,47 +101,60 @@ if __name__ == '__main__':
 - **Stdlib only:** `argparse, subprocess, winreg, ctypes, json, re, shutil, pathlib, time, datetime, tempfile, zipfile, hashlib, logging, sys`.
 - **Elevation:** detect admin via `ctypes.windll.shell32.IsUserAnAdmin()`. If not, **relaunch with elevation** using `ShellExecuteW("runas", ...)`.
 
-**PyInstaller packaging** (points at the shim and provides the src path):
+**PyInstaller packaging** (uses the checked-in spec file):
 
 ```
-pyinstaller --onefile --uac-admin --name OfficeJanitor office_janitor.py --paths src
+pyinstaller --clean office-janitor.spec
 ```
 
 ---
 
 ## 4) Operating Modes & CLI
 
-### 4.1 CLI flags
+### 4.1 CLI surface
 
 ```
-Usage: office_janitor.exe [MODE] [OPTIONS]
+Usage: office-janitor <command> [OPTIONS]
 
-MODE (mutually exclusive):
-  --auto-all       # Detect + remove what’s present + default modern C2R set
-  --target VER     # One of: 2003, 2007, 2010, 2013, 2016, 2019, 2021, 2024, 365
-  --diagnose       # No changes; emit detection & plan JSON
-  --cleanup-only   # No uninstalls; purge residue & licenses only
+COMMANDS:
+  install     # ODT install flows and presets
+  repair      # Click-to-Run repair flows
+  remove      # Uninstall + scrub orchestration
+  diagnose    # Detection and planning only
+  odt         # ODT XML generation helpers
+  offscrub    # Legacy OffScrub compatibility operations
+  c2r         # Direct Click-to-Run operations
+  license     # License cleanup and reporting operations
+  config      # Config file generation/management
+  (none)      # Launch interactive menu
 
-OPTIONS:
-  -h, --help       # show help and exit
-  -V, --version    # print version/build metadata and exit
-  --include visio,project,onenote  # extend scope
-  --force            # ignore certain guardrails when safe
-  --dry-run          # simulate and log all steps, do not modify system
-  --no-restore-point # skip creating a system restore point
-  --no-license       # skip license/SPP cleanup
-  --keep-templates   # keep user templates/normal.dotm, etc.
-  --plan OUT.json    # write the action plan file
-  --logdir DIR       # default %ProgramData%/OfficeJanitor/logs
-  --backup DIR       # export relevant reg hives and files
-  --timeout SEC      # global timeout for each external call
-  --quiet            # minimal output (errors only)
-  --json             # machine‑readable progress events to stdout
-  --tui              # full‑screen TUI mode (fallbacks to plain CLI if not supported)
-  --no-color         # disable ANSI colors
-  --tui-compact      # TUI fits 80x24
-  --tui-refresh N    # UI refresh interval ms (default 120)
+GLOBAL OPTIONS (all commands):
+  -h, --help
+  -V, --version
+  -n, --dry-run
+  -y, --yes
+  --config JSON
+  --logdir DIR
+  --timeout SEC
+  -v / -vv / -vvv
+  --quiet
+  --json
+  --tui
+  --no-color
+
+REMOVE SUBCOMMAND HIGHLIGHTS:
+  --target VER
+  --scrub-level minimal|standard|aggressive|nuclear
+  --passes N / --max-passes N
+  --cleanup-only
+  --skip-uninstall
+  --skip-processes / --skip-services / --skip-tasks
+  --skip-registry / --skip-filesystem / --registry-only
+  --backup DIR
+  --retry-delay SEC / --retry-delay-max SEC
 ```
+
+Legacy flat flags (such as `--auto-all`) remain available for compatibility but are no longer the primary interface.
 
 ### 4.2 Interactive (no args)
 
@@ -151,8 +165,11 @@ A simple text menu:
 3. Targeted scrub (choose versions/components)
 4. Cleanup only (licenses, residue)
 5. Diagnostics only (export plan & inventory)
-6. Settings (restore point, logging, backups)
-7. Exit
+6. ODT Install (Office Deployment Tool)
+7. ODT Repair (repair/remove via ODT)
+8. Settings (restore point, logging, backups)
+9. Switch to TUI (interactive interface)
+10. Exit
 
 ### 4.3 **TUI Mode** (optional)
 
@@ -491,7 +508,7 @@ def main():
 - **Spec:** onefile, console, uac‑admin manifest (redundant with runtime elevation but helps).
 - **Command:**
   ```bash
-  pyinstaller --onefile --uac-admin --name OfficeJanitor office_janitor.py --paths src
+  pyinstaller --clean office-janitor.spec
   ```
 - **Artifacts:**
   - **Windows x64** primary.
@@ -554,7 +571,7 @@ def main():
 
 ## 19) Deliverables
 
-- Source tree under `src/` with root shim `office_janitor.py`.
+- Source tree under `src/` with root shim `oj_entry.py`.
 - `.github/workflows/*.yml` for format, lint, test, build.
 - `OfficeJanitor.exe` (one‑file), `SHA256.txt`.
 - `readme.md` with usage, `license.md`.
@@ -722,7 +739,7 @@ Single workflow with four stages:
 | Job | Runner | Tools | Command |
 |-----|--------|-------|---------|
 | `format` | ubuntu-latest | Black | `black --check src tests oj_entry.py` |
-| `lint` | ubuntu-latest | Ruff, MyPy | `ruff check src tests` + `mypy --ignore-missing-imports src` |
+| `lint` | ubuntu-latest | Ruff, MyPy | `ruff check src tests` + `mypy --config-file pyproject.toml src` |
 | `test` | windows-latest | Pytest | Matrix: Python 3.9 & 3.11 |
 
 #### Stage 2: Build

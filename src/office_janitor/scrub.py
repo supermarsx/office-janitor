@@ -30,6 +30,7 @@ from . import (
     processes,
     registry_tools,  # noqa: F401 - re-exported for test patching
     restore_point,
+    safety,
     spinner,
     tasks_services,
 )
@@ -201,6 +202,12 @@ def execute_plan(
     options = dict(context_metadata.get("options", {})) if context_metadata else {}
 
     global_dry_run = bool(dry_run or context_metadata.get("dry_run", False))
+    if not safety.should_execute_destructive_action(
+        "scrub execution",
+        dry_run=global_dry_run,
+        force=bool(options.get("force", False)),
+    ):
+        global_dry_run = True
     # Resolve max_passes carefully:
     # 0 is a valid value (skip uninstall), so check for None explicitly
     if max_passes is not None:
@@ -360,9 +367,25 @@ def execute_plan(
 
             if current_pass >= max_pass_limit:
                 _scrub_progress(f"Reached maximum passes ({max_pass_limit})", indent=1)
+                _scrub_progress(
+                    "ALERT: Uninstall pass limit reached; cleanup will continue with possible "
+                    "leftovers still present.",
+                    indent=1,
+                )
                 human_logger.warning(
-                    "Reached maximum scrub passes (%d); continuing to cleanup phase.",
+                    "ALERT: Reached maximum scrub passes (%d); continuing to cleanup phase "
+                    "with potential leftovers.",
                     max_pass_limit,
+                )
+                machine_logger.warning(
+                    "scrub_pass_limit_reached",
+                    extra={
+                        "event": "scrub_pass_limit_reached",
+                        "pass_index": current_pass,
+                        "max_passes": max_pass_limit,
+                        "dry_run": global_dry_run,
+                        "cleanup_continues": True,
+                    },
                 )
                 final_plan = current_plan
                 break

@@ -501,6 +501,11 @@ def delete_keys(
     if not canonical_keys:
         logger.debug("No valid registry keys to delete after validation")
         return
+    if not safety.should_execute_destructive_action(
+        "registry key deletion",
+        dry_run=dry_run,
+    ):
+        dry_run = True
     reg_executable = shutil.which("reg")
 
     for key in canonical_keys:

@@ -330,6 +330,7 @@ def build_plan(
                     "clean_all_licenses": clean_all_licenses,
                     "retries": retries,
                     "retry_delay": retry_delay,
+                    "retry_delay_max": retry_delay_max,
                 },
             }
         )
@@ -354,6 +355,7 @@ def build_plan(
                     "dry_run": dry_run,
                     "retries": retries,
                     "retry_delay": retry_delay,
+                    "retry_delay_max": retry_delay_max,
                 },
             }
         )
@@ -378,6 +380,7 @@ def build_plan(
                     "dry_run": dry_run,
                     "retries": retries,
                     "retry_delay": retry_delay,
+                    "retry_delay_max": retry_delay_max,
                 },
             }
         )
@@ -407,6 +410,7 @@ def build_plan(
                     "clean_shortcuts": clean_shortcuts,
                     "retries": retries,
                     "retry_delay": retry_delay,
+                    "retry_delay_max": retry_delay_max,
                 },
             }
         )
@@ -458,6 +462,7 @@ def build_plan(
                     "clean_wi_metadata": clean_wi_metadata,
                     "retries": retries,
                     "retry_delay": retry_delay,
+                    "retry_delay_max": retry_delay_max,
                 },
             }
         )
@@ -475,6 +480,7 @@ def build_plan(
                     "dry_run": dry_run,
                     "retries": retries,
                     "retry_delay": retry_delay,
+                    "retry_delay_max": retry_delay_max,
                 },
             }
         )
@@ -493,6 +499,7 @@ def build_plan(
                     "dry_run": dry_run,
                     "retries": retries,
                     "retry_delay": retry_delay,
+                    "retry_delay_max": retry_delay_max,
                 },
             }
         )
@@ -510,6 +517,7 @@ def build_plan(
                     "dry_run": dry_run,
                     "retries": retries,
                     "retry_delay": retry_delay,
+                    "retry_delay_max": retry_delay_max,
                 },
             }
         )

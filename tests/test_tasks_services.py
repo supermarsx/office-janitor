@@ -87,3 +87,26 @@ def test_stop_services_timeout_requests_reboot(monkeypatch, tmp_path) -> None:
     # Ensure the global accumulator reports the service and is cleared for later tests.
     assert tasks_services.consume_reboot_recommendations() == ["ClickToRunSvc"]
     assert tasks_services.consume_reboot_recommendations() == []
+
+
+def test_delete_tasks_respects_safety_guard(monkeypatch) -> None:
+    """!
+    @brief Task deletion should downgrade to dry-run when the safety guard blocks.
+    """
+
+    dry_run_flags: list[bool] = []
+
+    monkeypatch.setattr(
+        tasks_services.safety,
+        "should_execute_destructive_action",
+        lambda action, *, dry_run, force=False: False,
+    )
+
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        dry_run_flags.append(bool(dry_run))
+        return _command_result(command, skipped=dry_run)
+
+    monkeypatch.setattr(tasks_services.exec_utils, "run_command", fake_run)
+    tasks_services.delete_tasks([r"\Microsoft\Office\TestTask"], dry_run=False)
+
+    assert dry_run_flags and all(dry_run_flags)
