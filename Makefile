@@ -445,22 +445,28 @@ security-check: ## Check for security vulnerabilities (requires pip-audit)
 # ============================================================================
 # Release
 # ============================================================================
-.PHONY: release-check release-patch release-minor release-major
+.PHONY: release-check release-auto release-auto-testpypi release-auto-dry release-patch release-minor release-major
 
 release-check: lint test ## Pre-release checks
 	@echo "$(GREEN)Release checks passed!$(RESET)"
 
-release-patch: release-check ## Bump patch version (requires bump2version)
-	@echo "$(BLUE)Bumping patch version...$(RESET)"
-	bump2version patch
+release-auto: release-check ## Auto-bump 0.0.x, build, and publish to PyPI
+	@echo "$(BLUE)Running automated PyPI release...$(RESET)"
+	$(PYTHON) scripts/release_pypi.py --python $(PYTHON) --refresh-tools --publish
 
-release-minor: release-check ## Bump minor version
-	@echo "$(BLUE)Bumping minor version...$(RESET)"
-	bump2version minor
+release-auto-testpypi: release-check ## Auto-bump/build/publish to TestPyPI
+	@echo "$(BLUE)Running automated TestPyPI release...$(RESET)"
+	$(PYTHON) scripts/release_pypi.py --python $(PYTHON) --refresh-tools --publish --repository-url https://test.pypi.org/legacy/
 
-release-major: release-check ## Bump major version
-	@echo "$(BLUE)Bumping major version...$(RESET)"
-	bump2version major
+release-auto-dry: ## Show next auto-selected 0.0.x without changing files
+	@echo "$(BLUE)Computing next release version...$(RESET)"
+	$(PYTHON) scripts/release_pypi.py --python $(PYTHON) --dry-run
+
+release-patch: release-auto ## Backward-compatible alias for automated release
+
+release-minor: release-auto ## Alias: project uses automated 0.0.x patch releases
+
+release-major: release-auto ## Alias: project uses automated 0.0.x patch releases
 
 # ============================================================================
 # Docker (if applicable)
