@@ -135,6 +135,9 @@ jobs:
           pip install -e .
           pip install pyinstaller build
 
+      - name: Auto-bump PyPI 0.0.x and build Python distributions
+        run: python scripts/release_pypi.py --python python
+
       - name: Verify OEM files present
         shell: pwsh
         run: |
@@ -155,9 +158,6 @@ jobs:
           if (Test-Path build/office-janitor/PKG-00.toc) {
             Select-String -Path build/office-janitor/PKG-00.toc -Pattern "oem" | ForEach-Object { Write-Host $_.Line }
           }
-
-      - name: Build Python distributions
-        run: python -m build
 
       - name: Copy config example to dist
         shell: pwsh
