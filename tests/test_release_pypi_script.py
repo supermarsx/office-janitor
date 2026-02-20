@@ -72,7 +72,10 @@ def test_is_existing_file_upload_error_matches_twine_collision_text() -> None:
     exc = subprocess.CalledProcessError(
         returncode=1,
         cmd=["python", "-m", "twine", "upload"],
-        output="HTTPError: 400 Bad Request from https://upload.pypi.org/legacy/ This filename has already been used",
+        output=(
+            "HTTPError: 400 Bad Request from https://upload.pypi.org/legacy/ "
+            "This filename has already been used"
+        ),
         stderr="",
     )
 

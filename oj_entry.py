@@ -88,7 +88,7 @@ _log_ok()
 # Ensure the package is collected by PyInstaller
 _log_init("Importing office_janitor package...", newline=False)
 try:
-    import office_janitor
+    __import__("office_janitor")
 
     _log_ok()
 except ImportError as e:
@@ -97,7 +97,7 @@ except ImportError as e:
 
 _log_init("Importing office_janitor.main module...", newline=False)
 try:
-    import office_janitor.main
+    __import__("office_janitor.main")
 
     _log_ok()
 except ImportError as e:

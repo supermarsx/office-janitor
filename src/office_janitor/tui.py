@@ -1011,14 +1011,15 @@ class OfficeJanitorTUI(TUIRendererMixin, TUIActionsMixin):
             if self.status_lines and self.status_lines[-1] == message:
                 return
             self.status_lines.append(message)
-        
+
         limit = 24 if self.compact_layout else 32
         if len(self.status_lines) > limit:
             self.status_lines[:] = self.status_lines[-limit:]
-    
+
     def _append_status_live(self, message: str) -> None:
         """Append status and render if enough time has passed - for live progress updates."""
         import time
+
         self._append_status(message)
         # Throttle renders to max once per second to prevent flickering
         now = time.time()
