@@ -26,6 +26,7 @@ from pathlib import Path
 from types import ModuleType
 
 from . import logging_ext
+from .encoding_helpers import SUBPROCESS_ENCODING, SUBPROCESS_ERRORS
 
 # Try to import spinner for progress display
 _spinner: ModuleType | None
@@ -1147,7 +1148,8 @@ def _find_running_clicktorun_processes() -> list[tuple[int, str]]:
         proc = subprocess.run(
             ["tasklist", "/FO", "CSV", "/NH"],
             capture_output=True,
-            text=True,
+            encoding=SUBPROCESS_ENCODING,
+            errors=SUBPROCESS_ERRORS,
             timeout=10,
         )
         if proc.returncode == 0:
@@ -2150,7 +2152,8 @@ def run_odt_install(
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            text=True,
+            encoding=SUBPROCESS_ENCODING,
+            errors=SUBPROCESS_ERRORS,
         )
 
         # Register for cleanup on Ctrl+C
@@ -2476,7 +2479,8 @@ def run_odt_download(
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            text=True,
+            encoding=SUBPROCESS_ENCODING,
+            errors=SUBPROCESS_ERRORS,
         )
 
         # Register for cleanup on Ctrl+C
@@ -2649,7 +2653,8 @@ def run_odt_remove(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
+            encoding=SUBPROCESS_ENCODING,
+            errors=SUBPROCESS_ERRORS,
         )
 
         # Register for cleanup on Ctrl+C

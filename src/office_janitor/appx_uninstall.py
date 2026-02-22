@@ -12,6 +12,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 from . import constants
+from .encoding_helpers import SUBPROCESS_ENCODING, SUBPROCESS_ERRORS
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -42,7 +43,8 @@ def _run_powershell(
     return subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
         capture_output=capture_output,
-        text=True,
+        encoding=SUBPROCESS_ENCODING,
+        errors=SUBPROCESS_ERRORS,
         timeout=timeout,
         check=False,
     )

@@ -16,6 +16,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from . import constants, logging_ext, registry_tools
+from .encoding_helpers import SUBPROCESS_ENCODING, SUBPROCESS_ERRORS
 from .exec_utils import CommandResult
 
 # ---------------------------------------------------------------------------
@@ -378,7 +379,8 @@ def reconfigure_office(
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            text=True,
+            encoding=SUBPROCESS_ENCODING,
+            errors=SUBPROCESS_ERRORS,
         )
 
         if progress_callback:

@@ -35,6 +35,7 @@ __all__ = [
     "tui_render",
     "tui_actions",
     "constants",
+    "encoding_helpers",
     "safety",
     "confirm",
     "version",

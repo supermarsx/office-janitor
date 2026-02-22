@@ -142,7 +142,7 @@ def test_run_command_executes_with_sanitized_environment(monkeypatch: pytest.Mon
     captured_env: dict[str, str] = {}
 
     class FakePopen:
-        def __init__(self, command, *, stdout, stderr, text, env, cwd):
+        def __init__(self, command, *, stdout, stderr, encoding, errors, env, cwd):
             captured_env.update(env)
             self.returncode = 0
 
@@ -180,7 +180,7 @@ def test_run_command_check_raises_on_failure(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(exec_utils.logging_ext, "get_machine_logger", lambda: machine_logger)
 
     class FakePopen:
-        def __init__(self, command, *, stdout, stderr, text, env, cwd):
+        def __init__(self, command, *, stdout, stderr, encoding, errors, env, cwd):
             self.returncode = 5
 
         def communicate(self, timeout=None):
@@ -208,7 +208,7 @@ def test_global_timeout_caps_per_command(monkeypatch: pytest.MonkeyPatch) -> Non
     captured: dict[str, object] = {}
 
     class FakePopen:
-        def __init__(self, command, *, stdout, stderr, text, env, cwd):
+        def __init__(self, command, *, stdout, stderr, encoding, errors, env, cwd):
             self.returncode = 0
 
         def communicate(self, timeout=None):

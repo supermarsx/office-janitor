@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import logging_ext
+from .encoding_helpers import SUBPROCESS_ENCODING, SUBPROCESS_ERRORS
 
 _SANITIZE_BLOCKLIST = {
     "PYTHONPATH",
@@ -280,7 +281,8 @@ def run_command(
             command_list,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
+            encoding=SUBPROCESS_ENCODING,
+            errors=SUBPROCESS_ERRORS,
             env=sanitized_env,
             cwd=cwd,
         )
