@@ -10,11 +10,14 @@ and ``--force`` semantics remain consistent.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from collections.abc import Iterable, Mapping, Sequence
 
 from . import constants, fs_tools
+
+_logger = logging.getLogger(__name__)
 
 FILESYSTEM_WHITELIST = fs_tools.FILESYSTEM_WHITELIST
 
@@ -70,6 +73,31 @@ REGISTRY_WHITELIST = (
     r"HKLM\SOFTWARE\WOW6432NODE\CLIENTS\MAIL\MICROSOFT OUTLOOK",
     # Mail Control Panel applet namespace (CLSID {A0D4CD32-5D5D-4f72-BAAA-767A7AD6BAC5})
     r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\EXPLORER\CONTROLPANEL\NAMESPACE\{A0D4CD32-5D5D-4F72-BAAA-767A7AD6BAC5}",
+    # Office application path registrations (App Paths)
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\EXCEL.EXE",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\WINWORD.EXE",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\POWERPNT.EXE",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\OUTLOOK.EXE",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\MSACCESS.EXE",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\ONENOTE.EXE",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\LYNC.EXE",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\MSPUB.EXE",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\GROOVE.EXE",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\INFOPATH.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\EXCEL.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\WINWORD.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\POWERPNT.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\OUTLOOK.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\MSACCESS.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\ONENOTE.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\LYNC.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\MSPUB.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\GROOVE.EXE",
+    r"HKLM\SOFTWARE\WOW6432NODE\MICROSOFT\WINDOWS\CURRENTVERSION\APP PATHS\INFOPATH.EXE",
+    # App-V (Click-to-Run virtualisation) client integration
+    r"HKLM\SOFTWARE\MICROSOFT\APPV\CLIENT\STREAMING\PACKAGES",
+    r"HKLM\SOFTWARE\MICROSOFT\APPV\CLIENT\PACKAGES",
+    r"HKLM\SOFTWARE\MICROSOFT\APPVISV",
 )
 
 REGISTRY_BLACKLIST = (
@@ -109,10 +137,21 @@ def perform_preflight_checks(plan: Iterable[Mapping[str, object]]) -> None:
     if mode.startswith("target:"):
         _ensure_targeted_uninstalls_present(plan_steps)
 
+    options = metadata.get("options", {}) if metadata else {}
+    no_whitelist = bool(options.get("no_whitelist", False))
+    dangerous_actions = bool(options.get("dangerous_actions", False))
+
     _ensure_dry_run_consistency(plan_steps, dry_run)
     _enforce_target_scope(plan_steps, targets)
-    _enforce_filesystem_whitelist(plan_steps)
-    _enforce_registry_whitelist(plan_steps)
+    if no_whitelist and dangerous_actions:
+        _logger.warning(
+            "DANGEROUS: --no-whitelist with --dangerous-actions is active. "
+            "ALL registry and filesystem whitelist checks are BYPASSED. "
+            "This may damage the operating system."
+        )
+    else:
+        _enforce_filesystem_whitelist(plan_steps)
+        _enforce_registry_whitelist(plan_steps)
     _enforce_template_guard(plan_steps, metadata)
 
 

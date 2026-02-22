@@ -132,16 +132,27 @@ def _is_registry_path_allowed(key: str) -> bool:
     return False
 
 
-def _validate_registry_keys(keys: Iterable[str]) -> list[str]:
+def _validate_registry_keys(
+    keys: Iterable[str],
+    *,
+    skip_whitelist: bool = False,
+) -> list[str]:
     """!
     @brief Ensure all keys fall within the allowed registry scope.
     @details Skips invalid keys instead of failing completely to improve resilience.
+    When ``skip_whitelist`` is ``True`` the whitelist/blacklist guard is bypassed
+    and **all** syntactically valid keys are returned. This is an extremely
+    dangerous mode that must only be activated together with
+    ``--dangerous-actions --no-whitelist``.
     """
     _logger = logging.getLogger(__name__)
     canonical_keys: list[str] = []
     for key in keys:
         try:
             canonical = _normalize_registry_key(key)
+            if skip_whitelist:
+                canonical_keys.append(canonical)
+                continue
             if not _is_registry_path_allowed(canonical):
                 _logger.warning("Skipping non-whitelisted registry key: %s", key)
                 continue
@@ -422,18 +433,20 @@ def export_keys(
     *,
     dry_run: bool = False,
     logger: logging.Logger | None = None,
+    skip_whitelist: bool = False,
 ) -> list[Path]:
     """!
     @brief Export the provided registry keys to ``.reg`` files in ``destination``.
     @details On non-Windows systems the exports become placeholder files so unit
     tests and dry-run flows can still verify orchestration logic without access
     to the native ``reg.exe`` utility.
+    When ``skip_whitelist`` is ``True`` the whitelist guard is bypassed.
     """
     logger = logger or _LOGGER
     dest_path = Path(destination)
     dest_path.mkdir(parents=True, exist_ok=True)
 
-    canonical_keys = _validate_registry_keys(keys)
+    canonical_keys = _validate_registry_keys(keys, skip_whitelist=skip_whitelist)
     if not canonical_keys:
         logger.debug("No valid registry keys to export after validation")
         return []
@@ -490,14 +503,16 @@ def delete_keys(
     *,
     dry_run: bool = False,
     logger: logging.Logger | None = None,
+    skip_whitelist: bool = False,
 ) -> None:
     """!
     @brief Remove registry keys while respecting dry-run safeguards.
     @details Continues processing remaining keys even if individual deletions fail.
     Invalid keys are automatically skipped during validation.
+    When ``skip_whitelist`` is ``True`` the whitelist guard is bypassed.
     """
     logger = logger or _LOGGER
-    canonical_keys = _validate_registry_keys(keys)
+    canonical_keys = _validate_registry_keys(keys, skip_whitelist=skip_whitelist)
     if not canonical_keys:
         logger.debug("No valid registry keys to delete after validation")
         return

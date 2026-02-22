@@ -469,10 +469,10 @@ def test_registry_cleanup_exports_and_deletes(monkeypatch, tmp_path) -> None:
     backup_dir = tmp_path / "backups"
     recorded: dict[str, tuple[list[str], object]] = {}
 
-    def fake_export(keys, destination):
+    def fake_export(keys, destination, **kwargs):
         recorded["export"] = (list(keys), destination)
 
-    def fake_delete(keys, dry_run=False):
+    def fake_delete(keys, dry_run=False, **kwargs):
         recorded["delete"] = (list(keys), dry_run)
 
     monkeypatch.setattr(scrub.registry_tools, "export_keys", fake_export)
@@ -546,10 +546,10 @@ def test_registry_cleanup_generates_backup_when_missing(monkeypatch, tmp_path) -
 
     recorded: dict[str, object] = {}
 
-    def fake_export(keys, destination):
+    def fake_export(keys, destination, **kwargs):
         recorded["export"] = {"keys": list(keys), "destination": destination}
 
-    def fake_delete(keys, dry_run=False):
+    def fake_delete(keys, dry_run=False, **kwargs):
         recorded["delete"] = {"keys": list(keys), "dry_run": dry_run}
 
     monkeypatch.setattr(scrub.registry_tools, "export_keys", fake_export)
@@ -578,7 +578,7 @@ def test_registry_cleanup_sorts_child_paths_first(monkeypatch, tmp_path) -> None
 
     recorded: dict[str, list[str]] = {}
 
-    def fake_delete(keys, dry_run=False):
+    def fake_delete(keys, dry_run=False, **kwargs):
         recorded["keys"] = list(keys)
 
     monkeypatch.setattr(scrub.registry_tools, "delete_keys", fake_delete)

@@ -616,6 +616,7 @@ class StepExecutor:
                 dry_run=dry_run,
                 default_backup=self._backup_destination,
                 default_logdir=self._log_directory,
+                context_metadata=self._context_metadata,
             )
             return dict(backup_info)
         if category == "vnext-identity-cleanup":

@@ -149,6 +149,45 @@ def test_delete_keys_rejects_disallowed_paths(monkeypatch, caplog) -> None:
     assert "non-whitelisted" in caplog.text
 
 
+def test_delete_keys_skip_whitelist_allows_any_key(monkeypatch, caplog) -> None:
+    """!
+    @brief ``skip_whitelist=True`` permits keys that would normally be rejected.
+    """
+    calls: list[str] = []
+
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        calls.append(command[2] if len(command) > 2 else "")
+        return _command_result(command, skipped=dry_run)
+
+    monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "reg.exe")
+    monkeypatch.setattr(registry_tools.exec_utils, "run_command", fake_run)
+
+    registry_tools.delete_keys(
+        ["HKLM\\Software\\Contoso"],
+        dry_run=False,
+        skip_whitelist=True,
+    )
+
+    assert "non-whitelisted" not in caplog.text
+    assert any("Contoso" in c for c in calls)
+
+
+def test_export_keys_skip_whitelist_exports_any_key(tmp_path, monkeypatch) -> None:
+    """!
+    @brief ``skip_whitelist=True`` allows exporting otherwise blocked keys.
+    """
+    monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: None)
+
+    exported = registry_tools.export_keys(
+        ["HKLM\\Software\\Contoso\\Unexpected"],
+        tmp_path,
+        skip_whitelist=True,
+    )
+
+    assert exported, "Expected an export path"
+    assert exported[0].exists()
+
+
 def test_export_keys_creates_placeholder_when_reg_missing(tmp_path, monkeypatch) -> None:
     """!
     @brief Exports should produce placeholder files if ``reg.exe`` is absent.

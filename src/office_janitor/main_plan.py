@@ -180,6 +180,8 @@ def collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, objec
         "no_reboot": _get("no_reboot", False, is_bool=True),
         "offline": _get("offline", False, is_bool=True),
         # Advanced
+        "dangerous_actions": _get("dangerous_actions", False, is_bool=True),
+        "no_whitelist": _get("no_whitelist", False, is_bool=True),
         "skip_preflight": _get("skip_preflight", False, is_bool=True),
         "skip_backup": _get("skip_backup", False, is_bool=True),
         "skip_verification": _get("skip_verification", False, is_bool=True),
@@ -203,6 +205,14 @@ def collect_plan_options(args: argparse.Namespace, mode: str) -> dict[str, objec
         # Miscellaneous
         "limited_user": _get("limited_user", False, is_bool=True),
     }
+
+    # Validate --no-whitelist requires --dangerous-actions
+    if options.get("no_whitelist") and not options.get("dangerous_actions"):
+        raise ValueError(
+            "--no-whitelist requires --dangerous-actions to confirm intent. "
+            "This combination bypasses ALL whitelist safety checks and may "
+            "damage the operating system."
+        )
 
     # Auto-all mode enables FULL scrubbing like the VBS scripts:
     # - All Office versions targeted

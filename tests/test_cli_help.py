@@ -230,3 +230,26 @@ class TestArgumentGroups:
         args = parser.parse_args(["--quiet", "--json"])
         assert args.quiet is True
         assert args.json is True
+
+    def test_add_advanced_options_dangerous_flags(self) -> None:
+        """--dangerous-actions and --no-whitelist in advanced options."""
+        parser = argparse.ArgumentParser()
+        cli_help.add_advanced_options(parser)
+        args = parser.parse_args(["--dangerous-actions", "--no-whitelist"])
+        assert args.dangerous_actions is True
+        assert args.no_whitelist is True
+
+    def test_dangerous_flags_default_false(self) -> None:
+        """--dangerous-actions and --no-whitelist default to False."""
+        parser = argparse.ArgumentParser()
+        cli_help.add_advanced_options(parser)
+        args = parser.parse_args([])
+        assert args.dangerous_actions is False
+        assert args.no_whitelist is False
+
+    def test_legacy_parser_recognises_dangerous_flags(self) -> None:
+        """Legacy (hidden) parser should accept --dangerous-actions --no-whitelist."""
+        parser = cli_help.build_arg_parser()
+        args = parser.parse_args(["--dangerous-actions", "--no-whitelist"])
+        assert args.dangerous_actions is True
+        assert args.no_whitelist is True

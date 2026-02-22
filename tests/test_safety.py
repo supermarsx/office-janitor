@@ -680,3 +680,162 @@ class TestSafetyRuntimeEnvironment:
             )
             is True
         )
+
+
+class TestWhitelistBypass:
+    """!
+    @brief Tests for --no-whitelist / --dangerous-actions whitelist bypass.
+    @details Ensures whitelist enforcement is correctly bypassed when both flags
+    are active and that the bypass is rejected when only one flag is set.
+    """
+
+    def _make_plan_with_options(
+        self,
+        *,
+        no_whitelist: bool = False,
+        dangerous_actions: bool = False,
+        registry_key: str = r"HKLM\SOFTWARE\Microsoft\SomethingCustom",
+    ) -> list[dict[str, object]]:
+        """Build a minimal plan with the given options and a non-whitelisted key."""
+        return [
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "dry_run": False,
+                    "mode": "auto-all",
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                    "options": {
+                        "force": False,
+                        "keep_templates": False,
+                        "no_whitelist": no_whitelist,
+                        "dangerous_actions": dangerous_actions,
+                    },
+                },
+            },
+            {
+                "id": "registry-0",
+                "category": "registry-cleanup",
+                "metadata": {
+                    "keys": [registry_key],
+                    "dry_run": False,
+                },
+            },
+        ]
+
+    def test_preflight_blocks_non_whitelisted_key_by_default(self) -> None:
+        """!
+        @brief Non-whitelisted registry keys are rejected without bypass flags.
+        """
+        plan = self._make_plan_with_options()
+        with pytest.raises(ValueError, match="non-whitelisted"):
+            safety.perform_preflight_checks(plan)
+
+    def test_preflight_blocks_no_whitelist_without_dangerous_actions(self) -> None:
+        """!
+        @brief --no-whitelist alone does not bypass the whitelist check.
+        """
+        plan = self._make_plan_with_options(no_whitelist=True, dangerous_actions=False)
+        with pytest.raises(ValueError, match="non-whitelisted"):
+            safety.perform_preflight_checks(plan)
+
+    def test_preflight_blocks_dangerous_actions_without_no_whitelist(self) -> None:
+        """!
+        @brief --dangerous-actions alone does not bypass the whitelist check.
+        """
+        plan = self._make_plan_with_options(no_whitelist=False, dangerous_actions=True)
+        with pytest.raises(ValueError, match="non-whitelisted"):
+            safety.perform_preflight_checks(plan)
+
+    def test_preflight_allows_bypass_with_both_flags(self) -> None:
+        """!
+        @brief Both --no-whitelist and --dangerous-actions bypass the whitelist.
+        """
+        plan = self._make_plan_with_options(no_whitelist=True, dangerous_actions=True)
+        # Should NOT raise
+        safety.perform_preflight_checks(plan)
+
+    def test_preflight_bypass_still_enforces_dry_run_consistency(self) -> None:
+        """!
+        @brief Whitelist bypass does not disable other safety checks.
+        """
+        plan = self._make_plan_with_options(no_whitelist=True, dangerous_actions=True)
+        # Introduce a dry-run mismatch
+        plan[1]["metadata"]["dry_run"] = True  # type: ignore[index]
+        with pytest.raises(ValueError, match="dry-run"):
+            safety.perform_preflight_checks(plan)
+
+    def test_preflight_bypass_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """!
+        @brief Bypassing the whitelist emits a warning about the dangerous mode.
+        """
+        import logging
+
+        plan = self._make_plan_with_options(no_whitelist=True, dangerous_actions=True)
+        with caplog.at_level(logging.WARNING):
+            safety.perform_preflight_checks(plan)
+        assert "DANGEROUS" in caplog.text
+
+    def test_app_paths_are_now_whitelisted(self) -> None:
+        """!
+        @brief Office App Paths keys should be accepted by standard preflight.
+        """
+        plan = [
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "dry_run": False,
+                    "mode": "auto-all",
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                },
+            },
+            {
+                "id": "registry-0",
+                "category": "registry-cleanup",
+                "metadata": {
+                    "keys": [
+                        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion"
+                        r"\App Paths\excel.exe",
+                        r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows"
+                        r"\CurrentVersion\App Paths\winword.exe",
+                    ],
+                    "dry_run": False,
+                },
+            },
+        ]
+        # Should NOT raise — these paths are now whitelisted
+        safety.perform_preflight_checks(plan)
+
+    def test_appv_keys_are_now_whitelisted(self) -> None:
+        """!
+        @brief App-V client registry keys should be accepted by standard preflight.
+        """
+        plan = [
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "dry_run": False,
+                    "mode": "auto-all",
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                },
+            },
+            {
+                "id": "registry-0",
+                "category": "registry-cleanup",
+                "metadata": {
+                    "keys": [
+                        r"HKLM\SOFTWARE\Microsoft\AppV\Client\Packages",
+                        r"HKLM\SOFTWARE\Microsoft\AppV\Client\Streaming\Packages",
+                        r"HKLM\SOFTWARE\Microsoft\AppVISV",
+                    ],
+                    "dry_run": False,
+                },
+            },
+        ]
+        # Should NOT raise — these paths are now whitelisted
+        safety.perform_preflight_checks(plan)

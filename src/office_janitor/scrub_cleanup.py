@@ -263,6 +263,7 @@ def perform_registry_cleanup(
     dry_run: bool,
     default_backup: str | None,
     default_logdir: str | None,
+    context_metadata: Mapping[str, object] | None = None,
 ) -> Mapping[str, object]:
     """!
     @brief Export and delete registry leftovers with backup awareness.
@@ -286,6 +287,12 @@ def perform_registry_cleanup(
 
     keys = normalize_string_sequence(metadata.get("keys", []))
     keys = sort_registry_paths_deepest_first(keys)
+
+    # Determine whitelist bypass from context options
+    ctx_options = dict(context_metadata.get("options", {})) if context_metadata else {}
+    skip_whitelist = bool(
+        ctx_options.get("no_whitelist", False) and ctx_options.get("dangerous_actions", False)
+    )
 
     # Extract extended registry cleanup flags
     clean_wi_metadata = bool(metadata.get("clean_wi_metadata", False))
@@ -313,7 +320,7 @@ def perform_registry_cleanup(
                 r"HKLM\Software\Microsoft\VBA",
                 r"HKLM\Software\Wow6432Node\Microsoft\VBA",
             ]
-            registry_tools.delete_keys(vba_keys, dry_run=dry_run)
+            registry_tools.delete_keys(vba_keys, dry_run=dry_run, skip_whitelist=skip_whitelist)
             extended_cleanups["vba_removed"] = True
             _scrub_progress("VBA registry cleanup complete", indent=3)
         except Exception as exc:  # pragma: no cover - defensive
@@ -351,7 +358,7 @@ def perform_registry_cleanup(
         if step_backup is not None:
             _scrub_progress(f"Exporting {len(keys)} registry keys to backup...", indent=3)
             try:
-                registry_tools.export_keys(keys, step_backup)
+                registry_tools.export_keys(keys, step_backup, skip_whitelist=skip_whitelist)
                 backup_performed = True
                 _scrub_progress(f"Registry backup complete: {step_backup}", indent=3)
             except Exception as exc:  # pragma: no cover - defensive
@@ -362,7 +369,7 @@ def perform_registry_cleanup(
 
     _scrub_progress(f"Deleting {len(keys)} registry keys...", indent=3)
     try:
-        registry_tools.delete_keys(keys, dry_run=dry_run)
+        registry_tools.delete_keys(keys, dry_run=dry_run, skip_whitelist=skip_whitelist)
         _scrub_progress("Registry key deletion complete", indent=3)
     except Exception as exc:  # pragma: no cover - defensive
         human_logger.warning("Registry deletion encountered errors: %s (some keys may remain)", exc)

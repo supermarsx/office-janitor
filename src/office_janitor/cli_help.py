@@ -552,6 +552,8 @@ def add_legacy_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     parser.add_argument("--msiexec-args", metavar="ARGS", help=argparse.SUPPRESS)
     parser.add_argument("--c2r-args", metavar="ARGS", help=argparse.SUPPRESS)
     parser.add_argument("--odt-args", metavar="ARGS", help=argparse.SUPPRESS)
+    parser.add_argument("--dangerous-actions", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--no-whitelist", action="store_true", help=argparse.SUPPRESS)
 
     return parser
 
@@ -1391,6 +1393,23 @@ def add_advanced_options(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         "--odt-args",
         metavar="ARGS",
         help="Additional arguments to pass to ODT setup.exe.",
+    )
+    advanced.add_argument(
+        "--dangerous-actions",
+        action="store_true",
+        help=(
+            "Acknowledge that extremely destructive operations may be performed. "
+            "Required together with --no-whitelist."
+        ),
+    )
+    advanced.add_argument(
+        "--no-whitelist",
+        action="store_true",
+        help=(
+            "Bypass registry and filesystem whitelist enforcement. "
+            "DANGEROUS: may delete keys/paths outside the safe set. "
+            "Requires --dangerous-actions to take effect."
+        ),
     )
     return parser
 

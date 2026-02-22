@@ -1939,3 +1939,35 @@ class TestSpinnerUpdateTask:
 
         # Clean up
         spinner.clear_task()
+
+
+class TestDangerousActionsValidation:
+    """!
+    @brief Validates --dangerous-actions / --no-whitelist option plumbing.
+    """
+
+    def test_no_whitelist_requires_dangerous_actions(self) -> None:
+        """--no-whitelist without --dangerous-actions should raise ValueError."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--no-whitelist"])
+        mode = main._determine_mode(args)
+        with pytest.raises(ValueError, match="--dangerous-actions"):
+            main._collect_plan_options(args, mode)
+
+    def test_both_flags_accepted(self) -> None:
+        """--no-whitelist with --dangerous-actions should set both options."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--dangerous-actions", "--no-whitelist"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["dangerous_actions"] is True
+        assert options["no_whitelist"] is True
+
+    def test_dangerous_actions_alone_accepted(self) -> None:
+        """--dangerous-actions without --no-whitelist should still be valid."""
+        parser = main.build_arg_parser()
+        args = parser.parse_args(["--auto-all", "--dangerous-actions"])
+        mode = main._determine_mode(args)
+        options = main._collect_plan_options(args, mode)
+        assert options["dangerous_actions"] is True
+        assert options["no_whitelist"] is False
