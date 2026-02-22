@@ -172,6 +172,45 @@ def test_delete_keys_skip_whitelist_allows_any_key(monkeypatch, caplog) -> None:
     assert any("Contoso" in c for c in calls)
 
 
+def test_skip_whitelist_still_blocks_critical_keys(monkeypatch, caplog) -> None:
+    """!
+    @brief ``skip_whitelist=True`` must still reject critical system hives.
+    """
+    calls: list[str] = []
+
+    def fake_run(command, *, event, dry_run=False, **kwargs):
+        calls.append(command[2] if len(command) > 2 else "")
+        return _command_result(command, skipped=dry_run)
+
+    monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: "reg.exe")
+    monkeypatch.setattr(registry_tools.exec_utils, "run_command", fake_run)
+
+    registry_tools.delete_keys(
+        ["HKLM\\SYSTEM\\CurrentControlSet\\Services\\SomeService"],
+        dry_run=False,
+        skip_whitelist=True,
+    )
+
+    # Should NOT have called reg.exe — the key was blocked
+    assert not calls
+    assert "immutable blacklist" in caplog.text
+
+
+def test_export_keys_skip_whitelist_blocks_critical(tmp_path, monkeypatch) -> None:
+    """!
+    @brief ``skip_whitelist=True`` must reject critical keys during export.
+    """
+    monkeypatch.setattr(registry_tools.shutil, "which", lambda exe: None)
+
+    exported = registry_tools.export_keys(
+        ["HKLM\\SAM\\SAM\\Domains"],
+        tmp_path,
+        skip_whitelist=True,
+    )
+
+    assert not exported
+
+
 def test_export_keys_skip_whitelist_exports_any_key(tmp_path, monkeypatch) -> None:
     """!
     @brief ``skip_whitelist=True`` allows exporting otherwise blocked keys.

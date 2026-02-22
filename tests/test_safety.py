@@ -797,8 +797,7 @@ class TestWhitelistBypass:
                 "category": "registry-cleanup",
                 "metadata": {
                     "keys": [
-                        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion"
-                        r"\App Paths\excel.exe",
+                        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion" r"\App Paths\excel.exe",
                         r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows"
                         r"\CurrentVersion\App Paths\winword.exe",
                     ],
@@ -839,3 +838,92 @@ class TestWhitelistBypass:
         ]
         # Should NOT raise — these paths are now whitelisted
         safety.perform_preflight_checks(plan)
+
+
+class TestCriticalBlacklist:
+    """!
+    @brief Tests for the immutable critical registry blacklist.
+    @details The critical blacklist must block keys even when --no-whitelist
+    and --dangerous-actions are both active.
+    """
+
+    _CRITICAL_KEYS = [
+        r"HKLM\SYSTEM\CurrentControlSet\Services",
+        r"HKLM\SAM\SAM\Domains",
+        r"HKLM\SECURITY\Policy",
+        r"HKLM\BCD00000000\Objects",
+        r"HKLM\HARDWARE\DESCRIPTION",
+        r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+    ]
+
+    def _make_plan(
+        self,
+        key: str,
+        *,
+        no_whitelist: bool = False,
+        dangerous_actions: bool = False,
+    ) -> list[dict[str, object]]:
+        return [
+            {
+                "id": "context",
+                "category": "context",
+                "metadata": {
+                    "dry_run": False,
+                    "mode": "auto-all",
+                    "target_versions": [],
+                    "unsupported_targets": [],
+                    "options": {
+                        "force": False,
+                        "keep_templates": False,
+                        "no_whitelist": no_whitelist,
+                        "dangerous_actions": dangerous_actions,
+                    },
+                },
+            },
+            {
+                "id": "registry-0",
+                "category": "registry-cleanup",
+                "metadata": {
+                    "keys": [key],
+                    "dry_run": False,
+                },
+            },
+        ]
+
+    @pytest.mark.parametrize("key", _CRITICAL_KEYS)
+    def test_critical_key_blocked_without_bypass(self, key: str) -> None:
+        """!
+        @brief Critical keys are rejected under normal preflight.
+        """
+        plan = self._make_plan(key)
+        with pytest.raises(ValueError, match="critical system"):
+            safety.perform_preflight_checks(plan)
+
+    @pytest.mark.parametrize("key", _CRITICAL_KEYS)
+    def test_critical_key_blocked_even_with_bypass(self, key: str) -> None:
+        """!
+        @brief Critical keys are STILL rejected when both bypass flags are set.
+        """
+        plan = self._make_plan(key, no_whitelist=True, dangerous_actions=True)
+        with pytest.raises(ValueError, match="critical system"):
+            safety.perform_preflight_checks(plan)
+
+    def test_non_critical_key_allowed_with_bypass(self) -> None:
+        """!
+        @brief Non-critical keys outside the whitelist pass with bypass flags.
+        """
+        plan = self._make_plan(
+            r"HKLM\SOFTWARE\Contoso\Custom",
+            no_whitelist=True,
+            dangerous_actions=True,
+        )
+        # Should NOT raise
+        safety.perform_preflight_checks(plan)
+
+    def test_is_registry_critically_blocked_helper(self) -> None:
+        """!
+        @brief The internal helper correctly identifies critical paths.
+        """
+        assert safety._is_registry_critically_blocked(r"HKLM\SYSTEM\ControlSet001")
+        assert safety._is_registry_critically_blocked(r"HKLM\SAM")
+        assert not safety._is_registry_critically_blocked(r"HKLM\SOFTWARE\Microsoft\Office\16.0")

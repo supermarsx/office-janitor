@@ -105,6 +105,30 @@ REGISTRY_BLACKLIST = (
     r"HKCU\SOFTWARE\MICROSOFT\WINDOWS",
 )
 
+# ---------------------------------------------------------------------------
+# Immutable critical blacklist — NEVER bypassable, not even with
+# ``--no-whitelist --dangerous-actions``.  Touching these hives can render the
+# operating system unbootable or permanently damage security configuration.
+# ---------------------------------------------------------------------------
+REGISTRY_CRITICAL_BLACKLIST = (
+    # Core OS boot / kernel configuration
+    r"HKLM\SYSTEM",
+    # Security Accounts Manager — user/group identity store
+    r"HKLM\SAM",
+    # Local Security Authority secrets
+    r"HKLM\SECURITY",
+    # Boot Configuration Data store
+    r"HKLM\BCD00000000",
+    # Hardware abstraction layer (live kernel data)
+    r"HKLM\HARDWARE",
+    # Root-level hive deletion safety (must never delete the hive root itself)
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS NT",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\SETUP",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\COMPONENT BASED SERVICING",
+    r"HKLM\SOFTWARE\MICROSOFT\WINDOWS\CURRENTVERSION\SIDEBYSIDE",
+    r"HKCU\SOFTWARE\MICROSOFT\WINDOWS NT",
+)
+
 
 def perform_preflight_checks(plan: Iterable[Mapping[str, object]]) -> None:
     """!
@@ -143,11 +167,15 @@ def perform_preflight_checks(plan: Iterable[Mapping[str, object]]) -> None:
 
     _ensure_dry_run_consistency(plan_steps, dry_run)
     _enforce_target_scope(plan_steps, targets)
+    # Critical blacklist is ALWAYS enforced — even with --no-whitelist.
+    _enforce_registry_critical_blacklist(plan_steps)
+
     if no_whitelist and dangerous_actions:
         _logger.warning(
             "DANGEROUS: --no-whitelist with --dangerous-actions is active. "
-            "ALL registry and filesystem whitelist checks are BYPASSED. "
+            "Registry and filesystem whitelist checks are BYPASSED. "
             "This may damage the operating system."
+            "Critical system hives remain protected."
         )
     else:
         _enforce_filesystem_whitelist(plan_steps)
@@ -351,8 +379,37 @@ def _path_allowed(path: str) -> bool:
     return False
 
 
+def _is_registry_critically_blocked(key: str) -> bool:
+    """!
+    @brief Check whether a key falls inside the immutable critical blacklist.
+    @details This check cannot be bypassed by any CLI flag.
+    """
+    normalized = key.upper()
+    return any(normalized.startswith(blocked.upper()) for blocked in REGISTRY_CRITICAL_BLACKLIST)
+
+
+def _enforce_registry_critical_blacklist(
+    plan_steps: Sequence[Mapping[str, object]],
+) -> None:
+    """!
+    @brief Reject plan steps targeting immutable critical system hives.
+    @details This guard is unconditional and runs before all other checks.
+    """
+    for step in plan_steps:
+        if step.get("category") != "registry-cleanup":
+            continue
+        metadata = step.get("metadata", {})
+        keys = metadata.get("keys") or metadata.get("paths") or []
+        for key in keys:
+            if _is_registry_critically_blocked(str(key)):
+                raise ValueError(f"Refusing to modify critical system registry key: {key}")
+
+
 def _registry_allowed(key: str) -> bool:
     normalized = key.upper()
+    # Critical blacklist is always enforced
+    if _is_registry_critically_blocked(key):
+        return False
     # Check whitelist first (more specific rules take precedence)
     if any(normalized.startswith(allowed.upper()) for allowed in REGISTRY_WHITELIST):
         return True

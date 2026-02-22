@@ -114,15 +114,30 @@ _ALLOWED_REGISTRY_PREFIXES = tuple(
 _BLOCKED_REGISTRY_PREFIXES = tuple(
     _normalize_registry_key(entry) for entry in safety.REGISTRY_BLACKLIST
 )
+_CRITICAL_BLOCKED_PREFIXES = tuple(
+    _normalize_registry_key(entry) for entry in safety.REGISTRY_CRITICAL_BLACKLIST
+)
+
+
+def _is_critically_blocked(key: str) -> bool:
+    """!
+    @brief Check against the immutable critical blacklist (never bypassable).
+    """
+    normalized = _normalize_for_comparison(key)
+    return any(normalized.startswith(blocked) for blocked in _CRITICAL_BLOCKED_PREFIXES)
 
 
 def _is_registry_path_allowed(key: str) -> bool:
     """!
     @brief Validate the registry path against the whitelist/blacklist rules.
-    @details Whitelist is checked first so more specific allowed paths take
-    precedence over broader blacklist entries.
+    @details Critical blacklist is checked first and cannot be overridden.
+    Whitelist is then checked so more specific allowed paths take precedence
+    over broader blacklist entries.
     """
     normalized = _normalize_for_comparison(key)
+    # Critical blacklist — always blocks, no override
+    if _is_critically_blocked(key):
+        return False
     # Check whitelist first (more specific rules take precedence)
     if any(normalized.startswith(allowed) for allowed in _ALLOWED_REGISTRY_PREFIXES):
         return True
@@ -150,6 +165,13 @@ def _validate_registry_keys(
     for key in keys:
         try:
             canonical = _normalize_registry_key(key)
+            # Critical blacklist is ALWAYS enforced, even with skip_whitelist
+            if _is_critically_blocked(canonical):
+                _logger.warning(
+                    "Refusing critical system registry key " "(immutable blacklist): %s",
+                    key,
+                )
+                continue
             if skip_whitelist:
                 canonical_keys.append(canonical)
                 continue
