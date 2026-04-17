@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
-  "version": "26.20",
+  "version": "26.21",
   "description": "Comprehensive Office uninstaller, scrubber, repair and installation tool",
   "homepage": "https://github.com/supermarsx/office-janitor",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/supermarsx/office-janitor/releases/download/26.20/office-janitor.exe",
-      "hash": "a73012b6e3d9415c35562cccbcb489aa921737c21a064f819e304c64faf0cfc7"
+      "url": "https://github.com/supermarsx/office-janitor/releases/download/26.21/office-janitor.exe",
+      "hash": "4dfed9956a4fb2e68775c370e4b9d12041ae4edfead8112ffdf257450d3b2fdf"
     }
   },
   "bin": "office-janitor.exe",
