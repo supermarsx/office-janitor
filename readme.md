@@ -1,3 +1,5 @@
+<img width="200" height="200" alt="Office Janitor Logotype" src="https://github.com/user-attachments/assets/52879012-2302-4086-869e-1684b3a87ad3" />
+
 # Office Janitor
 
 [![CI](https://img.shields.io/github/actions/workflow/status/supermarsx/office-janitor/ci.yml?style=flat-square&label=CI)](https://github.com/supermarsx/office-janitor/actions/workflows/ci.yml)
